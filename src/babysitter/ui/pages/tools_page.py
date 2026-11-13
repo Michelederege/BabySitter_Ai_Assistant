@@ -46,10 +46,11 @@ class ToolsPage(QWidget):
         title.setObjectName("title")
         layout.addWidget(title)
         intro = QLabel(
-            "Social search uses the public ScrapeCreators API, the same data "
-            "layer as the social-media research skills. It is off until you "
-            "turn it on. Each search asks you first, then sends only the words "
-            "you typed, plus your key."
+            "This is the only part of BabySitter that can leave this computer, "
+            "and it is off until you turn it on. A search sends only the words "
+            "in the box below, after you confirm, plus your key. It never sends "
+            "files, the screen, memory, or what you say to the assistant. "
+            "Leave it off when you are working with confidential information."
         )
         intro.setWordWrap(True)
         intro.setObjectName("hint")
