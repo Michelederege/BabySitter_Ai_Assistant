@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import json
 import sys
 from pathlib import Path
 
@@ -14,7 +16,18 @@ from babysitter.deskstore import add_item, hero_path, load_list
 from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
-from babysitter.paths import asset_path
+from babysitter.paths import asset_path, data_dir
+from babysitter.plugins.voice.hearing import (
+    HearingError,
+    Recorder,
+    download_model,
+    install_packages,
+    model_ready,
+    packages_installed,
+    transcribe,
+)
+from babysitter.plugins.voice.speech import first_sentence, sapi_rate
+from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
     PreparedSearch,
     SocialSearchError,
@@ -58,6 +71,64 @@ class _AskJob(QThread):
             self.failed.emit("The model did not answer.")
         finally:
             prompt = ""
+
+
+class _SpeakJob(QThread):
+    failed = Signal(str)
+
+    def __init__(self, text: str, voice: str, rate: int) -> None:
+        super().__init__()
+        self._text = text
+        self._voice = voice
+        self._rate = rate
+
+    def run(self) -> None:
+        text = self._text
+        self._text = ""
+        try:
+            speaker.speak(text, voice=self._voice, rate=self._rate)
+        except WindowsVoiceError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("The Windows voice could not speak.")
+        finally:
+            text = ""
+
+
+class _HearJob(QThread):
+    heard = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, wav: bytes) -> None:
+        super().__init__()
+        self._wav = wav
+
+    def run(self) -> None:
+        wav = self._wav
+        self._wav = b""
+        try:
+            self.heard.emit(transcribe(wav))
+        except HearingError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("Could not turn that recording into text. Nothing was sent.")
+        finally:
+            wav = b""
+
+
+class _InstallHearingJob(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            if not packages_installed():
+                install_packages()
+            self.succeeded.emit(download_model())
+        except HearingError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class _SearchJob(QThread):
@@ -194,6 +265,10 @@ class Shell:
         self._refresh_pins()
         if hero_path().is_file():
             self.window.home.set_hero(str(hero_path()))
+        self._recorder = Recorder()
+        self._ptt_timer = QTimer(self.window)
+        self._ptt_timer.timeout.connect(self._ptt_tick)
+        self._ptt_timer.start(40)
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
@@ -532,7 +607,30 @@ class Shell:
         self.controller.settings.quit_turns_ai_off = bool(on)
         save_settings(self.controller.settings)
 
+    def _ptt_tick(self) -> None:
+        """Mouse button 4 (the side button). Polling does not swallow the click."""
+        if sys.platform != "win32":
+            return
+        down = bool(ctypes.windll.user32.GetAsyncKeyState(0x05) & 0x8000)
+        if not down:
+            self._ptt_latched = False
+            if getattr(self, "_holding", False) and getattr(self, "_hold_from_mouse", False):
+                self._hold_from_mouse = False
+                self._hold_up()
+            return
+        if getattr(self, "_ptt_latched", False) or getattr(self, "_holding", False):
+            return
+        if self.controller.state != "on":
+            return
+        self._hold_from_mouse = True
+        self._hold_down()
+        if not getattr(self, "_holding", False):
+            self._ptt_latched = True
+
     def _hold_down(self) -> None:
+        if getattr(self, "_holding", False):
+            return
+        speaker.stop()
         if self.controller.state != "on":
             self.window.home.set_reply(
                 "nothing",
@@ -541,26 +639,70 @@ class Shell:
             )
             return
         self._holding = True
+        self._recording = False
         self.orb.set_state("listening", "Listening. Release to stop.")
-        self.window.home.set_phase("listening", "The microphone is meant to open only while you hold.")
+        if packages_installed() and model_ready():
+            try:
+                self._recorder.start()
+                self._recording = True
+                self.window.home.set_phase("listening", "The microphone is open only while you hold.")
+            except HearingError as exc:
+                self._holding = False
+                self._recorder.close()
+                self.window.home.set_reply("nothing", "The microphone did not open.", str(exc))
+                self.orb.set_state(self.controller.state, "Hold to talk")
+            return
+        self.window.home.set_phase(
+            "listening",
+            "Release to stop. Speech recognition still needs a download from the Voice tab.",
+        )
 
     def _hold_up(self) -> None:
         if not getattr(self, "_holding", False):
             return
         self._holding = False
-        self.orb.set_state("thinking", "Thinking.")
-        self.window.home.set_phase("thinking", "Speech-to-text is not installed yet.")
-        QTimer.singleShot(500, self._hold_done)
+        wav = b""
+        if getattr(self, "_recording", False):
+            self._recording = False
+            try:
+                wav = self._recorder.stop()
+            except Exception:
+                self._recorder.close()
+                wav = b""
+        if not packages_installed() or not model_ready():
+            self.orb.set_state(self.controller.state, "Hold to talk")
+            self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
+            self._pending_line = ""
+            self.window.home.set_reply(
+                "(no words yet)",
+                "I didn't hear words.",
+                "Open the Voice tab and click Download speech recognition. Nothing was sent.",
+            )
+            return
+        self.orb.set_state("thinking", "Turning speech into text on this PC.")
+        self.window.home.set_phase("thinking", "The microphone is closed. Nothing has been sent yet.")
+        job = _HearJob(wav)
+        self._hear_job = job
+        job.heard.connect(self._heard)
+        job.failed.connect(self._hear_failed)
+        job.start()
 
-    def _hold_done(self) -> None:
-        self._pending_line = ""
-        self.window.home.set_reply(
-            "(no words yet)",
-            "I didn't hear words.",
-            "faster-whisper is not installed yet, so nothing was sent. Type the line, then press Send what I heard.",
-        )
+    def _heard(self, text: str) -> None:
+        text = (text or "").strip()
+        if not text:
+            self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
+            self.orb.set_state(self.controller.state, "Hold to talk")
+            return
+        self._pending_line = text
+        self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
+        if text.lower().startswith("remind"):
+            self._on_command(text)
+            return
+        self._send_heard()
+
+    def _hear_failed(self, message: str) -> None:
+        self.window.home.set_reply("(no words yet)", "I didn't hear words.", message)
         self.orb.set_state(self.controller.state, "Hold to talk")
-        self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
 
     def _on_command(self, text: str) -> None:
         text = text.strip()
@@ -609,11 +751,11 @@ class Shell:
         spoken = reply.split(". ")[0].strip()
         if spoken and not spoken.endswith("."):
             spoken += "."
+        spoken = first_sentence(reply) or spoken
         self._last_reply = (spoken[:80] or "Reply", reply)
         heard = getattr(self, "_pending_line", "")
         self.window.home.set_reply(heard, spoken, reply)
-        self.orb.set_state("speaking", spoken)
-        QTimer.singleShot(2500, lambda: self.orb.set_state(self.controller.state, "Hold to talk"))
+        self._speak(spoken)
 
     def _pin_reply(self) -> None:
         last = getattr(self, "_last_reply", None)
@@ -683,6 +825,12 @@ class Shell:
         if text == "LIST models":
             self._list_models()
             return
+        if text == "INSTALL hearing":
+            self._install_hearing()
+            return
+        if text == "PREVIEW voice":
+            self._preview_voice()
+            return
         self.controller._remember(text)
         self.window.home.set_history(self.controller.history)
 
@@ -751,6 +899,70 @@ class Shell:
             self.window.models_page.body.setPlainText("Ollama reported no installed models.")
             return
         self.window.models_page.body.setPlainText("\n".join(names))
+
+    def _voice_prefs(self) -> tuple[str, int]:
+        path = data_dir() / "voice.json"
+        voice = ""
+        speed = 100
+        if path.is_file():
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                saved = {}
+            name = str(saved.get("voice") or "")
+            if name.startswith("Microsoft"):
+                voice = name
+            try:
+                speed = int(saved.get("speed") or 100)
+            except (TypeError, ValueError):
+                speed = 100
+        return voice, sapi_rate(speed)
+
+    def _speak(self, text: str) -> None:
+        if sys.platform != "win32":
+            self.orb.set_state(self.controller.state, "Hold to talk")
+            return
+        voice, rate = self._voice_prefs()
+        job = _SpeakJob(text, voice, rate)
+        self._speak_job = job
+        self.orb.set_state("speaking", text)
+        self.window.home.set_phase("speaking", "Speaking with the Windows voice on this PC.")
+        job.failed.connect(lambda message: self.window.home.set_phase(self.controller.state, message))
+        job.finished.connect(lambda: self.orb.set_state(self.controller.state, "Hold to talk"))
+        job.start()
+
+    def _preview_voice(self) -> None:
+        if sys.platform != "win32":
+            self.window.voice_page.status.setText(
+                "This computer is not Windows, so the preview stayed on screen: Fresh start, I kept the important bits."
+            )
+            return
+        self.window.voice_page.status.setText(
+            "Speaking with the Windows voice. Kokoro is not installed yet, so the preview uses the voice already on this PC."
+        )
+        self._speak("Fresh start, I kept the important bits.")
+
+    def _install_hearing(self) -> None:
+        if packages_installed() and model_ready():
+            self.window.voice_page.status.setText("Speech recognition is already on this PC. Hold Talk to use it.")
+            return
+        agreed = ask_yes_no(
+            self.window,
+            "Download speech recognition?",
+            "This downloads the hearing programs and a small speech model onto this PC. "
+            "They run on the processor, not the graphics card. Nothing you say is sent off this computer.",
+            "Download",
+            "Don't download",
+        )
+        if not agreed:
+            self.window.voice_page.status.setText("Nothing was downloaded.")
+            return
+        job = _InstallHearingJob()
+        self._install_job = job
+        self.window.voice_page.status.setText("Downloading. This can take a few minutes. You can leave this window open.")
+        job.succeeded.connect(self.window.voice_page.status.setText)
+        job.failed.connect(lambda message: self.window.voice_page.status.setText(message))
+        job.start()
 
     def _refresh_pins(self) -> None:
         self.window.set_pins(load_list("pins.json"))
