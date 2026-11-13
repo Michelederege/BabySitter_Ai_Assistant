@@ -77,6 +77,14 @@ class VoicePage(QWidget):
         self.status.setWordWrap(True)
         self.status.setObjectName("hint")
         layout.addWidget(self.status)
+        download = QPushButton("Download speech recognition")
+        download.setObjectName("primary")
+        download.setToolTip(
+            "Downloads the hearing programs and the small speech model onto this PC. Nothing you say is sent out."
+        )
+        download.clicked.connect(lambda: self.notice.emit("INSTALL hearing"))
+        layout.addWidget(download)
+
         note = QLabel(
             "Kokoro, Windows voices, and an optional Azure voice are engines behind one slot. "
             "Voice cloning is not supported. Azure stays off: if you turn it on later, the text of every spoken reply would be sent to Microsoft."
@@ -115,15 +123,12 @@ class VoicePage(QWidget):
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         self.status.setText(
             f"Saved {payload['voice']} on this PC. "
-            "No voice engine is installed yet, so nothing was spoken."
+            "Preview speaks with the Windows voice. Kokoro is not installed yet, so a Kokoro name uses the Windows voice instead."
         )
         self.notice.emit(self.status.text())
 
     def _preview(self) -> None:
-        self.status.setText(
-            "Preview is ready for a local engine. Kokoro and the Windows voice are not installed in this build yet, so the line stayed on screen: Fresh start, I kept the important bits."
-        )
-        self.notice.emit(self.status.text())
+        self.notice.emit("PREVIEW voice")
 
     def _saved_line(self) -> str:
         path = data_dir() / "voice.json"
