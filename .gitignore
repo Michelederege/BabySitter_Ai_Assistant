@@ -1,0 +1,35 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+
+# Build output
+build/
+dist/
+dist-installer/
+Output/
+
+# User data must never be committed. It lives in %LOCALAPPDATA%\BabySitter.
+settings.json
+*.key
+.env
+.env.*
+logs/
+sessions/
+board/
+voice-profiles/
+voice_profiles/
+
+# Models and local weights
+*.gguf
+*.onnx
+*.pt
+models/
+
+# Editor and OS
+.DS_Store
+Thumbs.db

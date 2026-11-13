@@ -1,0 +1,17 @@
+# Third-party licenses
+
+BabySitter is MIT licensed (see LICENSE). The programs it is built with have their own licenses.
+
+## PySide6 and Qt (LGPL)
+
+The window toolkit is PySide6, which uses Qt. PySide6 is licensed under the LGPL. The exact text ships inside the PySide6 package after you install `requirements.txt`. You can replace the Qt libraries with your own compatible build, which is what the LGPL asks for.
+
+Phase 1 uses PySide6 Essentials (windows, drawing, and local sockets). It does not use Qt WebEngine.
+
+## psutil (BSD 3-Clause)
+
+psutil reads CPU, memory, and the list of running program names. It is BSD licensed. BabySitter uses it only to read. It does not use it to change other programs, except when you ask it to close Ollama's own tray app.
+
+## Python
+
+Python itself is used under the PSF license when you run from source. A future packaged build includes a private copy of Python inside the PyInstaller folder.

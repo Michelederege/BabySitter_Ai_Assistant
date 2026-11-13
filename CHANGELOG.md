@@ -1,0 +1,26 @@
+# Changelog
+
+BabySitter uses version numbers like v1.2.3. Phase 1 is 0.1.0 because the voice loop is not in yet.
+
+## 0.1.0 — Phase 1
+
+The power switch, the floating orb, and the status board. The microphone is not opened.
+
+- The app always opens with the AI off.
+- One power button in the window, on the orb's right-click menu, and in the tray.
+- Off unloads every model, stops Ollama, closes the microphone hook, and turns off future assistant hotkeys. The emergency key and the turn-on key stay active.
+- On starts Ollama with no console window, waits until 127.0.0.1:11434 answers, and loads qwen3.5:9b.
+- Game mode unloads models and leaves Ollama running with nothing loaded, so a game can use the graphics card.
+- Optional automatic game mode, off by default, based only on the program's file name.
+- Emergency stop is Ctrl+Alt+F12. Turn on is Ctrl+Alt+F11. Both can be changed in Settings.
+- Warns if Ollama is older than 0.17.1 (CVE-2026-7482).
+- Notices when Ollama's own tray app is running, and can close it.
+- Home shows video memory, loaded models, CPU, and RAM, refreshed every 2 seconds.
+- Low / Medium / High changes how much conversation the one loaded model can hold. Only one model is loaded at a time.
+- Start with Windows is off unless you turn it on.
+- Settings live in `%LOCALAPPDATA%\BabySitter\`, not in the install folder.
+- The app lowers its own CPU priority so it is less likely to steal frames from a game.
+
+## Later
+
+Voice, memory, the pinboard, tools, history, and the updater are not built yet. They wait until this phase is confirmed.

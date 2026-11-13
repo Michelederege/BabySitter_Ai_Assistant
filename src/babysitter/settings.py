@@ -1,0 +1,177 @@
+"""Settings saved as one JSON file, with a version number.
+
+schema_version lets a future update reshape the file without you doing
+anything. If a value is missing, the default is filled in. If the file
+is unreadable, it is renamed and a fresh one is started.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from babysitter.hotkeys import HotkeyError, canonical_hotkey
+from babysitter.intelligence import MODES
+from babysitter.paths import settings_path
+
+
+SCHEMA_VERSION = 1
+
+DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
+DEFAULT_POWER_ON = "Ctrl+Alt+F11"
+
+
+class SettingsError(Exception):
+    """The settings file is from a newer app, or could not be repaired."""
+
+
+@dataclass
+class Settings:
+    schema_version: int = SCHEMA_VERSION
+    intelligence: str = "medium"
+    start_with_windows: bool = False
+    orb_always_on_top: bool = True
+    emergency_hotkey: str = DEFAULT_EMERGENCY
+    power_on_hotkey: str = DEFAULT_POWER_ON
+    auto_game_mode: bool = False
+    game_processes: list[str] = field(default_factory=list)
+    orb_x: int | None = None
+    orb_y: int | None = None
+    notices: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "schema_version": SCHEMA_VERSION,
+            "intelligence": self.intelligence,
+            "start_with_windows": self.start_with_windows,
+            "orb_always_on_top": self.orb_always_on_top,
+            "emergency_hotkey": self.emergency_hotkey,
+            "power_on_hotkey": self.power_on_hotkey,
+            "auto_game_mode": self.auto_game_mode,
+            "game_processes": list(self.game_processes),
+            "orb_x": self.orb_x,
+            "orb_y": self.orb_y,
+        }
+
+
+def _clean_games(value: object) -> list[str]:
+    from babysitter.games import clean_process_name
+
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value[:50]:
+        if not isinstance(item, str):
+            continue
+        try:
+            name = clean_process_name(item)
+        except ValueError:
+            continue
+        if name.lower() not in {existing.lower() for existing in cleaned}:
+            cleaned.append(name)
+    return cleaned
+
+
+def migrate(data: dict) -> dict:
+    """Bring an older settings file up to the current schema."""
+    incoming = dict(data)
+    try:
+        version = int(incoming.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version > SCHEMA_VERSION:
+        raise SettingsError(
+            "These settings were saved by a newer BabySitter. "
+            "Update the app before opening them."
+        )
+    if version < 1:
+        # First published shape. Older files (or empty ones) land here.
+        incoming["schema_version"] = 1
+        version = 1
+    defaults = Settings().to_dict()
+    for key, value in defaults.items():
+        incoming.setdefault(key, value)
+    incoming["schema_version"] = SCHEMA_VERSION
+    return incoming
+
+
+def settings_from_dict(data: dict) -> Settings:
+    notices: list[str] = []
+    intelligence = data.get("intelligence", "medium")
+    if intelligence not in MODES:
+        notices.append(
+            f"Saved intelligence '{intelligence}' is not Low, Medium, or High. "
+            "Using Medium."
+        )
+        intelligence = "medium"
+    emergency = str(data.get("emergency_hotkey") or DEFAULT_EMERGENCY)
+    power_on = str(data.get("power_on_hotkey") or DEFAULT_POWER_ON)
+    try:
+        emergency = canonical_hotkey(emergency)
+        power_on = canonical_hotkey(power_on)
+        if emergency.lower() == power_on.lower():
+            raise HotkeyError("The on key and the emergency key were the same.")
+    except HotkeyError as exc:
+        notices.append(f"{exc} Using the default keys.")
+        emergency = DEFAULT_EMERGENCY
+        power_on = DEFAULT_POWER_ON
+    orb_x = data.get("orb_x")
+    orb_y = data.get("orb_y")
+    return Settings(
+        schema_version=SCHEMA_VERSION,
+        intelligence=intelligence,
+        start_with_windows=bool(data.get("start_with_windows", False)),
+        orb_always_on_top=bool(data.get("orb_always_on_top", True)),
+        emergency_hotkey=emergency,
+        power_on_hotkey=power_on,
+        auto_game_mode=bool(data.get("auto_game_mode", False)),
+        game_processes=_clean_games(data.get("game_processes")),
+        orb_x=orb_x if isinstance(orb_x, int) else None,
+        orb_y=orb_y if isinstance(orb_y, int) else None,
+        notices=notices,
+    )
+
+
+def load_settings(path: Path | None = None) -> Settings:
+    path = path or settings_path()
+    if not path.exists():
+        settings = Settings()
+        save_settings(settings, path)
+        return settings
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        backup = path.with_name("settings.json.bak")
+        try:
+            path.replace(backup)
+        except OSError:
+            backup = path
+        settings = Settings()
+        settings.notices.append(
+            "The settings file could not be read. A copy was kept as "
+            f"{backup.name}, and a fresh settings file was started. "
+            "Start with Windows is off."
+        )
+        save_settings(settings, path)
+        return settings
+    if not isinstance(raw, dict):
+        raise SettingsError("The settings file was not a settings object.")
+    try:
+        original_version = int(raw.get("schema_version") or 0)
+    except (TypeError, ValueError):
+        original_version = 0
+    settings = settings_from_dict(migrate(raw))
+    if original_version != SCHEMA_VERSION or settings.notices:
+        # Write the repaired file so the next launch doesn't have to fix it again.
+        save_settings(settings, path)
+    return settings
+
+
+def save_settings(settings: Settings, path: Path | None = None) -> None:
+    path = path or settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(settings.to_dict(), indent=2) + "\n"
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(payload, encoding="utf-8")
+    temporary.replace(path)
