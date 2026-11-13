@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -92,6 +93,7 @@ class HomePage(QWidget):
         bottom.addWidget(self._log_card(), 4)
         detail.addLayout(bottom)
         root.addWidget(self.detail_host)
+        root.addStretch(1)
 
         scroll.setWidget(body)
         outer.addWidget(scroll)
@@ -388,11 +390,13 @@ class HomePage(QWidget):
     def _banner(self, object_name: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName(object_name)
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         layout = QVBoxLayout(frame)
         label = QLabel("")
         label.setObjectName("bannerText")
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         layout.addWidget(label)
         return frame
 

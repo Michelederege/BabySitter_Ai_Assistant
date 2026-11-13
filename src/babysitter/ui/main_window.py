@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("BabySitter")
-        self.resize(1280, 900)
+        self.resize(1100, 360)
         self.setMinimumSize(760, 220)
         root = QWidget()
         root.setObjectName("appRoot")
@@ -161,6 +161,10 @@ class MainWindow(QMainWindow):
         self.expand_button.setToolTip(
             "Shows the power row only." if expanded else "Opens the tabs, the pin rail, and the rest of Home."
         )
+        if expanded:
+            self.resize(max(self.width(), 1100), max(self.height(), 860))
+        else:
+            self.resize(max(self.width(), 1000), 360)
 
     def set_pins(self, pins: list[dict]) -> None:
         while self.pin_layout.count():

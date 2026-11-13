@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.3.1 — Warning line stays one line
+
+The note that Ollama is already running no longer stretches into a tall empty box. The compact window opens short. Expand still opens the full Home screen.
+
 ## 0.3.0 — The slate window
 
 The window now follows the slate-and-orange design: top tabs, a pin rail, Home with power, intelligence, game mode, emergency stop, this PC, a hero picture, a pinboard, and what just happened.
