@@ -215,6 +215,30 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise OllamaError("Ollama answered with something that was not JSON.") from exc
 
+    def ask(self, model: str, prompt: str, num_ctx: int) -> str:
+        """One local reply. The prompt and the reply are not written to the log."""
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "keep_alive": -1,
+            "options": {"num_ctx": int(num_ctx)},
+        }
+        payload = self._request("POST", "/api/chat", body, timeout=180)
+        message = payload.get("message") if isinstance(payload, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
+            raise OllamaError("The model returned an empty reply.")
+        return content.strip()
+
+    def installed_models(self) -> list[str]:
+        payload = self._request("GET", "/api/tags", timeout=8)
+        names: list[str] = []
+        for item in payload.get("models") or []:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                names.append(item["name"])
+        return names
+
     def running_models(self) -> list[LoadedModel]:
         payload = self._request("GET", "/api/ps", timeout=5)
         return models_from_ps(payload)

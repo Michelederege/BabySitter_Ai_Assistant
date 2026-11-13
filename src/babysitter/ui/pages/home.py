@@ -1,15 +1,22 @@
-"""The Home tab: the power switch and the live status cards."""
+"""Home, matching the slate control center.
+
+The top row is power, intelligence, Normal/Game, and emergency stop.
+Below that is this PC, the hero, the pinboard, and what just happened.
+"""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -17,40 +24,40 @@ from PySide6.QtWidgets import (
 from babysitter.intelligence import MODES
 from babysitter.ollama import classify_ollama_process
 from babysitter.status import format_bytes, format_mib
-from babysitter.ui.widgets import Card, PowerButton
+from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
+from babysitter.ui.widgets import BarChart, PowerButton, Sparkline
 
 
 CLICK_HINT = {
-    "off": "Click to turn the AI on",
-    "starting": "Click to cancel",
-    "on": "Click to turn the AI off",
-    "game": "Click to turn the AI fully off",
-    "error": "Click to make sure everything is off",
+    "off": "Click to turn the AI on.",
+    "starting": "Click to cancel.",
+    "on": "Click to turn the AI off.",
+    "game": "Click to turn the AI fully off.",
+    "error": "Click to make sure everything is off.",
 }
 
 
 class HomePage(QWidget):
+    hold_pressed = Signal()
+    hold_released = Signal()
+    command_submitted = Signal(str)
+    send_heard = Signal()
+    pin_reply = Signal()
+    copy_reply = Signal()
+    copy_log = Signal()
+    choose_hero = Signal()
+
     def __init__(self) -> None:
         super().__init__()
-        root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 18)
-        root.setSpacing(14)
-
-        header = QLabel("Home")
-        header.setObjectName("title")
-        sub = QLabel(
-            "The AI starts off. Nothing is listening until you turn it on. "
-            "This phase is the power switch, game mode, and the status cards."
-        )
-        sub.setObjectName("hint")
-        sub.setWordWrap(True)
-        self.privacy = QLabel("")
-        self.privacy.setObjectName("hint")
-        self.privacy.setWordWrap(True)
-        self.privacy.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        root.addWidget(header)
-        root.addWidget(sub)
-        root.addWidget(self.privacy)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        body = QWidget()
+        root = QVBoxLayout(body)
+        root.setContentsMargins(18, 14, 18, 18)
+        root.setSpacing(12)
 
         self.version_banner = self._banner("dangerBanner")
         self.tray_banner = self._banner("banner")
@@ -64,97 +71,319 @@ class HomePage(QWidget):
         root.addWidget(self.version_banner)
         root.addWidget(self.tray_banner)
 
+        controls = QHBoxLayout()
+        controls.addWidget(self._power_card(), 2)
+        controls.addWidget(self._intel_card(), 3)
+        controls.addWidget(self._game_card(), 3)
+        controls.addWidget(self._stop_card(), 3)
+        root.addLayout(controls)
+
+        self.detail_host = QWidget()
+        detail = QVBoxLayout(self.detail_host)
+        detail.setContentsMargins(0, 0, 0, 0)
+        detail.setSpacing(12)
+        middle = QHBoxLayout()
+        middle.addWidget(self._pc_card(), 4)
+        middle.addWidget(self._hero_card(), 6)
+        detail.addLayout(middle)
+        bottom = QHBoxLayout()
+        bottom.addWidget(self._pin_card(), 4)
+        bottom.addWidget(self._vram_card(), 3)
+        bottom.addWidget(self._log_card(), 4)
+        detail.addLayout(bottom)
+        root.addWidget(self.detail_host)
+
+        scroll.setWidget(body)
+        outer.addWidget(scroll)
+        self._vram_samples: list[float] = []
+        self._cpu_samples: list[float] = []
+        self._ram_samples: list[float] = []
+
+    def set_detailed(self, expanded: bool) -> None:
+        self.detail_host.setVisible(expanded)
+
+    def _power_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.addWidget(self._section("AI POWER"))
         row = QHBoxLayout()
-        column = QVBoxLayout()
         self.power = PowerButton()
+        words = QVBoxLayout()
+        self.power_word = QLabel("Off")
+        self.power_word.setObjectName("word")
         self.power_hint = QLabel(CLICK_HINT["off"])
         self.power_hint.setObjectName("hint")
-        self.power_hint.setAlignment(Qt.AlignHCenter)
         self.power_hint.setWordWrap(True)
-        self.power_hint.setFixedWidth(200)
-        column.addWidget(self.power, alignment=Qt.AlignHCenter)
-        column.addWidget(self.power_hint)
+        words.addWidget(self.power_word)
+        words.addWidget(self.power_hint)
+        row.addWidget(self.power)
+        row.addLayout(words)
+        layout.addLayout(row)
         self.try_again = QPushButton("Try turning on")
         self.try_again.setToolTip("Tries to start Ollama and load the model again.")
         self.try_again.hide()
-        column.addWidget(self.try_again)
-        row.addLayout(column)
+        layout.addWidget(self.try_again)
+        return card
 
-        side = QVBoxLayout()
-        side.addWidget(QLabel("Intelligence"))
-        intel_row = QHBoxLayout()
+    def _intel_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.addWidget(self._section("INTELLIGENCE"))
+        row = QHBoxLayout()
         self.intel_buttons: dict[str, QPushButton] = {}
         for mode_id in ("low", "medium", "high"):
             button = QPushButton(MODES[mode_id].label)
             button.setObjectName("choice")
             button.setCheckable(True)
             button.setToolTip(MODES[mode_id].summary)
-            intel_row.addWidget(button)
+            row.addWidget(button)
             self.intel_buttons[mode_id] = button
         self.intel_buttons["medium"].setChecked(True)
-        side.addLayout(intel_row)
+        layout.addLayout(row)
         self.intel_summary = QLabel(MODES["medium"].summary)
         self.intel_summary.setWordWrap(True)
         self.intel_summary.setObjectName("hint")
-        side.addWidget(self.intel_summary)
+        layout.addWidget(self.intel_summary)
         self.reload = QPushButton("Reload the model with this setting")
-        self.reload.setToolTip(
-            "Unloads the model and loads it again so the new Low, Medium, or High setting applies."
-        )
+        self.reload.setObjectName("primary")
+        self.reload.setToolTip("Unloads the current model, then loads the one for this level.")
         self.reload.hide()
-        side.addWidget(self.reload)
+        layout.addWidget(self.reload)
+        return card
 
-        game_row = QHBoxLayout()
-        self.game = QPushButton("Game mode")
+    def _game_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.addWidget(self._section("GAME MODE"))
+        row = QHBoxLayout()
+        self.game_word = QLabel("Off")
+        self.game_word.setObjectName("word")
+        self.game = QPushButton("Switch")
+        self.game.setCheckable(True)
+        self.game.setObjectName("choice")
         self.game.setToolTip(
             "Unloads the model so a game can use the graphics card. "
-            "Ollama stays running with nothing loaded. The microphone stays closed in this phase."
+            "The microphone stays closed. Ollama stays running with nothing loaded."
         )
-        self.emergency = QPushButton("Emergency stop")
-        self.emergency.setToolTip("The same as Ctrl+Alt+F12. Turns the AI fully off from anywhere.")
-        game_row.addWidget(self.game)
-        game_row.addWidget(self.emergency)
-        side.addLayout(game_row)
-        self.game_note = QLabel("Auto game mode is off.")
+        row.addWidget(self.game_word)
+        row.addStretch(1)
+        row.addWidget(self.game)
+        layout.addLayout(row)
+        self.game_note = QLabel("Click to unload the model and close the mic for gaming.")
         self.game_note.setObjectName("hint")
         self.game_note.setWordWrap(True)
-        side.addWidget(self.game_note)
-        side.addStretch(1)
-        row.addLayout(side, 1)
-        root.addLayout(row)
+        layout.addWidget(self.game_note)
+        return card
 
-        legend = QLabel("Grey off  ·  Yellow starting  ·  Green on  ·  Blue game mode  ·  Red needs you")
-        legend.setObjectName("section")
-        legend.setToolTip("These are the same colors as the floating orb.")
-        root.addWidget(legend)
+    def _stop_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        layout.addWidget(self._section("EMERGENCY STOP"))
+        self.emergency = QPushButton("Stop everything now")
+        self.emergency.setObjectName("danger")
+        self.emergency.setToolTip("The same as Ctrl+Alt+F12. Turns the AI fully off from anywhere.")
+        layout.addWidget(self.emergency)
+        note = QLabel("Or press Ctrl+Alt+F12 anywhere, even when hidden.")
+        note.setObjectName("hint")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+        return card
 
-        grid = QGridLayout()
-        self.gpu_card = Card(
-            "Video memory",
-            "From nvidia-smi. Shows how full the graphics card is, and whether Ollama is holding any of it.",
-        )
-        self.model_card = Card(
-            "Loaded models",
-            "Models Ollama currently has in memory. Only one should be loaded. 100% on the GPU means it is not spilling into system memory.",
-        )
-        self.pc_card = Card(
-            "This computer",
-            "CPU and memory use of the whole PC, from a local reading. Refreshes every 2 seconds.",
-        )
-        grid.addWidget(self.gpu_card, 0, 0)
-        grid.addWidget(self.model_card, 0, 1)
-        grid.addWidget(self.pc_card, 0, 2)
-        root.addLayout(grid)
+    def _pc_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        title = QHBoxLayout()
+        title.addWidget(self._section("THIS PC"))
+        title.addStretch(1)
+        refreshed = QLabel("Refreshes every 2 seconds")
+        refreshed.setObjectName("hint")
+        title.addWidget(refreshed)
+        layout.addLayout(title)
+        self.gpu_line = QLabel("Video memory")
+        self.gpu_spark = Sparkline()
+        self.gpu_gold = QLabel("—")
+        self.gpu_gold.setObjectName("gold")
+        layout.addLayout(self._meter(self.gpu_line, self.gpu_spark, self.gpu_gold))
+        self.cpu_line = QLabel("CPU")
+        self.cpu_spark = Sparkline()
+        self.cpu_gold = QLabel("—")
+        self.cpu_gold.setObjectName("gold")
+        layout.addLayout(self._meter(self.cpu_line, self.cpu_spark, self.cpu_gold))
+        self.ram_line = QLabel("RAM")
+        self.ram_spark = Sparkline()
+        self.ram_gold = QLabel("—")
+        self.ram_gold.setObjectName("gold")
+        layout.addLayout(self._meter(self.ram_line, self.ram_spark, self.ram_gold))
+        layout.addWidget(self._section("LOADED MODEL"))
+        self.model_line = QLabel("Nothing is loaded.")
+        self.model_line.setWordWrap(True)
+        self.model_badge = QLabel("")
+        self.model_badge.setObjectName("hint")
+        layout.addWidget(self.model_line)
+        layout.addWidget(self.model_badge)
+        return card
 
-        recent_label = QLabel("What just happened")
-        recent_label.setObjectName("section")
-        recent_label.setToolTip("Plain-language notes from the power switch. You can select and copy them.")
+    def _hero_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        self.hero = QLabel("Your picture shows here.")
+        self.hero.setAlignment(Qt.AlignCenter)
+        self.hero.setMinimumHeight(180)
+        self.hero.setWordWrap(True)
+        self.hero.setToolTip("Choose a picture. It stays on this PC. Off tints it grey.")
+        layout.addWidget(self.hero)
+        badge = QHBoxLayout()
+        self.phase_word = QLabel("Off")
+        self.phase_word.setObjectName("word")
+        self.phase_hint = QLabel("The microphone stays closed until you hold to talk.")
+        self.phase_hint.setObjectName("hint")
+        self.phase_hint.setWordWrap(True)
+        badge.addWidget(self.phase_word)
+        badge.addWidget(self.phase_hint, 1)
+        layout.addLayout(badge)
+        self.heard = QLabel("I heard this: nothing yet.")
+        self.heard.setWordWrap(True)
+        self.spoken = QLabel("")
+        self.spoken.setWordWrap(True)
+        self.reply_detail = QLabel("")
+        self.reply_detail.setWordWrap(True)
+        self.reply_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.heard)
+        layout.addWidget(self.spoken)
+        layout.addWidget(self.reply_detail)
+        actions = QHBoxLayout()
+        copy = QPushButton("Copy")
+        copy.setToolTip("Copies the reply that is on screen.")
+        copy.clicked.connect(self.copy_reply.emit)
+        pin = QPushButton("Pin this")
+        pin.setObjectName("primary")
+        pin.setToolTip("Pins this reply on the board. It stays on this PC.")
+        pin.clicked.connect(self.pin_reply.emit)
+        send = QPushButton("Send what I heard")
+        send.setToolTip("Sends the line in the box to the local model. Nothing else goes with it.")
+        send.clicked.connect(self.send_heard.emit)
+        self.hold = QPushButton("Hold to talk")
+        self.hold.setObjectName("primary")
+        self.hold.setToolTip("The microphone is only meant to open while this is held.")
+        self.hold.pressed.connect(self.hold_pressed.emit)
+        self.hold.released.connect(self.hold_released.emit)
+        actions.addWidget(copy)
+        actions.addWidget(pin)
+        actions.addWidget(send)
+        actions.addWidget(self.hold)
+        layout.addLayout(actions)
+        type_row = QHBoxLayout()
+        type_row.addWidget(QLabel("Or type it:"))
+        self.typed = QLineEdit()
+        self.typed.setPlaceholderText("remind me at 6 to stretch")
+        self.typed.setToolTip("A fallback for when you cannot talk. The same rules apply.")
+        self.typed.returnPressed.connect(lambda: self.command_submitted.emit(self.typed.text()))
+        run = QPushButton("Run this command")
+        run.setToolTip("Puts the line in “I heard this”. Actions still ask before they run.")
+        run.clicked.connect(lambda: self.command_submitted.emit(self.typed.text()))
+        type_row.addWidget(self.typed, 1)
+        type_row.addWidget(run)
+        layout.addLayout(type_row)
+        picture = QPushButton("Choose my picture")
+        picture.setToolTip("Copies a picture into your BabySitter folder. It is not uploaded.")
+        picture.clicked.connect(self.choose_hero.emit)
+        layout.addWidget(picture)
+        return card
+
+    def _pin_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        header = QHBoxLayout()
+        header.addWidget(self._section("PINBOARD"))
+        header.addStretch(1)
+        note = QLabel("A few notes and results. Not a chat.")
+        note.setObjectName("hint")
+        header.addWidget(note)
+        layout.addLayout(header)
+        self.pins = QLabel("Nothing is pinned yet.")
+        self.pins.setWordWrap(True)
+        self.pins.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.pins)
+        return card
+
+    def _vram_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        header = QHBoxLayout()
+        header.addWidget(self._section("VIDEO MEMORY"))
+        header.addStretch(1)
+        self.vram_now = QLabel("—")
+        self.vram_now.setObjectName("gold")
+        header.addWidget(self.vram_now)
+        layout.addLayout(header)
+        self.vram_bars = BarChart()
+        layout.addWidget(self.vram_bars)
+        self.vram_caption = QLabel("Peak, now, and free show up after the first readings.")
+        self.vram_caption.setObjectName("hint")
+        self.vram_caption.setWordWrap(True)
+        layout.addWidget(self.vram_caption)
+        return card
+
+    def _log_card(self) -> QFrame:
+        card = self._card()
+        layout = QVBoxLayout(card)
+        header = QHBoxLayout()
+        header.addWidget(self._section("WHAT JUST HAPPENED"))
+        header.addStretch(1)
+        copy = QPushButton("Copy")
+        copy.setToolTip("Copies this log so you can paste an error.")
+        copy.clicked.connect(self.copy_log.emit)
+        header.addWidget(copy)
+        layout.addLayout(header)
         self.recent = QPlainTextEdit()
         self.recent.setReadOnly(True)
-        self.recent.setFixedHeight(110)
-        self.recent.setToolTip("Select the text and copy it if you need to send me an error.")
-        root.addWidget(recent_label)
-        root.addWidget(self.recent)
+        self.recent.setFixedHeight(120)
+        self.recent.setToolTip("Select the text and copy it if you need to send an error.")
+        layout.addWidget(self.recent)
+        self.privacy = QLabel(
+            "Private to this computer. BabySitter does not send usage data."
+        )
+        self.privacy.setWordWrap(True)
+        self.privacy.setObjectName("hint")
+        self.privacy.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        layout.addWidget(self.privacy)
+        return card
+
+    def set_privacy(self, social_search_on: bool) -> None:
+        if social_search_on:
+            self.privacy.setText(
+                "Social search is on. Only the words you confirm on the Tools tab can leave this PC. "
+                "BabySitter does not send usage data. Turn social search off for confidential work."
+            )
+            return
+        self.privacy.setText(
+            "Private to this computer. BabySitter only talks to Ollama here. "
+            "BabySitter does not send usage data."
+        )
+
+    def set_pins_text(self, text: str) -> None:
+        self.pins.setText(text)
+
+    def set_hero(self, path: str) -> None:
+        pixmap = QPixmap(path)
+        if pixmap.isNull():
+            self.hero.setText("That picture could not be opened.")
+            return
+        self.hero.setPixmap(
+            pixmap.scaled(self.hero.width() or 420, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        self.hero.setText("")
+
+    def set_reply(self, heard: str, spoken: str, detail: str) -> None:
+        self.heard.setText(f"I heard this: {heard}")
+        self.spoken.setText(spoken)
+        self.reply_detail.setText(detail)
+
+    def set_phase(self, phase: str, hint: str) -> None:
+        self.phase_word.setText(STATE_WORDS.get(phase, "On"))
+        color = STATE_COLORS.get(phase, STATE_COLORS["on"])
+        self.phase_word.setStyleSheet(f"color: {color};")
+        self.phase_hint.setText(hint)
 
     def _banner(self, object_name: str) -> QFrame:
         frame = QFrame()
@@ -171,41 +400,31 @@ class HomePage(QWidget):
         frame.layout().itemAt(0).widget().setText(text)
         frame.setVisible(visible)
 
-    def set_privacy(self, social_search_on: bool) -> None:
-        if social_search_on:
-            self.privacy.setText(
-                "Social search is on. Only the words you confirm on the Tools tab can leave this PC. "
-                "Files, the screen, memory, and what you say to the assistant stay here. "
-                "Turn social search off when the information is confidential."
-            )
-            self.privacy.setToolTip(
-                "BabySitter still does not send usage data. The search box is the only thing that can leave."
-            )
-            return
-        self.privacy.setText(
-            "Private to this computer. BabySitter does not send usage data. "
-            "What you tell the assistant stays on this PC, and social search is off."
-        )
-        self.privacy.setToolTip(
-            "Ollama is contacted only at 127.0.0.1. No analytics, no account, no phone-home."
-        )
-
     def set_state(self, state: str, detail: str) -> None:
         self.power.set_state(state)
         self.power.setToolTip(detail)
+        self.power_word.setText(STATE_WORDS.get(state, "Needs you"))
+        self.power_word.setStyleSheet(f"color: {STATE_COLORS.get(state, STATE_COLORS['error'])};")
         self.power_hint.setText(CLICK_HINT.get(state, CLICK_HINT["error"]))
         self.try_again.setVisible(state == "error")
+        self.set_phase(state, detail)
         if state == "game":
-            self.game.setText("Wake the model")
+            self.game.setText("On")
+            self.game.setChecked(True)
             self.game.setEnabled(True)
-            self.game.setToolTip("Loads the model again. If the game is still running, auto game mode will not immediately unload it.")
+            self.game_word.setText("On")
+            self.game.setToolTip("Loads the model again. The microphone stays closed until you hold to talk.")
         elif state == "on":
-            self.game.setText("Game mode")
+            self.game.setText("Off")
+            self.game.setChecked(False)
             self.game.setEnabled(True)
+            self.game_word.setText("Off")
         else:
-            self.game.setText("Game mode")
+            self.game.setText("Off")
+            self.game.setChecked(False)
             self.game.setEnabled(False)
-            self.game.setToolTip("Turn the AI on first. Game mode is for when a model is loaded and you want the graphics card back.")
+            self.game_word.setText("Off")
+            self.game.setToolTip("Turn the AI on first. Game mode is for when a model is loaded.")
 
     def set_busy(self, busy: bool) -> None:
         for button in self.intel_buttons.values():
@@ -220,49 +439,76 @@ class HomePage(QWidget):
         mode = MODES.get(mode_id, MODES["medium"])
         for key, button in self.intel_buttons.items():
             button.setChecked(key == mode.id)
-        self.intel_summary.setText(mode.summary + f" Uses {mode.model} with {mode.num_ctx:,} of context.")
+        self.intel_summary.setText(f"{mode.summary} Context {mode.num_ctx:,}.")
 
     def set_history(self, lines: list[str]) -> None:
         self.recent.setPlainText("\n".join(lines))
 
     def set_status(self, snap) -> None:
         if snap.gpu is None:
-            self.gpu_card.set_text(snap.gpu_error or "No video memory reading.")
+            self.gpu_line.setText(snap.gpu_error or "No video memory reading.")
+            self.gpu_gold.setText("—")
         else:
             percent = 0
             if snap.gpu.total_mib:
                 percent = round(100 * snap.gpu.used_mib / snap.gpu.total_mib)
-            extra = ""
-            if snap.gpu.ollama_mib:
-                extra = f"\nOllama is holding about {format_mib(snap.gpu.ollama_mib)}."
-            else:
-                extra = "\nOllama is not holding video memory."
-            note = f"\n{snap.gpu.index_note}" if snap.gpu.index_note else ""
-            self.gpu_card.set_text(
-                f"{format_mib(snap.gpu.used_mib)} used\nof {format_mib(snap.gpu.total_mib)}{extra}{note}",
-                percent,
+            self._vram_samples.append(float(snap.gpu.used_mib))
+            del self._vram_samples[:-60]
+            self.gpu_spark.push(float(snap.gpu.used_mib))
+            self.vram_bars.set_values(self._vram_samples)
+            self.gpu_line.setText(f"Video memory\n{format_mib(snap.gpu.used_mib)} / {format_mib(snap.gpu.total_mib)}")
+            self.gpu_gold.setText(f"{percent}%")
+            self.vram_now.setText(format_mib(snap.gpu.used_mib))
+            free = max(0, snap.gpu.total_mib - snap.gpu.used_mib)
+            peak = max(self._vram_samples) if self._vram_samples else snap.gpu.used_mib
+            self.vram_caption.setText(
+                f"Peak {format_mib(int(peak))}   Now {format_mib(snap.gpu.used_mib)}   Free {format_mib(free)}"
             )
+        if snap.cpu_percent is not None:
+            self._cpu_samples.append(float(snap.cpu_percent))
+            self.cpu_spark.push(float(snap.cpu_percent))
+            self.cpu_line.setText("CPU")
+            self.cpu_gold.setText(f"{snap.cpu_percent:.0f}%")
+        if snap.ram_total_bytes:
+            ram_percent = round(100 * snap.ram_used_bytes / snap.ram_total_bytes)
+            self.ram_spark.push(float(ram_percent))
+            self.ram_line.setText(
+                f"RAM\n{format_bytes(snap.ram_used_bytes)} / {format_bytes(snap.ram_total_bytes)}"
+            )
+            self.ram_gold.setText(f"{ram_percent}%")
         if snap.models_error:
-            self.model_card.set_text(snap.models_error)
+            self.model_line.setText(snap.models_error)
+            self.model_badge.setText("")
         elif not snap.port_open:
-            self.model_card.set_text("Ollama is not running.\nNo model is loaded.")
+            self.model_line.setText("Ollama is not running.")
+            self.model_badge.setText("No model is loaded.")
         elif not snap.models:
-            self.model_card.set_text("Ollama is running.\nNo model is loaded.")
+            self.model_line.setText("Ollama is running.")
+            self.model_badge.setText("No model is loaded.")
         else:
             lines = []
+            badges = []
             for model in snap.models:
-                size = format_bytes(model.size_bytes) if model.size_bytes else "size unknown"
-                lines.append(f"{model.name}\n{size} · {model.gpu_label}")
-            self.model_card.set_text("\n\n".join(lines))
-        if snap.ram_total_bytes:
-            cpu = f"CPU  {snap.cpu_percent:.0f}%"
-            ram = (
-                f"Memory  {format_bytes(snap.ram_used_bytes)} of "
-                f"{format_bytes(snap.ram_total_bytes)}"
-            )
-            self.pc_card.set_text(
-                f"{cpu}\n{ram}",
-                round(100 * snap.ram_used_bytes / snap.ram_total_bytes),
-            )
-        tray = any(classify_ollama_process(name) == "tray" for name in snap.process_names)
-        return tray
+                lines.append(model.name)
+                badges.append(model.gpu_label)
+            self.model_line.setText("\n".join(lines))
+            self.model_badge.setText(" · ".join(badges))
+        return any(classify_ollama_process(name) == "tray" for name in snap.process_names)
+
+    def _card(self) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("card")
+        return frame
+
+    def _section(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("section")
+        return label
+
+    def _meter(self, caption: QLabel, spark: Sparkline, gold: QLabel) -> QGridLayout:
+        grid = QGridLayout()
+        caption.setWordWrap(True)
+        grid.addWidget(caption, 0, 0)
+        grid.addWidget(gold, 0, 1, alignment=Qt.AlignRight)
+        grid.addWidget(spark, 1, 0, 1, 2)
+        return grid

@@ -83,6 +83,12 @@ class SettingsPage(QWidget):
             "and does not draw anything inside the game. Off by default."
         )
         root.addWidget(self.auto_game)
+
+        self.quit_off = QCheckBox("Turn the AI off when quitting")
+        self.quit_off.setToolTip(
+            "On by default. Quit still asks first and tells you Ollama will be stopped."
+        )
+        root.addWidget(self.quit_off)
         self.games = QListWidget()
         self.games.setToolTip("Program names that count as games, such as bg3.exe.")
         root.addWidget(self.games)
@@ -128,6 +134,7 @@ class SettingsPage(QWidget):
         self.emergency.setText(settings.emergency_hotkey)
         self.power_on.setText(settings.power_on_hotkey)
         self.auto_game.setChecked(settings.auto_game_mode)
+        self.quit_off.setChecked(settings.quit_turns_ai_off)
         self.games.clear()
         self.games.addItems(settings.game_processes)
         self.folder.setText(data_folder)

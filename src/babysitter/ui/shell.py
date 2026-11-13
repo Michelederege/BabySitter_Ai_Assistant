@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from PySide6.QtCore import QRect, QThread, QUrl, Signal
+from PySide6.QtCore import QRect, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QMenu
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.controller import Controller, windows_registrar_or_dummy
-from babysitter.ollama import classify_ollama_process
+from babysitter.deskstore import add_item, hero_path, load_list
+from babysitter.intelligence import get_mode
+from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path
 from babysitter.plugins.tools.social import (
@@ -31,6 +34,30 @@ from babysitter.ui.main_window import MainWindow
 from babysitter.ui.orb import Orb
 from babysitter.ui.theme import STATE_WORDS
 from babysitter.ui.tray import Tray
+
+
+class _AskJob(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, ollama, model: str, prompt: str, num_ctx: int) -> None:
+        super().__init__()
+        self._ollama = ollama
+        self._model = model
+        self._prompt = prompt
+        self._num_ctx = num_ctx
+
+    def run(self) -> None:
+        prompt = self._prompt
+        self._prompt = ""
+        try:
+            self.succeeded.emit(self._ollama.ask(self._model, prompt, self._num_ctx))
+        except OllamaError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("The model did not answer.")
+        finally:
+            prompt = ""
 
 
 class _SearchJob(QThread):
@@ -146,6 +173,27 @@ class Shell:
         self.window.home.set_privacy(self.controller.settings.social_search_enabled)
         saved = self.vault.has_key() if self.vault.available else False
         tools.set_key_saved(saved, self.vault.available)
+        self.window.expand_button.clicked.connect(self._toggle_expand)
+        self.window.set_expanded(self.controller.settings.window_expanded)
+        self.window.pin_open.connect(self._show_pin)
+        home.hold_pressed.connect(self._hold_down)
+        home.hold_released.connect(self._hold_up)
+        home.command_submitted.connect(self._on_command)
+        home.send_heard.connect(self._send_heard)
+        home.pin_reply.connect(self._pin_reply)
+        home.copy_reply.connect(self._copy_reply)
+        home.copy_log.connect(self._copy_log)
+        home.choose_hero.connect(self._choose_hero)
+        self.window.voice_page.notice.connect(self._on_page_notice)
+        self.window.schedule_page.notice.connect(self._on_page_notice)
+        self.window.memory_page.notice.connect(self._on_page_notice)
+        self.window.screen_page.notice.connect(self._on_page_notice)
+        self.window.health_page.notice.connect(self._on_page_notice)
+        self.window.models_page.notice.connect(self._on_page_notice)
+        settings.quit_off.toggled.connect(self._set_quit_off)
+        self._refresh_pins()
+        if hero_path().is_file():
+            self.window.home.set_hero(str(hero_path()))
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
@@ -243,7 +291,8 @@ class Shell:
         self.window.home.set_history(self.controller.history)
         self.orb.set_state(state, message)
         self.window.set_chip(state, STATE_WORDS.get(state, "ERROR"))
-        self.tray.set_tooltip(f"BabySitter — {message}")
+        word = STATE_WORDS.get(state, "Needs you")
+        self.tray.set_tooltip(f"BabySitter: {word}. {message}")
         self.window.home.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
@@ -398,7 +447,7 @@ class Shell:
 
     def _fill_settings(self) -> None:
         page = self.window.settings_page
-        toggles = (page.autostart, page.on_top, page.auto_game)
+        toggles = (page.autostart, page.on_top, page.auto_game, page.quit_off)
         for toggle in toggles:
             toggle.blockSignals(True)
         page.fill(self.controller.settings, self.controller.data_folder())
@@ -472,6 +521,249 @@ class Shell:
             x = area.right() - self.orb.width() - 24
             y = area.bottom() - self.orb.height() - 24
         self.orb.move(x, y)
+
+    def _toggle_expand(self) -> None:
+        expanded = not self.controller.settings.window_expanded
+        self.controller.settings.window_expanded = expanded
+        save_settings(self.controller.settings)
+        self.window.set_expanded(expanded)
+
+    def _set_quit_off(self, on: bool) -> None:
+        self.controller.settings.quit_turns_ai_off = bool(on)
+        save_settings(self.controller.settings)
+
+    def _hold_down(self) -> None:
+        if self.controller.state != "on":
+            self.window.home.set_reply(
+                "nothing",
+                "The AI is off.",
+                "The microphone stays closed.",
+            )
+            return
+        self._holding = True
+        self.orb.set_state("listening", "Listening. Release to stop.")
+        self.window.home.set_phase("listening", "The microphone is meant to open only while you hold.")
+
+    def _hold_up(self) -> None:
+        if not getattr(self, "_holding", False):
+            return
+        self._holding = False
+        self.orb.set_state("thinking", "Thinking.")
+        self.window.home.set_phase("thinking", "Speech-to-text is not installed yet.")
+        QTimer.singleShot(500, self._hold_done)
+
+    def _hold_done(self) -> None:
+        self._pending_line = ""
+        self.window.home.set_reply(
+            "(no words yet)",
+            "I didn't hear words.",
+            "faster-whisper is not installed yet, so nothing was sent. Type the line, then press Send what I heard.",
+        )
+        self.orb.set_state(self.controller.state, "Hold to talk")
+        self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
+
+    def _on_command(self, text: str) -> None:
+        text = text.strip()
+        if not text:
+            self.window.home.set_reply("nothing", "Type something first.", "Nothing was sent.")
+            return
+        self.window.home.typed.clear()
+        self._pending_line = text
+        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
+        if text.lower().startswith("remind"):
+            if not ask_yes_no(
+                self.window,
+                "Save this reminder?",
+                f"This stays on this PC. Nothing is sent out.\n\n{text}",
+                "Save the reminder",
+                "Don't save",
+            ):
+                self.window.home.set_reply(text, "Not saved.", "Nothing was sent.")
+                return
+            add_item("schedule.json", text=text)
+            self.window.schedule_page.refresh()
+            self.window.home.set_reply(text, "Saved on this PC.", "Nothing was sent off this computer.")
+            return
+
+    def _send_heard(self) -> None:
+        text = getattr(self, "_pending_line", "").strip()
+        if not text:
+            self.window.home.set_reply("nothing", "Type a line first.", "Nothing was sent.")
+            return
+        if self.controller.state != "on":
+            self.window.home.set_reply(text, "The AI is off.", "Turn it on first. Nothing was sent.")
+            return
+        if getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning():
+            self.window.home.set_reply(text, "Still thinking.", "Wait for this reply to finish.")
+            return
+        mode = get_mode(self.controller.settings.intelligence)
+        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx)
+        self._ask_job = job
+        job.succeeded.connect(self._asked)
+        job.failed.connect(lambda message: self.window.home.set_reply(text, "The model did not answer.", message))
+        self.orb.set_state("thinking", "Thinking.")
+        self.window.home.set_phase("thinking", "Asking the model on this PC.")
+        job.start()
+
+    def _asked(self, reply: str) -> None:
+        spoken = reply.split(". ")[0].strip()
+        if spoken and not spoken.endswith("."):
+            spoken += "."
+        self._last_reply = (spoken[:80] or "Reply", reply)
+        heard = getattr(self, "_pending_line", "")
+        self.window.home.set_reply(heard, spoken, reply)
+        self.orb.set_state("speaking", spoken)
+        QTimer.singleShot(2500, lambda: self.orb.set_state(self.controller.state, "Hold to talk"))
+
+    def _pin_reply(self) -> None:
+        last = getattr(self, "_last_reply", None)
+        if not last:
+            self.window.home.set_reply("nothing", "Nothing to pin yet.", "Send a reply first, or save a reminder.")
+            return
+        title, body = last
+        add_item("pins.json", title=title, body=body)
+        self._refresh_pins()
+        self.window.home.set_reply(title, "Pinned.", "The card stays on this PC.")
+
+    def _copy_reply(self) -> None:
+        QApplication.clipboard().setText(self.window.home.reply_detail.text())
+        self.controller._remember("Copied the reply.")
+        self.window.home.set_history(self.controller.history)
+
+    def _copy_log(self) -> None:
+        QApplication.clipboard().setText(self.window.home.recent.toPlainText())
+        self.controller._remember("Copied what just happened.")
+        self.window.home.set_history(self.controller.history)
+
+    def _choose_hero(self) -> None:
+        path, _chosen = QFileDialog.getOpenFileName(
+            self.window,
+            "Choose a picture",
+            "",
+            "Pictures (*.png *.jpg *.jpeg *.webp)",
+        )
+        if not path:
+            return
+        data = Path(path).read_bytes()
+        if len(data) > 15_000_000:
+            show_copyable(self.window, "That picture is too large", "Choose one under 15 MB. Nothing was copied.")
+            return
+        hero_path().write_bytes(data)
+        self.window.home.set_hero(str(hero_path()))
+        self.controller._remember("Saved your picture in the BabySitter folder. It was not uploaded.")
+        self.window.home.set_history(self.controller.history)
+
+    def _on_page_notice(self, text: str) -> None:
+        if text.startswith("CONFIRM reminder:"):
+            body = text.split(":", 1)[1].strip()
+            if ask_yes_no(self.window, "Save this reminder?", body, "Save the reminder", "Don't save"):
+                add_item("schedule.json", text=body)
+                self.window.schedule_page.text.clear()
+                self.window.schedule_page.refresh()
+            return
+        if text.startswith("CONFIRM memory:"):
+            body = text.split(":", 1)[1].strip()
+            if ask_yes_no(
+                self.window,
+                "Remember this?",
+                f"Save this on this PC?\n\n{body}",
+                "Remember it",
+                "Don't save",
+            ):
+                add_item("memory.json", text=body)
+                self.window.memory_page.text.clear()
+                self.window.memory_page.refresh()
+            return
+        if text == "CONFIRM screen":
+            self._look_at_screen()
+            return
+        if text == "RUN health":
+            self._read_health()
+            return
+        if text == "LIST models":
+            self._list_models()
+            return
+        self.controller._remember(text)
+        self.window.home.set_history(self.controller.history)
+
+    def _look_at_screen(self) -> None:
+        if not ask_yes_no(
+            self.window,
+            "Look at the screen?",
+            "BabySitter will take one picture in memory. It will not be saved, and it will not be sent anywhere.",
+            "Look now",
+            "Don't look",
+        ):
+            self.window.screen_page.body.setPlainText("Nothing was captured.")
+            return
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self.window.screen_page.body.setPlainText("No screen was found. Nothing was saved.")
+            return
+        picture = screen.grabWindow(0)
+        self.window.screen_page.body.setPlainText(
+            f"Captured {picture.width()} by {picture.height()} pixels in memory. "
+            "It was not saved to disk and it was not sent. The vision model is not loaded."
+        )
+        del picture
+
+    def _read_health(self) -> None:
+        if sys.platform != "win32":
+            self.window.health_page.body.setPlainText(
+                "These checks run on your Windows PC. They are read-only. "
+                "This computer is not Windows, so nothing was run and nothing was changed."
+            )
+            return
+        import subprocess
+
+        from babysitter.platform import run_hidden
+
+        script = (
+            "Write-Output '--- Memory ---'; "
+            "Get-Process | Sort-Object WorkingSet64 -Descending | "
+            "Select-Object -First 15 Name, @{n='MB';e={[math]::Round($_.WorkingSet64/1MB)}} | "
+            "Format-Table -AutoSize | Out-String; "
+            "Write-Output '--- Startup ---'; "
+            "Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location | "
+            "Format-Table -AutoSize | Out-String; "
+            "Write-Output '--- RAM ---'; "
+            "Get-CimInstance Win32_PhysicalMemory | "
+            "Select-Object PartNumber, Capacity, ConfiguredClockSpeed | Format-Table -AutoSize | Out-String"
+        )
+        try:
+            completed = run_hidden(
+                ["powershell", "-NoProfile", "-Command", script],
+                timeout=40,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.window.health_page.body.setPlainText(f"The check could not run ({exc}). Nothing was changed.")
+            return
+        text = ((completed.stdout or "") + (completed.stderr or "")).strip()
+        self.window.health_page.body.setPlainText(text or "The check returned nothing. Nothing was changed.")
+
+    def _list_models(self) -> None:
+        try:
+            names = self.controller.ollama.installed_models()
+        except OllamaError as exc:
+            self.window.models_page.body.setPlainText(str(exc))
+            return
+        if not names:
+            self.window.models_page.body.setPlainText("Ollama reported no installed models.")
+            return
+        self.window.models_page.body.setPlainText("\n".join(names))
+
+    def _refresh_pins(self) -> None:
+        self.window.set_pins(load_list("pins.json"))
+
+    def _show_pin(self, pin_id: str) -> None:
+        for pin in load_list("pins.json"):
+            if pin.get("id") == pin_id:
+                show_copyable(
+                    self.window,
+                    str(pin.get("title") or "Pinned"),
+                    str(pin.get("body") or ""),
+                )
+                return
 
     def _quit(self) -> None:
         decision = self.controller.request_quit()

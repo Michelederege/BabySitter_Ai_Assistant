@@ -74,7 +74,11 @@ def test_nvidia_csv():
     assert problem
 
 
-def test_intelligence_keeps_one_model():
-    assert {mode.model for mode in MODES.values()} == {MAIN_MODEL}
+def test_intelligence_uses_one_model_per_level():
+    # Low is the fast main model. Medium and High are the writing model.
+    # Power still unloads whatever is loaded before the next one starts.
+    assert MODES["low"].model == MAIN_MODEL
+    assert MODES["medium"].model == WRITING_MODEL
+    assert MODES["high"].model == WRITING_MODEL
     assert MODES["low"].num_ctx < MODES["medium"].num_ctx < MODES["high"].num_ctx
     assert WRITING_MODEL != MAIN_MODEL
