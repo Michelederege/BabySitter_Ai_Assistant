@@ -37,7 +37,7 @@ from babysitter.plugins.voice.hearing import (
 from babysitter.plugins.voice.kokoro_voice import KokoroError, download as download_kokoro
 from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
-from babysitter.plugins.voice.speech import first_sentence, sapi_rate
+from babysitter.plugins.voice.speech import lead_and_rest, more_answer, sapi_rate, speech_chunks
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
     PreparedSearch,
@@ -129,12 +129,14 @@ class _SpeakJob(QThread):
         self._text = ""
         prefs = self._prefs
         try:
-            if prefs.get("engine") == "windows":
-                speaker.speak(text, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
-            else:
-                from babysitter.plugins.voice.kokoro_voice import speak as speak_kokoro
+            pieces = speech_chunks(text)
+            for piece in pieces:
+                if prefs.get("engine") == "windows":
+                    speaker.speak(piece, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
+                else:
+                    from babysitter.plugins.voice.kokoro_voice import speak as speak_kokoro
 
-                speak_kokoro(text, prefs.get("name", ""), prefs.get("speed", 105), prefs.get("pitch", -1))
+                    speak_kokoro(piece, prefs.get("name", ""), prefs.get("speed", 105), prefs.get("pitch", -1))
         except (WindowsVoiceError, KokoroError) as exc:
             self.failed.emit(str(exc))
         except Exception as exc:
@@ -757,6 +759,15 @@ class Shell:
             self.orb.set_state(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
+        if getattr(self, "_awaiting_more", False):
+            answer = more_answer(text)
+            if answer == "yes":
+                self._read_the_rest()
+                return
+            if answer == "no":
+                self._decline_more()
+                return
+            self._clear_more()
         self._pending_line = text
         self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
         if text.lower().startswith("remind"):
@@ -862,6 +873,14 @@ class Shell:
             self.orb.set_state("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
             return
+        if getattr(self, "_awaiting_more", False):
+            self.orb.set_state("on", "Say yes or no")
+            self.window.home.set_phase(
+                "on",
+                "Say yes to hear the rest, or no to stop there. "
+                f"A new question still starts with {word}.",
+            )
+            return
         self.orb.set_state("on", f"Say {word}")
         self.window.home.set_phase(
             "on",
@@ -881,6 +900,17 @@ class Shell:
         if not text:
             self.window.home.set_reply("nothing", "Type something first.", "Nothing was sent.")
             return
+        if getattr(self, "_awaiting_more", False):
+            answer = more_answer(text)
+            if answer == "yes":
+                self.window.home.typed.clear()
+                self._read_the_rest()
+                return
+            if answer == "no":
+                self.window.home.typed.clear()
+                self._decline_more()
+                return
+            self._clear_more()
         self.window.home.typed.clear()
         self._pending_line = text
         self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
@@ -925,14 +955,42 @@ class Shell:
         self._sync_keyword()
 
     def _asked(self, reply: str) -> None:
-        spoken = reply.split(". ")[0].strip()
-        if spoken and not spoken.endswith("."):
-            spoken += "."
-        spoken = first_sentence(reply) or spoken
+        lead, rest = lead_and_rest(reply)
+        spoken = lead or "I don't have an answer for that."
         self._last_reply = (spoken[:80] or "Reply", reply)
+        self._full_reply = reply
         heard = getattr(self, "_pending_line", "")
+        self._more_text = rest
+        self._awaiting_more = bool(rest)
+        if getattr(self, "_listener", None) is not None:
+            self._listener.expect_yes_no(bool(rest))
+        if rest:
+            spoken = f"{spoken} Do you want to know more?"
         self.window.home.set_reply(heard, spoken, reply)
         self._speak(spoken)
+
+    def _clear_more(self) -> None:
+        self._awaiting_more = False
+        self._more_text = ""
+        if getattr(self, "_listener", None) is not None:
+            self._listener.expect_yes_no(False)
+
+    def _decline_more(self) -> None:
+        self._clear_more()
+        self.window.home.set_phase("on", "Okay. I'll stop there.")
+        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._sync_keyword()
+
+    def _read_the_rest(self) -> None:
+        rest = getattr(self, "_more_text", "")
+        self._clear_more()
+        if not rest:
+            self.window.home.set_phase("on", "There isn't any more to read.")
+            self._sync_keyword()
+            return
+        heard = getattr(self, "_pending_line", "")
+        self.window.home.set_reply(heard, rest, getattr(self, "_full_reply", rest))
+        self._speak(rest)
 
     def _pin_reply(self) -> None:
         last = getattr(self, "_last_reply", None)
@@ -1181,6 +1239,11 @@ class Shell:
 
     def _speak_done(self) -> None:
         self._speaking = False
+        if getattr(self, "_awaiting_more", False):
+            self.orb.set_state("on", "Say yes or no")
+            self._sync_keyword()
+            self.window.home.set_phase("on", "Say yes to hear the rest, or no to stop there.")
+            return
         self.orb.set_state(self.controller.state, "Say the keyword")
         self._sync_keyword()
 

@@ -68,6 +68,12 @@ def command_after_keyword(text: str, keyword: str) -> str | None:
     return None
 
 
+def _yes_or_no(text: str) -> bool:
+    from babysitter.plugins.voice.speech import more_answer
+
+    return more_answer(text) in {"yes", "no"}
+
+
 def model_dir() -> Path:
     return data_dir() / "models" / "vosk" / MODEL_NAME
 
@@ -137,6 +143,7 @@ class KeywordListener:
     def __init__(self) -> None:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._yes_no = False
 
     @property
     def running(self) -> bool:
@@ -155,6 +162,10 @@ class KeywordListener:
             daemon=True,
         )
         self._thread.start()
+
+    def expect_yes_no(self, enabled: bool) -> None:
+        """After an offer of more, a plain yes or no counts without the keyword."""
+        self._yes_no = bool(enabled)
 
     def stop(self) -> None:
         self._stop.set()
@@ -196,6 +207,11 @@ class KeywordListener:
                     heard = json.loads(recognizer.Result()).get("text", "")
                     command = command_after_keyword(heard, keyword)
                     if command is None:
+                        if self._yes_no and _yes_or_no(heard):
+                            on_phrase(heard)
+                            recognizer = KaldiRecognizer(model, 16000)
+                            if not self._stop.is_set():
+                                on_status("armed")
                         continue
                     if not command:
                         on_status("capturing")

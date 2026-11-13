@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.7.0 — Ask before reading the rest
+
+A reply is spoken as one sentence. If there is more, BabySitter asks “Do you want to know more?” Say yes and it reads the rest. Say no and it stops. The full answer stays on screen either way.
+
 ## 0.6.0 — Baby sitter, the clock, and Heart and Sarah
 
 The keyword is “baby sitter”. Every question now includes the clock on this PC, so the model can answer the time. That time stays on this computer with the question. Replies use Heart and Sarah when that voice is downloaded. Until then, BabySitter says so instead of pretending the Windows voice is the one you picked.
