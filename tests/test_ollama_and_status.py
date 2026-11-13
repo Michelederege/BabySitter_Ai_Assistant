@@ -1,8 +1,11 @@
 import pytest
 
 from babysitter.intelligence import MAIN_MODEL, MODES, WRITING_MODEL
+from datetime import datetime
+
 from babysitter.ollama import (
     OllamaClient,
+    chat_messages,
     classify_ollama_process,
     gpu_placement_label,
     models_from_ps,
@@ -12,6 +15,14 @@ from babysitter.ollama import (
 from babysitter.security import bind_is_private, bind_is_public, require_local_host
 from babysitter.startupcheck import version_message
 from babysitter.status import parse_compute_apps_csv, parse_gpu_memory_csv
+
+
+def test_every_question_includes_the_local_clock():
+    messages = chat_messages("what time is it", now=datetime(2026, 11, 13, 17, 46))
+    assert messages[1]["content"] == "what time is it"
+    assert "Current local time" in messages[0]["content"]
+    assert "November 13, 2026" in messages[0]["content"]
+    assert "05:46 PM" in messages[0]["content"]
 
 
 def test_only_this_computer():

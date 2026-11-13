@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -42,7 +42,7 @@ class Settings:
     window_expanded: bool = False
     quit_turns_ai_off: bool = True
     keyword_listening: bool = False
-    keyword: str = "hey babysitter"
+    keyword: str = "baby sitter"
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -115,6 +115,12 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("keyword", "hey babysitter")
         incoming["schema_version"] = 4
         version = 4
+    if version < 5:
+        current = str(incoming.get("keyword") or "").strip().lower()
+        if current in {"", "hey babysitter", "babysitter"}:
+            incoming["keyword"] = "baby sitter"
+        incoming["schema_version"] = 5
+        version = 5
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -128,7 +134,7 @@ def _clean_keyword(value: object, notices: list[str]) -> str:
     try:
         return clean_keyword(str(value or DEFAULT_KEYWORD))
     except KeywordError as exc:
-        notices.append(f"{exc} Using hey babysitter.")
+        notices.append(f"{exc} Using baby sitter.")
         return DEFAULT_KEYWORD
 
 

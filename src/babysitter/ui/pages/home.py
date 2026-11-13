@@ -272,7 +272,7 @@ class HomePage(QWidget):
             "The sound is checked on this PC. It is not saved and it is not sent."
         )
         self.keyword_edit = QLineEdit()
-        self.keyword_edit.setPlaceholderText("hey babysitter")
+        self.keyword_edit.setPlaceholderText("baby sitter")
         self.keyword_edit.setToolTip("The words you say first. Two or three words work best.")
         self.hold = QPushButton("Hold to talk")
         self.hold.setToolTip("A backup. The microphone opens only while this is held.")

@@ -219,7 +219,7 @@ class OllamaClient:
         """One local reply. The prompt and the reply are not written to the log."""
         body = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": chat_messages(prompt),
             "stream": False,
             "keep_alive": -1,
             "options": {"num_ctx": int(num_ctx)},
@@ -366,6 +366,26 @@ class OllamaClient:
             _terminate_psutil(process)
             closed.append(name)
         return closed
+
+
+def chat_messages(prompt: str, now=None) -> list[dict]:
+    """Tell the local model the clock. The model has no clock of its own."""
+    from datetime import datetime
+
+    moment = now or datetime.now().astimezone()
+    clock = moment.strftime("%A, %B %d, %Y, %I:%M %p")
+    zone = moment.tzname() or "local time"
+    return [
+        {
+            "role": "system",
+            "content": (
+                f"Current local time: {clock} ({zone}). "
+                "Use this when asked the time or the date. "
+                "Reply in plain spoken sentences."
+            ),
+        },
+        {"role": "user", "content": prompt},
+    ]
 
 
 def models_from_ps(payload: dict) -> list[LoadedModel]:

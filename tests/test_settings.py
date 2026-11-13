@@ -81,6 +81,17 @@ def test_bad_intelligence_falls_back(tmp_path, monkeypatch):
     assert settings.notices
 
 
+def test_old_keyword_becomes_baby_sitter(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"schema_version": 4, "keyword": "hey babysitter"}),
+        encoding="utf-8",
+    )
+    settings = load_settings()
+    assert settings.keyword == "baby sitter"
+    assert settings.keyword_listening is False
+
+
 def test_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
     settings = load_settings()

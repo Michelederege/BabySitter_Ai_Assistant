@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.6.0 — Baby sitter, the clock, and Heart and Sarah
+
+The keyword is “baby sitter”. Every question now includes the clock on this PC, so the model can answer the time. That time stays on this computer with the question. Replies use Heart and Sarah when that voice is downloaded. Until then, BabySitter says so instead of pretending the Windows voice is the one you picked.
+
 ## 0.5.1 — Keyword and command in one sentence
 
 “Hey babysitter what time is it” is one command. The words after the keyword are what gets sent. You do not have to pause and wait for a second listen.
