@@ -1,0 +1,27 @@
+[project]
+name = "babysitter"
+description = "BabySitter, a voice-first personal assistant that stays off until you turn it on."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dynamic = ["version"]
+dependencies = [
+  "PySide6",
+  "psutil",
+]
+
+[project.scripts]
+babysitter = "babysitter.app:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {attr = "babysitter.version.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
