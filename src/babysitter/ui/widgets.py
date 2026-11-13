@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter
-from PySide6.QtWidgets import QFrame, QLabel, QProgressBar, QPushButton, QVBoxLayout
+from PySide6.QtGui import QColor, QPainter, QPen
+from PySide6.QtWidgets import QFrame, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
+from babysitter.ui.theme import STATE_COLORS
 
 
 class PowerButton(QPushButton):
@@ -14,7 +14,7 @@ class PowerButton(QPushButton):
         super().__init__()
         self.state = "off"
         self._phase = 0
-        self.setFixedSize(188, 188)
+        self.setFixedSize(64, 64)
         self.setCursor(Qt.PointingHandCursor)
         self.setAccessibleName("AI power")
         timer = QTimer(self)
@@ -45,13 +45,14 @@ class PowerButton(QPushButton):
         painter.drawEllipse(rect.adjusted(-6, -6, 6, 6))
         painter.setBrush(color)
         painter.drawEllipse(rect)
-        dark_text = self.state in {"starting", "on"}
-        painter.setPen(QColor("#1a1404") if dark_text else QColor("#f7fafc"))
-        font = QFont(painter.font())
-        font.setPixelSize(32)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.drawText(rect, Qt.AlignCenter, STATE_WORDS[self.state])
+        dark_text = self.state in {"starting", "on", "listening", "thinking", "speaking"}
+        ink = QColor("#1a1404") if dark_text else QColor("#f7fafc")
+        painter.setBrush(ink)
+        stem = rect.adjusted(rect.width() // 2 - 2, 6, -(rect.width() // 2 - 2), -(rect.height() // 2) + 4)
+        painter.drawRoundedRect(stem, 2, 2)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(ink, max(3, rect.width() // 12), Qt.SolidLine, Qt.RoundCap))
+        painter.drawArc(rect.adjusted(6, 6, -6, -6), 50 * 16, 280 * 16)
 
 
 class Card(QFrame):
@@ -82,3 +83,72 @@ class Card(QFrame):
         else:
             self.bar.show()
             self.bar.setValue(max(0, min(100, percent)))
+
+
+class Sparkline(QWidget):
+    """Orange line of the last two minutes. One point is added every refresh."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.values: list[float] = []
+        self.setMinimumHeight(42)
+        self.setMinimumWidth(120)
+
+    def push(self, value: float) -> None:
+        self.values.append(value)
+        del self.values[:-60]
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        if len(self.values) < 2:
+            return
+        width = max(1, self.width() - 4)
+        height = max(1, self.height() - 4)
+        low = min(self.values)
+        high = max(self.values)
+        span = high - low or 1
+        painter.setPen(QPen(QColor("#e3902f"), 2))
+        previous = None
+        for index, value in enumerate(self.values):
+            x = 2 + width * index / (len(self.values) - 1)
+            y = 2 + height * (1 - (value - low) / span)
+            if previous is not None:
+                painter.drawLine(previous[0], previous[1], x, y)
+            previous = (x, y)
+
+
+class BarChart(QWidget):
+    """Orange bars for the video-memory samples kept on screen."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.values: list[float] = []
+        self.setMinimumHeight(92)
+
+    def set_values(self, values: list[float]) -> None:
+        self.values = list(values[-40:])
+        self.update()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        if not self.values:
+            return
+        high = max(self.values) or 1
+        count = len(self.values)
+        gap = 2
+        bar_width = max(2, (self.width() - gap * count) / count)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor("#e3902f"))
+        for index, value in enumerate(self.values):
+            height = max(2, self.height() * (value / high))
+            painter.drawRoundedRect(
+                int(index * (bar_width + gap)),
+                int(self.height() - height),
+                int(bar_width),
+                int(height),
+                2,
+                2,
+            )

@@ -48,10 +48,10 @@ The picture above was taken on a computer that does not have Ollama or an NVIDIA
 
 ## What you should see
 
-- The big button says **OFF**. Its color is grey. The orb is grey too.
-- The words under it say the AI is off and nothing is listening.
-- Three cards update every 2 seconds: video memory, loaded models, and CPU / memory.
-- The other tabs (History, Memory, Voice, and so on) are labeled with the phase that will build them. They do not do anything yet.
+- The window opens **compact**. Press **Expand** for the full Home screen and the tabs.
+- The power mark says **Off**. Its color is grey. The orb is grey too.
+- The words under it say the next click. Nothing is listening.
+- Video memory, CPU, and RAM refresh every 2 seconds once the full window is open.
 
 Colors, on the button and on the orb:
 
@@ -59,32 +59,36 @@ Colors, on the button and on the orb:
 | --- | --- |
 | Grey | Off |
 | Yellow | Working (starting or stopping) |
-| Green | On, model loaded |
-| Blue | Game mode, model unloaded |
-| Red | Something needs you. Read the message under the button. |
+| Green | On. Listening, Thinking, and Speaking stay green and change the motion. |
+| Blue | Game |
+| Red | Needs you. Read the reason. |
+
+The window opens compact: power, Normal/Game, and one status line. **Expand** opens the tabs. Orange buttons are actions. The other colors are only for those states.
+
+**Choose my picture** on Home copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
 
 ## Try the power switch
 
-1. Click the big button. It turns yellow and says WAIT. BabySitter starts Ollama with **no** command window, then loads `qwen3.5:9b`. The first load can take a minute.
-2. When it works, the button turns green and says ON.
+1. Click the power mark. It turns yellow and says Working. BabySitter starts Ollama with **no** command window, then loads the model for the current level. Medium, the default, loads `gemma4:12b`. Low loads `qwen3.5:9b`. The first load can take a minute.
+2. When it works, it turns green and says On.
 3. Click it again. It unloads the model and stops Ollama. The message should say that nothing is listening on port **11434**, and it should tell you the video-memory numbers.
 4. Press **Ctrl+Alt+F12** from anywhere, even if the window is hidden. That is the emergency stop. It turns the AI fully off. **Ctrl+Alt+F11** turns it back on. You can change both keys in Settings.
-5. While the AI is on, click **Game mode**. The model unloads so a game can use the graphics card. Ollama stays running with nothing loaded. **Wake the model** loads it again.
+5. While the AI is on, click **Switch** under Game mode. The model unloads so a game can use the graphics card. Ollama stays running with nothing loaded. Click **Switch** again to load the model.
 6. Close the window with the X. The app stays in the tray (the little BS icon by the clock). Right-click that icon, or the orb, for the same power commands. **Quit** is how you actually exit.
 
 Start with Windows is **off** unless you check it in Settings. Even if you turn that on later, the AI still starts off.
 
 ## Intelligence: Low, Medium, High
 
-This is not a different brain. All three use `qwen3.5:9b`, because that is the main model and it can also look at pictures later. Only one model is allowed in memory.
+Only one model is loaded at a time. Switching levels unloads the one that is in memory first.
 
-- **Low** holds less of the conversation in mind. Lighter on the graphics card.
-- **Medium** is the everyday default.
-- **High** holds much more in mind. It uses more video memory and can be slower.
+- **Low** is `qwen3.5:9b`. Brief replies, and it can look at pictures later.
+- **Medium** is `gemma4:12b`. This is the everyday default.
+- **High** is the same writing model with a longer memory. A cloud brain is not used unless you turn it on, and it still asks first.
 
 If the AI is already on when you change this, click **Reload the model with this setting**. The model card tells you if the model is 100% on the GPU. If it is not, drop from High to Medium.
 
-`gemma4:12b` (writing and coding) and `qwen3-vl:8b` (screenshots) are not loaded in this phase. Loading either one later will unload the main model first.
+`qwen3-vl:8b` is for screenshots later. It is not loaded until you ask BabySitter to look at the screen and confirm that picture.
 
 ## Your files
 

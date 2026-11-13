@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -39,6 +39,8 @@ class Settings:
     orb_x: int | None = None
     orb_y: int | None = None
     social_search_enabled: bool = False
+    window_expanded: bool = False
+    quit_turns_ai_off: bool = True
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -54,6 +56,8 @@ class Settings:
             "orb_x": self.orb_x,
             "orb_y": self.orb_y,
             "social_search_enabled": self.social_search_enabled,
+            "window_expanded": self.window_expanded,
+            "quit_turns_ai_off": self.quit_turns_ai_off,
         }
 
 
@@ -97,6 +101,11 @@ def migrate(data: dict) -> dict:
         incoming["social_search_enabled"] = False
         incoming["schema_version"] = 2
         version = 2
+    if version < 3:
+        incoming.setdefault("window_expanded", False)
+        incoming.setdefault("quit_turns_ai_off", True)
+        incoming["schema_version"] = 3
+        version = 3
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -138,6 +147,8 @@ def settings_from_dict(data: dict) -> Settings:
         orb_x=orb_x if isinstance(orb_x, int) else None,
         orb_y=orb_y if isinstance(orb_y, int) else None,
         social_search_enabled=bool(data.get("social_search_enabled", False)),
+        window_expanded=bool(data.get("window_expanded", False)),
+        quit_turns_ai_off=bool(data.get("quit_turns_ai_off", True)),
         notices=notices,
     )
 

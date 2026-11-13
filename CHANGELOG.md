@@ -2,6 +2,19 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.3.0 — The slate window
+
+The window now follows the slate-and-orange design: top tabs, a pin rail, Home with power, intelligence, game mode, emergency stop, this PC, a hero picture, a pinboard, and what just happened.
+
+- Orange is for actions. Green, blue, yellow, and red are for state. The words are Off, Working, On, Game, and Needs you.
+- Compact shows the power row. Expand opens the tabs. The app remembers which one you used.
+- Low loads qwen3.5:9b. Medium and High load gemma4:12b. Only one model is loaded at a time.
+- Hold to talk, typed commands, reminders, memory, pins, a screen look, and the model list do something and tell you what happened. A reminder is saved only after you confirm.
+- Voice choices can be saved. Speaking them waits until a voice engine is installed. There is no voice cloning.
+- Choose my picture copies a photo into your BabySitter folder. It is not uploaded.
+
+Speech-to-text, Kokoro, speaker recognition, session refresh, and the updater are not running yet.
+
 ## 0.2.1 — Privacy line
 
 Home now says when BabySitter is private to this computer. Social search stays the only optional path off the PC, and the Tools tab says it never includes files, the screen, memory, or what you say to the assistant. There is still no usage data and no phone-home.

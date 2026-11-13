@@ -1,11 +1,11 @@
 """How hard the assistant thinks.
 
-Only one model is loaded at a time, and the main model is the one that can
-also look at pictures later. Low, Medium, and High do not swap in a second
-model. They change how much of the conversation that one model can hold.
+Only one model is loaded at a time. Switching Low, Medium, or High unloads
+the model that is in memory before the next one loads.
 
-A bigger number uses more video memory and can answer with more of the
-recent conversation in mind. It is not a different brain.
+Low is the fast main model. Medium and High use the writing model. High
+holds more of the conversation. A cloud brain, if you turn one on later,
+still has to ask before every send. It is not the default.
 """
 
 from __future__ import annotations
@@ -34,28 +34,25 @@ MODES: dict[str, IntelligenceMode] = {
     "low": IntelligenceMode(
         id="low",
         label="Low",
-        summary=(
-            "Quicker, and lighter on the graphics card. "
-            "It holds less of the conversation in mind."
-        ),
+        summary="Brief replies. Fastest. Uses qwen3.5:9b, which can also look at pictures.",
         model=MAIN_MODEL,
         num_ctx=4096,
     ),
     "medium": IntelligenceMode(
         id="medium",
         label="Medium",
-        summary="Everyday balance of speed and memory. This is the default.",
-        model=MAIN_MODEL,
+        summary="Everyday answers, including writing. Uses gemma4:12b. This is the default.",
+        model=WRITING_MODEL,
         num_ctx=8192,
     ),
     "high": IntelligenceMode(
         id="high",
         label="High",
         summary=(
-            "Holds much more of the conversation in mind. "
-            "Uses more video memory and the first reply can be slower."
+            "The writing model with a longer memory. Uses more video memory. "
+            "A cloud brain is not used unless you turn it on, and it still asks first."
         ),
-        model=MAIN_MODEL,
+        model=WRITING_MODEL,
         num_ctx=16384,
     ),
 }
