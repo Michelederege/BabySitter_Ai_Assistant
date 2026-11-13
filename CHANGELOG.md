@@ -1,6 +1,16 @@
 # Changelog
 
-BabySitter uses version numbers like v1.2.3. Phase 1 is 0.1.0 because the voice loop is not in yet.
+BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
+
+## 0.2.0 — Social search
+
+Optional public social search on the Tools tab. It uses the ScrapeCreators API, the same data layer as the skills at https://github.com/ScrapeCreators/social-media-research-skills
+
+- Off until you check "Turn on social search".
+- You confirm every search. The window shows the exact words and the address before anything is sent.
+- The API key is encrypted with Windows DPAPI. It is not stored in settings.json and it is not written in the log.
+- Searches cover public posts, public profiles, public comments, and one public video transcript. Follower lists and age or gender guesses are not included.
+- The longer research recipes (outlier posts, ad libraries, and the rest) wait until the assistant can talk.
 
 ## 0.1.0 — Phase 1
 
@@ -23,4 +33,4 @@ The power switch, the floating orb, and the status board. The microphone is not 
 
 ## Later
 
-Voice, memory, the pinboard, tools, history, and the updater are not built yet. They wait until this phase is confirmed.
+Voice, memory, the pinboard, reminders, history, and the updater are not built yet. Social search is the one tool that is in.

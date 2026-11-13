@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from babysitter.ui.pages.home import HomePage
 from babysitter.ui.pages.settings_page import SettingsPage
 from babysitter.ui.pages.soon import SoonPage
+from babysitter.ui.pages.tools_page import ToolsPage
 from babysitter.version import __version__
 
 
@@ -60,11 +61,12 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.home = HomePage()
         self.settings_page = SettingsPage()
+        self.tools_page = ToolsPage()
         pages: list[tuple[str, QWidget, str]] = [
             ("Home", self.home, "Power, game mode, and live status."),
             ("History", SoonPage("History", "Phase 6", "Past sessions will be listed here as readable transcripts. You will be able to search, export, or delete them."), "Not built yet."),
             ("Memory", SoonPage("Memory", "Phase 4", "Facts you agree to remember will be listed here. Nothing from a conversation is saved yet."), "Not built yet."),
-            ("Tools", SoonPage("Tools", "Phase 5", "Reminders and other actions will live here. The assistant will ask before it does anything."), "Not built yet."),
+            ("Tools", self.tools_page, "Optional public social search. Off until you turn it on."),
             ("Voice", SoonPage("Voice", "Phase 2", "Microphone, speech-to-text, and voices will be set up here. The microphone is closed in this phase. Voice cloning will not be added."), "Not built yet."),
             ("Screen", SoonPage("Screen", "Phase 5", "Looking at your screen will be something you start yourself. Nothing is captured on its own, and screenshots are not saved to disk."), "Not built yet."),
             ("PC Health", SoonPage("PC Health", "Phase 5", "Read-only checks of memory, startup programs, and RAM speed will be here. BabySitter will not change the PC for you."), "Not built yet."),
@@ -86,7 +88,7 @@ class MainWindow(QMainWindow):
                 button.setChecked(True)
         self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
         side.addStretch(1)
-        version = QLabel(f"Phase 1  ·  v{__version__}")
+        version = QLabel(f"v{__version__}")
         version.setObjectName("section")
         version.setWordWrap(True)
         version.setToolTip("The version lives in one file: src/babysitter/version.py.")

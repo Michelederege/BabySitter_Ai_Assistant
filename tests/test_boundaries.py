@@ -20,6 +20,9 @@ def test_http_targets_are_local_or_documented_pages():
         "http://127.0.0.1",
         "https://ollama.com",
         "https://github.com/ollama/ollama",
+        # Optional social search. Off unless the user turns it on.
+        "https://api.scrapecreators.com",
+        "https://github.com/ScrapeCreators/social-media-research-skills",
         # Built only after the host is checked to be 127.0.0.1.
         "http://{self.host}:{self.port}",
     )

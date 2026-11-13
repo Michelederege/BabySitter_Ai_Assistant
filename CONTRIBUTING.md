@@ -20,11 +20,12 @@ src/babysitter/
   games.py            "is this program name running?"
   audio.py            the microphone hook. Phase 1 does not open the mic
   platform.py         no console windows, low priority, Start with Windows
-  security.py         localhost only
+  security.py         localhost, plus the optional ScrapeCreators host
+  secrets.py          Windows DPAPI for the social-search key
   startupcheck.py     Ollama version, and the 0.17.1 warning
   paths.py            %LOCALAPPDATA%\BabySitter
   plugins/voice/      empty socket for voice engines (Phase 2)
-  plugins/tools/      empty socket for actions (Phase 5)
+  plugins/tools/      social search (off by default). Other actions are still later
   ui/                 the window, the orb, the tray
 assets/               the BS icon. Replace icon.png and icon.ico with a new design
 installer/            Inno Setup script

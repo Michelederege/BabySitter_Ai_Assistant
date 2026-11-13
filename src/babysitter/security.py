@@ -1,12 +1,16 @@
-"""Small rules that keep the assistant on this computer.
+"""Small rules about who BabySitter is allowed to talk to.
 
-Phase 1 only talks to Ollama at 127.0.0.1. It does not phone home.
+Ollama stays on this computer (127.0.0.1). Social search, if you turn it
+on, may also talk to api.scrapecreators.com. Nothing else.
 """
 
 from __future__ import annotations
 
+import urllib.parse
+
 LOCAL_HOST = "127.0.0.1"
 OLLAMA_PORT = 11434
+SCRAPECREATORS_HOST = "api.scrapecreators.com"
 LOCAL_BINDINGS = {"127.0.0.1", "::1", "localhost"}
 # 0.0.0.0 and :: mean "every network interface", which is not private.
 PUBLIC_BINDINGS = {"0.0.0.0", "::", ""}
@@ -28,3 +32,13 @@ def bind_is_private(addresses: list[str]) -> bool:
 
 def bind_is_public(addresses: list[str]) -> bool:
     return any(address in PUBLIC_BINDINGS for address in addresses)
+
+
+def require_scrapecreators_url(url: str) -> None:
+    """Reject any social-search address that is not the ScrapeCreators API."""
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host != SCRAPECREATORS_HOST:
+        raise ValueError("Social search only talks to api.scrapecreators.com.")
+    if parsed.username or parsed.password:
+        raise ValueError("That address is not allowed.")

@@ -42,6 +42,17 @@ def settings_path() -> Path:
     return data_dir() / "settings.json"
 
 
+def secrets_dir() -> Path:
+    path = data_dir() / "secrets"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def scrapecreators_key_path() -> Path:
+    """Encrypted ScrapeCreators key. Not settings.json, and not plain text."""
+    return secrets_dir() / "scrapecreators.dpapi"
+
+
 def ollama_log_path() -> Path:
     return logs_dir() / "ollama-serve.log"
 

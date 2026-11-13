@@ -1,8 +1,8 @@
 """The shape every tool has to follow.
 
-A tool does something beyond talking (a reminder, a web search, a screen
-look). The app must show the user what it heard and what it will do, and
-wait for a yes, before `run` is called. Nothing in Phase 1 calls `run`.
+A tool does something beyond talking (a reminder, a search, a screen
+look). The app must show the user exactly what will be sent, and wait
+for a yes, before `run` is called.
 """
 
 from __future__ import annotations

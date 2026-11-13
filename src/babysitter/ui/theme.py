@@ -107,7 +107,7 @@ QToolTip {
     border: 1px solid #ff5d5d;
     border-radius: 12px;
 }
-#appRoot QPlainTextEdit, #appRoot QListWidget, #appRoot QLineEdit {
+#appRoot QPlainTextEdit, #appRoot QListWidget, #appRoot QLineEdit, #appRoot QComboBox {
     background-color: #10151c;
     color: #e8eef7;
     border: 1px solid #2a3344;
@@ -115,6 +115,12 @@ QToolTip {
     padding: 6px;
     selection-background-color: #145e52;
 }
+#appRoot QComboBox QAbstractItemView {
+    background-color: #10151c;
+    color: #e8eef7;
+    selection-background-color: #145e52;
+}
+#appRoot QScrollArea { border: none; background: transparent; }
 #appRoot QCheckBox { font-size: 15px; spacing: 8px; background: transparent; }
 #appRoot QProgressBar {
     background-color: #10151c;
