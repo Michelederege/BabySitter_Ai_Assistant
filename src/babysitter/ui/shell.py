@@ -34,6 +34,9 @@ from babysitter.plugins.voice.hearing import (
     packages_installed,
     transcribe,
 )
+from babysitter.plugins.voice.kokoro_voice import KokoroError, download as download_kokoro
+from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
+from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
 from babysitter.plugins.voice.speech import first_sentence, sapi_rate
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
@@ -100,24 +103,42 @@ class _AskJob(QThread):
             prompt = ""
 
 
+class _KokoroDownloadJob(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            self.succeeded.emit(download_kokoro())
+        except KokoroError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
 class _SpeakJob(QThread):
     failed = Signal(str)
 
-    def __init__(self, text: str, voice: str, rate: int) -> None:
+    def __init__(self, text: str, prefs: dict) -> None:
         super().__init__()
         self._text = text
-        self._voice = voice
-        self._rate = rate
+        self._prefs = prefs
 
     def run(self) -> None:
         text = self._text
         self._text = ""
+        prefs = self._prefs
         try:
-            speaker.speak(text, voice=self._voice, rate=self._rate)
-        except WindowsVoiceError as exc:
+            if prefs.get("engine") == "windows":
+                speaker.speak(text, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
+            else:
+                from babysitter.plugins.voice.kokoro_voice import speak as speak_kokoro
+
+                speak_kokoro(text, prefs.get("name", ""), prefs.get("speed", 105), prefs.get("pitch", -1))
+        except (WindowsVoiceError, KokoroError) as exc:
             self.failed.emit(str(exc))
-        except Exception:
-            self.failed.emit("The Windows voice could not speak.")
+        except Exception as exc:
+            self.failed.emit(str(exc) or "The voice could not speak.")
         finally:
             text = ""
 
@@ -667,6 +688,7 @@ class Shell:
         if getattr(self, "_holding", False):
             return
         speaker.stop()
+        stop_kokoro()
         if getattr(self, "_listener", None) is not None:
             self._listener.stop()
         if self.controller.state != "on":
@@ -844,7 +866,7 @@ class Shell:
         self.window.home.set_phase(
             "on",
             f"Say “{word}” and the command in one sentence. "
-            "For example: hey babysitter what time is it. The sound stays on this PC and is not saved.",
+            "For example: baby sitter what time is it. The sound stays on this PC and is not saved.",
         )
 
     def _keyword_failed(self, message: str) -> None:
@@ -1055,40 +1077,107 @@ class Shell:
             return
         self.window.models_page.body.setPlainText("\n".join(names))
 
-    def _voice_prefs(self) -> tuple[str, int]:
+    def _voice_prefs(self) -> dict:
         path = data_dir() / "voice.json"
-        voice = ""
-        speed = 100
+        saved: dict = {}
         if path.is_file():
             try:
-                saved = json.loads(path.read_text(encoding="utf-8"))
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    saved = loaded
             except (OSError, json.JSONDecodeError):
                 saved = {}
-            name = str(saved.get("voice") or "")
-            if name.startswith("Microsoft"):
-                voice = name
-            try:
-                speed = int(saved.get("speed") or 100)
-            except (TypeError, ValueError):
-                speed = 100
-        return voice, sapi_rate(speed)
+        name = str(saved.get("voice") or "Heart & Sarah blend")
+        try:
+            speed = int(saved.get("speed") or 105)
+        except (TypeError, ValueError):
+            speed = 105
+        try:
+            pitch = int(saved.get("pitch") or -1)
+        except (TypeError, ValueError):
+            pitch = -1
+        if name.startswith("Microsoft"):
+            return {
+                "engine": "windows",
+                "name": name,
+                "windows_voice": name,
+                "speed": speed,
+                "pitch": pitch,
+                "rate": sapi_rate(speed),
+                "label": name,
+            }
+        return {
+            "engine": "kokoro",
+            "name": name,
+            "speed": speed,
+            "pitch": pitch,
+            "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
+        }
 
     def _speak(self, text: str) -> None:
         self._speaking = True
+        self._pending_speech = text
         if getattr(self, "_listener", None) is not None:
             self._listener.stop()
-        if sys.platform != "win32":
+        prefs = self._voice_prefs()
+        if prefs["engine"] == "kokoro" and not kokoro_ready():
+            self._offer_kokoro()
+            return
+        if prefs["engine"] == "windows" and sys.platform != "win32":
             self._speaking = False
             self._sync_keyword()
             return
-        voice, rate = self._voice_prefs()
-        job = _SpeakJob(text, voice, rate)
+        self._start_speech(text, prefs)
+
+    def _offer_kokoro(self) -> None:
+        agreed = ask_yes_no(
+            self.window,
+            "Download Heart and Sarah?",
+            "The voice you picked is Heart and Sarah. It is not on this PC yet, "
+            "so the reply was spoken with a Windows voice instead. "
+            "Downloading keeps that voice on this PC. It uses the processor, not the graphics card.",
+            "Download Heart and Sarah",
+            "Not now",
+        )
+        if not agreed:
+            self._speaking = False
+            self.window.home.set_phase(
+                "on",
+                "Heart and Sarah is not downloaded, so nothing was spoken with that voice.",
+            )
+            self._sync_keyword()
+            return
+        job = _KokoroDownloadJob()
+        self._kokoro_job = job
+        self.window.home.set_phase("on", "Downloading Heart and Sarah onto this PC. This can take a few minutes.")
+        job.succeeded.connect(self._kokoro_ready)
+        job.failed.connect(self._kokoro_failed)
+        job.start()
+
+    def _kokoro_ready(self, _message: str) -> None:
+        text = getattr(self, "_pending_speech", "")
+        self._start_speech(text, self._voice_prefs())
+
+    def _kokoro_failed(self, message: str) -> None:
+        self._speaking = False
+        self.window.home.set_phase("on", message)
+        self._sync_keyword()
+
+    def _start_speech(self, text: str, prefs: dict) -> None:
+        if not text:
+            self._speaking = False
+            self._sync_keyword()
+            return
+        job = _SpeakJob(text, prefs)
         self._speak_job = job
         self.orb.set_state("speaking", text)
-        self.window.home.set_phase("speaking", "Speaking with the Windows voice on this PC.")
-        job.failed.connect(lambda message: self.window.home.set_phase(self.controller.state, message))
+        self.window.home.set_phase("speaking", f"Speaking with {prefs['label']}.")
+        job.failed.connect(self._speech_failed)
         job.finished.connect(self._speak_done)
         job.start()
+
+    def _speech_failed(self, message: str) -> None:
+        self.window.home.set_phase(self.controller.state, message)
 
     def _speak_done(self) -> None:
         self._speaking = False
@@ -1101,9 +1190,8 @@ class Shell:
                 "This computer is not Windows, so the preview stayed on screen: Fresh start, I kept the important bits."
             )
             return
-        self.window.voice_page.status.setText(
-            "Speaking with the Windows voice. Kokoro is not installed yet, so the preview uses the voice already on this PC."
-        )
+        prefs = self._voice_prefs()
+        self.window.voice_page.status.setText(f"Speaking with {prefs['label']}.")
         self._speak("Fresh start, I kept the important bits.")
 
     def _install_hearing(self) -> None:

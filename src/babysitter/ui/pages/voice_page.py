@@ -122,8 +122,8 @@ class VoicePage(QWidget):
         path = data_dir() / "voice.json"
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         self.status.setText(
-            f"Saved {payload['voice']} on this PC. "
-            "Preview speaks with the Windows voice. Kokoro is not installed yet, so a Kokoro name uses the Windows voice instead."
+            f"Saved {payload['voice']} on this PC. Preview uses that voice. "
+            "The first time, BabySitter asks before downloading Heart and Sarah."
         )
         self.notice.emit(self.status.text())
 

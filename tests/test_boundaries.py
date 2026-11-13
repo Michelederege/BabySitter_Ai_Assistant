@@ -25,6 +25,9 @@ def test_http_targets_are_local_or_documented_pages():
         "https://github.com/ScrapeCreators/social-media-research-skills",
         # The local keyword model, downloaded only after a confirm click.
         "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",
+        # Heart and Sarah voice files, downloaded only after a confirm click.
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
+        "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
         # Built only after the host is checked to be 127.0.0.1.
         "http://{self.host}:{self.port}",
     )

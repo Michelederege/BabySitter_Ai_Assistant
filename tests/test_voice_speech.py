@@ -24,10 +24,10 @@ def test_speed_slider_maps_onto_the_windows_rate():
 
 
 def test_keyword_splits_the_question_off_the_wake_words():
-    assert command_after_keyword("hey babysitter what time is it", "hey babysitter") == "what time is it"
-    assert command_after_keyword("hey baby sitter what time is it", "hey babysitter") == "what time is it"
-    assert command_after_keyword("what time is it", "hey babysitter") is None
-    assert command_after_keyword("hey babysitter", "hey babysitter") == ""
+    assert command_after_keyword("baby sitter what time is it", "baby sitter") == "what time is it"
+    assert command_after_keyword("babysitter what time is it", "baby sitter") == "what time is it"
+    assert command_after_keyword("what time is it", "baby sitter") is None
+    assert command_after_keyword("baby sitter", "baby sitter") == ""
 
 
 def test_spoken_words_are_not_placed_on_the_command():

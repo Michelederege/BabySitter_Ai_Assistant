@@ -24,7 +24,7 @@ from babysitter.security import require_keyword_model_url
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 MODEL_NAME = "vosk-model-small-en-us-0.15"
 KEYWORD_PACKAGES = ("vosk==0.3.45", "sounddevice==0.5.6")
-DEFAULT_KEYWORD = "hey babysitter"
+DEFAULT_KEYWORD = "baby sitter"
 
 
 class KeywordError(Exception):
@@ -34,24 +34,23 @@ class KeywordError(Exception):
 def clean_keyword(text: str) -> str:
     words = re.findall(r"[a-z]+", (text or "").lower())
     if not 1 <= len(words) <= 4:
-        raise KeywordError("Use one to four words, such as hey babysitter.")
+        raise KeywordError("Use one to four words, such as baby sitter.")
     if any(len(word) < 2 or len(word) > 20 for word in words):
         raise KeywordError("Each word should be between 2 and 20 letters.")
     return " ".join(words)
 
 
-def _heard_words(text: str) -> list[str]:
+def _tokens(text: str) -> list[str]:
+    """One form for “baby sitter” and “babysitter”."""
     words = re.findall(r"[a-z']+", (text or "").lower())
     heard: list[str] = []
-    index = 0
-    while index < len(words):
-        if index + 1 < len(words) and words[index] == "baby" and words[index + 1] == "sitter":
-            heard.append("babysitter")
-            index += 2
+    for word in words:
+        if word == "unk":
             continue
-        if words[index] != "unk":
-            heard.append(words[index])
-        index += 1
+        if word == "babysitter":
+            heard.extend(["baby", "sitter"])
+        else:
+            heard.append(word)
     return heard
 
 
@@ -61,8 +60,8 @@ def command_after_keyword(text: str, keyword: str) -> str | None:
     None means the keyword was not heard. An empty string means only the
     keyword was heard, so the command can still follow after a short pause.
     """
-    words = _heard_words(text)
-    key = clean_keyword(keyword).split()
+    words = _tokens(text)
+    key = _tokens(clean_keyword(keyword))
     for index in range(len(words) - len(key) + 1):
         if words[index : index + len(key)] == key:
             return " ".join(words[index + len(key) :]).strip()
