@@ -40,13 +40,28 @@ def clean_keyword(text: str) -> str:
     return " ".join(words)
 
 
-def command_after_keyword(text: str, keyword: str) -> str | None:
-    """Return the words after the keyword.
-
-    None means the keyword was not in the text. An empty string means the
-    keyword was heard alone, so the question still has to be captured.
-    """
+def _heard_words(text: str) -> list[str]:
     words = re.findall(r"[a-z']+", (text or "").lower())
+    heard: list[str] = []
+    index = 0
+    while index < len(words):
+        if index + 1 < len(words) and words[index] == "baby" and words[index + 1] == "sitter":
+            heard.append("babysitter")
+            index += 2
+            continue
+        if words[index] != "unk":
+            heard.append(words[index])
+        index += 1
+    return heard
+
+
+def command_after_keyword(text: str, keyword: str) -> str | None:
+    """Return the words spoken after the keyword in the same sentence.
+
+    None means the keyword was not heard. An empty string means only the
+    keyword was heard, so the command can still follow after a short pause.
+    """
+    words = _heard_words(text)
     key = clean_keyword(keyword).split()
     for index in range(len(words) - len(key) + 1):
         if words[index : index + len(key)] == key:
@@ -105,7 +120,7 @@ def download_model() -> str:
             archive.unlink()
     if not model_ready():
         raise KeywordError("The keyword model downloaded, but it was not usable.")
-    return "Keyword listening is ready. Say the keyword, then your question."
+    return "Keyword listening is ready. Say the keyword and the command in one sentence."
 
 
 def _safe_extract(archive: Path, destination: Path) -> None:
@@ -156,7 +171,6 @@ class KeywordListener:
             from vosk import KaldiRecognizer, Model
 
             model = Model(str(model_dir()))
-            grammar = json.dumps([keyword, "[unk]"])
             audio: queue.Queue[bytes] = queue.Queue()
 
             def on_audio(indata, _frames, _time, status) -> None:
@@ -171,7 +185,7 @@ class KeywordListener:
                 channels=1,
                 callback=on_audio,
             ):
-                recognizer = KaldiRecognizer(model, 16000, grammar)
+                recognizer = KaldiRecognizer(model, 16000)
                 on_status("armed")
                 while not self._stop.is_set():
                     try:
@@ -189,7 +203,7 @@ class KeywordListener:
                         command = self._capture_question(model, audio)
                     if command and not self._stop.is_set():
                         on_phrase(command)
-                    recognizer = KaldiRecognizer(model, 16000, grammar)
+                    recognizer = KaldiRecognizer(model, 16000)
                     if not self._stop.is_set():
                         on_status("armed")
         except Exception as exc:

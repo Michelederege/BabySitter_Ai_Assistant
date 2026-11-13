@@ -843,7 +843,8 @@ class Shell:
         self.orb.set_state("on", f"Say {word}")
         self.window.home.set_phase(
             "on",
-            f"Say “{word}”, then your question. The sound stays on this PC and is not saved.",
+            f"Say “{word}” and the command in one sentence. "
+            "For example: hey babysitter what time is it. The sound stays on this PC and is not saved.",
         )
 
     def _keyword_failed(self, message: str) -> None:
