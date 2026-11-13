@@ -1,3 +1,4 @@
+from babysitter.plugins.voice.keyword import command_after_keyword
 from babysitter.plugins.voice.speech import first_sentence, for_speech, sapi_rate
 from babysitter.plugins.voice.windows_voice import speak_command
 
@@ -20,6 +21,12 @@ def test_speed_slider_maps_onto_the_windows_rate():
     assert sapi_rate(100) == 0
     assert sapi_rate(80) == -4
     assert sapi_rate(130) == 6
+
+
+def test_keyword_splits_the_question_off_the_wake_words():
+    assert command_after_keyword("hey babysitter what time is it", "hey babysitter") == "what time is it"
+    assert command_after_keyword("what time is it", "hey babysitter") is None
+    assert command_after_keyword("hey babysitter", "hey babysitter") == ""
 
 
 def test_spoken_words_are_not_placed_on_the_command():

@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -41,6 +41,8 @@ class Settings:
     social_search_enabled: bool = False
     window_expanded: bool = False
     quit_turns_ai_off: bool = True
+    keyword_listening: bool = False
+    keyword: str = "hey babysitter"
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -58,6 +60,8 @@ class Settings:
             "social_search_enabled": self.social_search_enabled,
             "window_expanded": self.window_expanded,
             "quit_turns_ai_off": self.quit_turns_ai_off,
+            "keyword_listening": self.keyword_listening,
+            "keyword": self.keyword,
         }
 
 
@@ -106,11 +110,26 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("quit_turns_ai_off", True)
         incoming["schema_version"] = 3
         version = 3
+    if version < 4:
+        incoming.setdefault("keyword_listening", False)
+        incoming.setdefault("keyword", "hey babysitter")
+        incoming["schema_version"] = 4
+        version = 4
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
     incoming["schema_version"] = SCHEMA_VERSION
     return incoming
+
+
+def _clean_keyword(value: object, notices: list[str]) -> str:
+    from babysitter.plugins.voice.keyword import DEFAULT_KEYWORD, KeywordError, clean_keyword
+
+    try:
+        return clean_keyword(str(value or DEFAULT_KEYWORD))
+    except KeywordError as exc:
+        notices.append(f"{exc} Using hey babysitter.")
+        return DEFAULT_KEYWORD
 
 
 def settings_from_dict(data: dict) -> Settings:
@@ -149,6 +168,8 @@ def settings_from_dict(data: dict) -> Settings:
         social_search_enabled=bool(data.get("social_search_enabled", False)),
         window_expanded=bool(data.get("window_expanded", False)),
         quit_turns_ai_off=bool(data.get("quit_turns_ai_off", True)),
+        keyword_listening=bool(data.get("keyword_listening", False)),
+        keyword=_clean_keyword(data.get("keyword"), notices),
         notices=notices,
     )
 

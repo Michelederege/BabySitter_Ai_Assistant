@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.5.0 — Say a keyword instead of holding a button
+
+Keyword listening is off until you turn it on. While it is on, and the AI is on, the microphone stays open for the keyword (hey babysitter, unless you change it). The sound is checked on this PC. It is not saved and it is not sent. The orb shows when it is listening. Hold to talk is still there as a backup. Game mode and Off close the microphone.
+
 ## 0.4.0 — The Windows voice, and a download for hearing
 
 Replies can be spoken with the Windows voice already on your PC. Kokoro is not installed yet, so a Kokoro name uses that Windows voice instead. Holding Talk does not open the microphone until you click Download speech recognition on the Voice tab. That download stays on this PC and runs on the processor, not the graphics card.

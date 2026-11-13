@@ -11,6 +11,7 @@ import urllib.parse
 LOCAL_HOST = "127.0.0.1"
 OLLAMA_PORT = 11434
 SCRAPECREATORS_HOST = "api.scrapecreators.com"
+KEYWORD_MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
 LOCAL_BINDINGS = {"127.0.0.1", "::1", "localhost"}
 # 0.0.0.0 and :: mean "every network interface", which is not private.
 PUBLIC_BINDINGS = {"0.0.0.0", "::", ""}
@@ -32,6 +33,12 @@ def bind_is_private(addresses: list[str]) -> bool:
 
 def bind_is_public(addresses: list[str]) -> bool:
     return any(address in PUBLIC_BINDINGS for address in addresses)
+
+
+def require_keyword_model_url(url: str) -> None:
+    """The keyword model has one allowed address, and only after you confirm."""
+    if url != KEYWORD_MODEL_URL:
+        raise ValueError("That model download is not allowed.")
 
 
 def require_scrapecreators_url(url: str) -> None:
