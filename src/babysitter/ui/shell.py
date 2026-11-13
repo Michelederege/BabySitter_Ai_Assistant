@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRect, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QRect, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
@@ -17,6 +17,14 @@ from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
+from babysitter.plugins.voice.keyword import (
+    KeywordError,
+    KeywordListener,
+    clean_keyword,
+    download_model as download_keyword_model,
+    model_ready as keyword_model_ready,
+    packages_installed as keyword_packages_installed,
+)
 from babysitter.plugins.voice.hearing import (
     HearingError,
     Recorder,
@@ -47,6 +55,25 @@ from babysitter.ui.main_window import MainWindow
 from babysitter.ui.orb import Orb
 from babysitter.ui.theme import STATE_WORDS
 from babysitter.ui.tray import Tray
+
+
+class _KeywordHub(QObject):
+    phrase = Signal(str)
+    status = Signal(str)
+    failed = Signal(str)
+
+
+class _KeywordDownloadJob(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            self.succeeded.emit(download_keyword_model())
+        except KeywordError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class _AskJob(QThread):
@@ -266,6 +293,14 @@ class Shell:
         if hero_path().is_file():
             self.window.home.set_hero(str(hero_path()))
         self._recorder = Recorder()
+        self._listener = KeywordListener()
+        self._keyword_hub = _KeywordHub()
+        self._keyword_hub.phrase.connect(self._heard)
+        self._keyword_hub.status.connect(self._keyword_status)
+        self._keyword_hub.failed.connect(self._keyword_failed)
+        home.keyword_button.toggled.connect(self._toggle_keyword)
+        home.keyword_edit.editingFinished.connect(self._save_keyword)
+        self._show_keyword()
         self._ptt_timer = QTimer(self.window)
         self._ptt_timer.timeout.connect(self._ptt_tick)
         self._ptt_timer.start(40)
@@ -368,6 +403,7 @@ class Shell:
         self.window.set_chip(state, STATE_WORDS.get(state, "ERROR"))
         word = STATE_WORDS.get(state, "Needs you")
         self.tray.set_tooltip(f"BabySitter: {word}. {message}")
+        self._sync_keyword()
         self.window.home.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
@@ -631,6 +667,8 @@ class Shell:
         if getattr(self, "_holding", False):
             return
         speaker.stop()
+        if getattr(self, "_listener", None) is not None:
+            self._listener.stop()
         if self.controller.state != "on":
             self.window.home.set_reply(
                 "nothing",
@@ -678,6 +716,7 @@ class Shell:
                 "I didn't hear words.",
                 "Open the Voice tab and click Download speech recognition. Nothing was sent.",
             )
+            self._sync_keyword()
             return
         self.orb.set_state("thinking", "Turning speech into text on this PC.")
         self.window.home.set_phase("thinking", "The microphone is closed. Nothing has been sent yet.")
@@ -688,10 +727,13 @@ class Shell:
         job.start()
 
     def _heard(self, text: str) -> None:
+        if getattr(self, "_listener", None) is not None:
+            self._listener.stop()
         text = (text or "").strip()
         if not text:
             self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
-            self.orb.set_state(self.controller.state, "Hold to talk")
+            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._sync_keyword()
             return
         self._pending_line = text
         self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
@@ -702,7 +744,114 @@ class Shell:
 
     def _hear_failed(self, message: str) -> None:
         self.window.home.set_reply("(no words yet)", "I didn't hear words.", message)
-        self.orb.set_state(self.controller.state, "Hold to talk")
+        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._sync_keyword()
+
+    def _show_keyword(self) -> None:
+        settings = self.controller.settings
+        button = self.window.home.keyword_button
+        edit = self.window.home.keyword_edit
+        button.blockSignals(True)
+        edit.blockSignals(True)
+        button.setChecked(settings.keyword_listening)
+        button.setText("Listening for the keyword" if settings.keyword_listening else "Listen for a keyword")
+        edit.setText(settings.keyword)
+        button.blockSignals(False)
+        edit.blockSignals(False)
+
+    def _save_keyword(self) -> None:
+        try:
+            word = clean_keyword(self.window.home.keyword_edit.text())
+        except KeywordError as exc:
+            show_copyable(self.window, "That keyword was not saved", str(exc))
+            self.window.home.keyword_edit.setText(self.controller.settings.keyword)
+            return
+        self.controller.settings.keyword = word
+        save_settings(self.controller.settings)
+        if self._listener.running:
+            self._listener.stop()
+        self._sync_keyword()
+
+    def _toggle_keyword(self, on: bool) -> None:
+        self.controller.settings.keyword_listening = bool(on)
+        save_settings(self.controller.settings)
+        self._show_keyword()
+        if on and not (keyword_packages_installed() and keyword_model_ready()):
+            self._download_keyword()
+            return
+        self._sync_keyword()
+
+    def _download_keyword(self) -> None:
+        agreed = ask_yes_no(
+            self.window,
+            "Listen for a keyword?",
+            "The microphone stays open while this is on, so BabySitter can hear the keyword. "
+            "The sound is checked on this PC. It is not saved and it is not sent. "
+            "The first time also downloads a small model onto this PC.\n\n"
+            f"The keyword is “{self.controller.settings.keyword}”.",
+            "Turn listening on",
+            "Leave the microphone closed",
+        )
+        if not agreed:
+            self.controller.settings.keyword_listening = False
+            save_settings(self.controller.settings)
+            self._show_keyword()
+            self.window.home.set_phase("on", "Keyword listening is off. The microphone is closed.")
+            return
+        job = _KeywordDownloadJob()
+        self._keyword_job = job
+        self.window.home.set_phase("on", "Downloading the keyword model onto this PC.")
+        job.succeeded.connect(self._keyword_downloaded)
+        job.failed.connect(self._keyword_download_failed)
+        job.start()
+
+    def _keyword_downloaded(self, message: str) -> None:
+        self.window.home.set_phase("on", message)
+        self._sync_keyword()
+
+    def _keyword_download_failed(self, message: str) -> None:
+        self.controller.settings.keyword_listening = False
+        save_settings(self.controller.settings)
+        self._show_keyword()
+        self.window.home.set_phase("on", message)
+
+    def _sync_keyword(self) -> None:
+        if getattr(self, "_listener", None) is None:
+            return
+        busy = getattr(self, "_speaking", False) or getattr(self, "_holding", False)
+        settings = self.controller.settings
+        ready = keyword_packages_installed() and keyword_model_ready()
+        if not busy and settings.keyword_listening and self.controller.state == "on" and ready:
+            try:
+                self._listener.start(
+                    settings.keyword,
+                    self._keyword_hub.phrase.emit,
+                    self._keyword_hub.status.emit,
+                    self._keyword_hub.failed.emit,
+                )
+            except KeywordError as exc:
+                self._keyword_failed(str(exc))
+            return
+        self._listener.stop()
+
+    def _keyword_status(self, status: str) -> None:
+        word = self.controller.settings.keyword
+        if status == "capturing":
+            self.orb.set_state("listening", "Listening to the question.")
+            self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
+            return
+        self.orb.set_state("on", f"Say {word}")
+        self.window.home.set_phase(
+            "on",
+            f"Say “{word}”, then your question. The sound stays on this PC and is not saved.",
+        )
+
+    def _keyword_failed(self, message: str) -> None:
+        self._listener.stop()
+        self.controller.settings.keyword_listening = False
+        save_settings(self.controller.settings)
+        self._show_keyword()
+        self.window.home.set_phase("on", message)
 
     def _on_command(self, text: str) -> None:
         text = text.strip()
@@ -742,10 +891,15 @@ class Shell:
         job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx)
         self._ask_job = job
         job.succeeded.connect(self._asked)
-        job.failed.connect(lambda message: self.window.home.set_reply(text, "The model did not answer.", message))
+        job.failed.connect(lambda message, heard=text: self._ask_failed(heard, message))
         self.orb.set_state("thinking", "Thinking.")
         self.window.home.set_phase("thinking", "Asking the model on this PC.")
         job.start()
+
+    def _ask_failed(self, heard: str, message: str) -> None:
+        self.window.home.set_reply(heard, "The model did not answer.", message)
+        self._speaking = False
+        self._sync_keyword()
 
     def _asked(self, reply: str) -> None:
         spoken = reply.split(". ")[0].strip()
@@ -919,8 +1073,12 @@ class Shell:
         return voice, sapi_rate(speed)
 
     def _speak(self, text: str) -> None:
+        self._speaking = True
+        if getattr(self, "_listener", None) is not None:
+            self._listener.stop()
         if sys.platform != "win32":
-            self.orb.set_state(self.controller.state, "Hold to talk")
+            self._speaking = False
+            self._sync_keyword()
             return
         voice, rate = self._voice_prefs()
         job = _SpeakJob(text, voice, rate)
@@ -928,8 +1086,13 @@ class Shell:
         self.orb.set_state("speaking", text)
         self.window.home.set_phase("speaking", "Speaking with the Windows voice on this PC.")
         job.failed.connect(lambda message: self.window.home.set_phase(self.controller.state, message))
-        job.finished.connect(lambda: self.orb.set_state(self.controller.state, "Hold to talk"))
+        job.finished.connect(self._speak_done)
         job.start()
+
+    def _speak_done(self) -> None:
+        self._speaking = False
+        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._sync_keyword()
 
     def _preview_voice(self) -> None:
         if sys.platform != "win32":

@@ -31,7 +31,7 @@ STATE_WORDS = {
 CAPTIONS = {
     "off": "Off",
     "starting": "Working",
-    "on": "Hold to talk",
+    "on": "On",
     "listening": "Listening",
     "thinking": "Thinking",
     "speaking": "Speaking",
