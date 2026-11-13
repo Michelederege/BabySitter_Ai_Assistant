@@ -177,7 +177,7 @@ Say if you want any of these in a later phase:
 
 ## Privacy in this phase
 
-With social search left off, BabySitter talks only to `127.0.0.1` (this computer). It does not send usage data anywhere. The Ollama download page is shown as text when a version is too old. Opening it is your browser, and only if you click it.
+BabySitter does not collect usage data. There is no account and no phone-home. With social search left off, it talks only to `127.0.0.1` (this computer). Files, the screen, memory, and what you say to the assistant are never attached to a search. Leave social search off when the information is confidential. The Ollama download page is shown as text when a version is too old. Opening it is your browser, and only if you click it.
 
 If you turn social search on, a search you confirm also goes to `api.scrapecreators.com`. Nothing else is added to that request: not your files, not a screenshot, not what the model said. The key travels with the request and is not printed in the results.
 

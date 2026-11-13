@@ -143,12 +143,14 @@ class Shell:
         tools.delete_key.connect(self._delete_social_key)
         tools.search_requested.connect(self._prepare_search)
         tools.set_enabled(self.controller.settings.social_search_enabled)
+        self.window.home.set_privacy(self.controller.settings.social_search_enabled)
         saved = self.vault.has_key() if self.vault.available else False
         tools.set_key_saved(saved, self.vault.available)
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
         save_settings(self.controller.settings)
+        self.window.home.set_privacy(bool(on))
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page

@@ -44,8 +44,13 @@ class HomePage(QWidget):
         )
         sub.setObjectName("hint")
         sub.setWordWrap(True)
+        self.privacy = QLabel("")
+        self.privacy.setObjectName("hint")
+        self.privacy.setWordWrap(True)
+        self.privacy.setTextInteractionFlags(Qt.TextSelectableByMouse)
         root.addWidget(header)
         root.addWidget(sub)
+        root.addWidget(self.privacy)
 
         self.version_banner = self._banner("dangerBanner")
         self.tray_banner = self._banner("banner")
@@ -165,6 +170,25 @@ class HomePage(QWidget):
     def set_banner(self, frame: QFrame, text: str, visible: bool) -> None:
         frame.layout().itemAt(0).widget().setText(text)
         frame.setVisible(visible)
+
+    def set_privacy(self, social_search_on: bool) -> None:
+        if social_search_on:
+            self.privacy.setText(
+                "Social search is on. Only the words you confirm on the Tools tab can leave this PC. "
+                "Files, the screen, memory, and what you say to the assistant stay here. "
+                "Turn social search off when the information is confidential."
+            )
+            self.privacy.setToolTip(
+                "BabySitter still does not send usage data. The search box is the only thing that can leave."
+            )
+            return
+        self.privacy.setText(
+            "Private to this computer. BabySitter does not send usage data. "
+            "What you tell the assistant stays on this PC, and social search is off."
+        )
+        self.privacy.setToolTip(
+            "Ollama is contacted only at 127.0.0.1. No analytics, no account, no phone-home."
+        )
 
     def set_state(self, state: str, detail: str) -> None:
         self.power.set_state(state)
