@@ -22,6 +22,11 @@ def test_home_window_builds_off_and_has_the_power_button(tmp_path, monkeypatch):
     assert shell.window.windowTitle() == "BabySitter"
     assert "Start BabySitter when I sign in" in shell.window.settings_page.autostart.text()
     assert shell.window.settings_page.autostart.isChecked() is False
+    assert shell.window.tools_page.enabled.isChecked() is False
+    shell.window.tools_page.enabled.setChecked(True)
+    app.processEvents()
+    saved = (tmp_path / "settings.json").read_text(encoding="utf-8")
+    assert '"social_search_enabled": true' in saved
     shell.registrar.clear()
     controller.shutdown_threads()
     app.processEvents()

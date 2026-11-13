@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -38,6 +38,7 @@ class Settings:
     game_processes: list[str] = field(default_factory=list)
     orb_x: int | None = None
     orb_y: int | None = None
+    social_search_enabled: bool = False
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -52,6 +53,7 @@ class Settings:
             "game_processes": list(self.game_processes),
             "orb_x": self.orb_x,
             "orb_y": self.orb_y,
+            "social_search_enabled": self.social_search_enabled,
         }
 
 
@@ -89,6 +91,12 @@ def migrate(data: dict) -> dict:
         # First published shape. Older files (or empty ones) land here.
         incoming["schema_version"] = 1
         version = 1
+    if version < 2:
+        # Social search arrived later. It stays off, and the API key is
+        # never stored in this file.
+        incoming["social_search_enabled"] = False
+        incoming["schema_version"] = 2
+        version = 2
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -129,6 +137,7 @@ def settings_from_dict(data: dict) -> Settings:
         game_processes=_clean_games(data.get("game_processes")),
         orb_x=orb_x if isinstance(orb_x, int) else None,
         orb_y=orb_y if isinstance(orb_y, int) else None,
+        social_search_enabled=bool(data.get("social_search_enabled", False)),
         notices=notices,
     )
 

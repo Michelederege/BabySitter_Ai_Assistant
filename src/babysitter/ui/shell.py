@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import QRect, QUrl
+from PySide6.QtCore import QRect, QThread, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QMenu
 
@@ -12,6 +12,14 @@ from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.ollama import classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path
+from babysitter.plugins.tools.social import (
+    PreparedSearch,
+    SocialSearchError,
+    perform,
+    prepare,
+)
+from babysitter.secrets import SecretsError, default_vault
+from babysitter.settings import save_settings
 from babysitter.ui.dialogs import (
     HotkeyCapture,
     ProcessPicker,
@@ -25,6 +33,29 @@ from babysitter.ui.theme import STATE_WORDS
 from babysitter.ui.tray import Tray
 
 
+class _SearchJob(QThread):
+    succeeded = Signal(str, str)
+    failed = Signal(str)
+
+    def __init__(self, prepared: PreparedSearch, api_key: str) -> None:
+        super().__init__()
+        self._prepared = prepared
+        self._api_key = api_key
+
+    def run(self) -> None:
+        key = self._api_key
+        self._api_key = ""
+        try:
+            outcome = perform(self._prepared, key)
+            self.succeeded.emit(outcome.spoken, outcome.detail)
+        except SocialSearchError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("The search stopped before it finished.")
+        finally:
+            key = ""
+
+
 class Shell:
     def __init__(self, controller: Controller) -> None:
         self.controller = controller
@@ -34,6 +65,8 @@ class Shell:
         self.window.setWindowIcon(self.icon)
         self.tray = Tray(self.icon)
         self.registrar = windows_registrar_or_dummy()
+        self.vault = default_vault()
+        self._search_job: _SearchJob | None = None
         self._power_ready = False
         self._connect()
         self._fill_settings()
@@ -104,6 +137,87 @@ class Shell:
         settings.remove_game.clicked.connect(self._remove_game)
         settings.open_data.clicked.connect(lambda: open_folder(self.controller.data_folder()))
         settings.open_log.clicked.connect(lambda: open_folder(self.controller.log_folder()))
+        tools = self.window.tools_page
+        tools.enabled_changed.connect(self._set_social)
+        tools.save_key.connect(self._save_social_key)
+        tools.delete_key.connect(self._delete_social_key)
+        tools.search_requested.connect(self._prepare_search)
+        tools.set_enabled(self.controller.settings.social_search_enabled)
+        saved = self.vault.has_key() if self.vault.available else False
+        tools.set_key_saved(saved, self.vault.available)
+
+    def _set_social(self, on: bool) -> None:
+        self.controller.settings.social_search_enabled = bool(on)
+        save_settings(self.controller.settings)
+
+    def _save_social_key(self, raw: str) -> None:
+        page = self.window.tools_page
+        try:
+            self.vault.save(raw)
+        except SecretsError as exc:
+            page.set_key_saved(self.vault.has_key() if self.vault.available else False, self.vault.available)
+            page.show_message(str(exc))
+            return
+        page.set_key_saved(True, self.vault.available)
+        page.show_message("The key is saved. It is not shown again, and it is not stored in settings.json.")
+
+    def _delete_social_key(self) -> None:
+        page = self.window.tools_page
+        if not ask_yes_no(
+            self.window,
+            "Delete the saved key?",
+            "This removes the encrypted ScrapeCreators key from this PC. Searches will stop until you save a key again.",
+            "Delete the key",
+            "Keep it",
+        ):
+            return
+        try:
+            self.vault.delete()
+        except SecretsError as exc:
+            page.show_message(str(exc))
+            return
+        page.set_key_saved(False, self.vault.available)
+        page.show_message("The saved key was deleted. Nothing was sent.")
+
+    def _prepare_search(self, action_id: str, text: str) -> None:
+        page = self.window.tools_page
+        if self._search_job is not None and self._search_job.isRunning():
+            page.show_message("A search is already running.")
+            return
+        if not self.controller.settings.social_search_enabled:
+            page.show_message("Social search is off. Nothing was sent.")
+            return
+        try:
+            prepared = prepare(action_id, text)
+        except SocialSearchError as exc:
+            page.show_message(str(exc))
+            return
+        if not ask_yes_no(
+            self.window,
+            "Send this search?",
+            prepared.ask,
+            "Send this search",
+            "Don't send",
+        ):
+            page.show_message("Nothing was sent.")
+            return
+        try:
+            key = self.vault.load() or ""
+        except SecretsError as exc:
+            page.show_message(str(exc))
+            return
+        if not key:
+            page.show_message("Save an API key first. Nothing was sent.")
+            return
+        page.show_message("Searching public posts…", busy=True)
+        job = _SearchJob(prepared, key)
+        self._search_job = job
+        job.succeeded.connect(self._search_ok)
+        job.failed.connect(page.show_message)
+        job.start()
+
+    def _search_ok(self, spoken: str, detail: str) -> None:
+        self.window.tools_page.show_message(spoken + "\n\n" + detail)
 
     def _on_power(self) -> None:
         if not self._power_ready and self.controller.state == "off" and not self.controller._busy:

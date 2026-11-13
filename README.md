@@ -147,6 +147,20 @@ These are on purpose. Say if you want one of them changed.
 - Mouse side buttons cannot use the same safe keyboard method (`RegisterHotKey`). Push-to-talk is Phase 2. If you want a mouse button then, it will be off whenever the AI is off, and off in game mode, so it does not get in the way of a game.
 - The orb starts above other windows. You can turn that off in Settings, and you can drag the orb.
 
+## Social search
+
+The Tools tab can search public posts. It follows the same public data API as the skills in https://github.com/ScrapeCreators/social-media-research-skills (TikTok, Instagram, YouTube, Reddit, Threads, Pinterest, and public profiles on X).
+
+1. Open Tools.
+2. Check **Turn on social search**. Until you do, nothing is sent.
+3. Paste an API key from https://scrapecreators.com and press **Save key**. On your PC the key is encrypted for your Windows user. It is not saved in settings.json.
+4. Pick what to look up, type the words or paste a public link, and press **Prepare search**.
+5. Read the box. It shows the exact words and the address. Press **Send this search** or **Don't send**.
+
+Results list the public text and the link when ScrapeCreators returns one. Each search spends about one credit on your ScrapeCreators account. **Check credits left** asks only for the balance.
+
+This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. The bigger research recipes in that GitHub project (comparing creators, reading ad libraries, and so on) need the talking assistant, which is not built yet. General web search through your own SearXNG is also still later.
+
 ## Not in this phase
 
 Voice, captions of speech, memory, the pinboard, reminders, screen capture, history, and the updater. The tabs are there so you can see the map. The microphone is closed.
@@ -163,7 +177,9 @@ Say if you want any of these in a later phase:
 
 ## Privacy in this phase
 
-BabySitter talks only to `127.0.0.1` (this computer). It does not send usage data anywhere. The only web addresses written in the program are the Ollama download page and the Ollama release page, shown to you as text when a version is too old. Opening one is your browser, and only if you click it.
+With social search left off, BabySitter talks only to `127.0.0.1` (this computer). It does not send usage data anywhere. The Ollama download page is shown as text when a version is too old. Opening it is your browser, and only if you click it.
+
+If you turn social search on, a search you confirm also goes to `api.scrapecreators.com`. Nothing else is added to that request: not your files, not a screenshot, not what the model said. The key travels with the request and is not printed in the results.
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 
