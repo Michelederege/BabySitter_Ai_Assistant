@@ -18,9 +18,21 @@ KOKORO_MODEL_URLS = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/kokoro-v1.0.onnx",
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin",
 )
+SILERO_MODEL_URL = (
+    "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
+)
 LOCAL_BINDINGS = {"127.0.0.1", "::1", "localhost"}
 # 0.0.0.0 and :: mean "every network interface", which is not private.
 PUBLIC_BINDINGS = {"0.0.0.0", "::", ""}
+
+# The exact bytes behind each allowed download, as SHA-256. A release asset
+# behind a fixed address can still be replaced; a changed file is refused.
+DOWNLOAD_SHA256 = {
+    KEYWORD_MODEL_URL: "30f26242c4eb449f948e42cb302dd7a686cb29a3423a8367f99ff41780942498",
+    KOKORO_MODEL_URLS[0]: "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a",
+    KOKORO_MODEL_URLS[1]: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+    SILERO_MODEL_URL: "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
+}
 
 
 def require_local_host(host: str) -> None:
@@ -71,9 +83,38 @@ def require_update_url(url: str) -> None:
 
 def require_silero_url(url: str) -> None:
     """The voice detector has one allowed file, and only after a confirm."""
-    allowed = "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
-    if url != allowed:
+    if url != SILERO_MODEL_URL:
         raise ValueError("That voice-detector download is not allowed.")
+
+
+def require_matching_bytes(url: str, raw: bytes) -> None:
+    """Refuse a download whose SHA-256 is not the recorded one."""
+    import hashlib
+
+    expected = DOWNLOAD_SHA256.get(url)
+    if not expected:
+        raise ValueError("That download is not allowed.")
+    if hashlib.sha256(raw).hexdigest() != expected:
+        raise ValueError(
+            "That download did not match the file this release expects. Nothing was kept."
+        )
+
+
+def require_matching_file(url: str, path) -> None:
+    """Refuse a downloaded file whose SHA-256 is not the recorded one."""
+    import hashlib
+
+    expected = DOWNLOAD_SHA256.get(url)
+    if not expected:
+        raise ValueError("That download is not allowed.")
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise ValueError(
+            "That download did not match the file this release expects. Nothing was kept."
+        )
 
 
 def require_google_oauth_url(url: str) -> None:

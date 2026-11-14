@@ -32,7 +32,9 @@ QWEN9_HIDDEN = 4096
 Q4_WEIGHT_MIB = 5400
 
 LOW_CONTEXT = 4096
-LOW_BATCH = 128
+# 256 costs about 36 MB more scratch than 128 and roughly doubles how fast
+# a long prompt (a screenshot, a tool reply) is read. Still inside 6 GB.
+LOW_BATCH = 256
 LOW_CACHE = "q4_0"
 LOW_FLOOR_MIB = 4096
 LOW_CEILING_MIB = 6144
@@ -119,7 +121,7 @@ def low_load_note(name: str, vram_bytes: int, num_ctx: int) -> str | None:
     if used > LOW_CEILING_MIB:
         return (
             f"Needs you: Low is using about {shown} GB, above the 6 GB goal. "
-            "The context is already 4,096, the batch is 128, and the cache is q4 "
+            "The context is already 4,096, the batch is 256, and the cache is q4 "
             "when BabySitter starts Ollama. The model file itself is larger than 6 GB."
         )
     if fits_low_band(used):

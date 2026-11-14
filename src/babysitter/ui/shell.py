@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.commands import match_quick_command, timer_label
 from babysitter.games import foreground_process_name, should_hide_orb
-from babysitter.intents import match_tool
+from babysitter.intents import guarded_prompt, match_tool
 from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
 from babysitter.updates import UpdateError, check_latest
@@ -777,7 +777,7 @@ class Shell:
         summary = getattr(self, "_tool_summary", "")
         self._tool_summary = ""
         if summary and self.controller.state == "on":
-            self._pending_line = summary + "\n" + detail[:2000]
+            self._pending_line = guarded_prompt(summary, detail[:2000])
             self._send_heard()
 
     def _on_power(self) -> None:
@@ -1172,7 +1172,7 @@ class Shell:
         summary = self._tool_summary
         self._tool_summary = ""
         if summary and self.controller.state == "on":
-            self._pending_line = summary + "\n" + detail[:2000]
+            self._pending_line = guarded_prompt(summary, detail[:2000])
             self._send_heard()
             return
         self._speak("The results are on the Tools tab.")
