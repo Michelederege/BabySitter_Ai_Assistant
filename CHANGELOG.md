@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.8.0 — Measure the wait, and stop cleanly
+
+Voice turns record timings only, on the Voice tab under Responsiveness and in Export diagnostics. The clock stays on the newest message so the standing instructions can be reused. Hidden thinking is removed before anything is spoken. Holding the talk button while BabySitter is speaking stops the voice and the answer. Say “carry on” to hear the rest of what was cut off. If a second and a half passes with no sound, the screen says it is still working.
+
 ## 0.7.2 — Shorter wait before the first word
 
 The question is sent after a shorter pause. The first words are spoken once about a dozen words are ready, instead of waiting for a long sentence. On Low, the hidden thinking step is skipped. Heart and Sarah loads when the AI turns on, so the first answer is not also waiting for the voice.

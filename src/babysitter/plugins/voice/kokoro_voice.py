@@ -6,6 +6,7 @@ not the graphics card. Voice cloning is not supported.
 
 from __future__ import annotations
 
+import queue
 import sys
 import threading
 
@@ -101,6 +102,7 @@ def _fetch(url: str, dest) -> None:
 _engine = None
 _styles: dict = {}
 _lock = threading.Lock()
+_playback_stop = threading.Event()
 
 
 def warm() -> None:
@@ -111,6 +113,7 @@ def warm() -> None:
 
 
 def stop() -> None:
+    _playback_stop.set()
     try:
         import sounddevice as sd
 
@@ -120,23 +123,72 @@ def stop() -> None:
 
 
 def speak(text: str, voice_name: str, speed_percent: int, pitch: int) -> None:
-    spoken = (text or "").strip()
-    if not spoken:
+    speak_sequence([text], voice_name, speed_percent, pitch)
+
+
+def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_start=None, on_piece=None) -> None:
+    """Say each piece in order. The next piece is built while the current one plays."""
+    waiting = [piece.strip() for piece in pieces if piece and piece.strip()]
+    if not waiting:
         return
     if not ready():
         raise KokoroError("Heart and Sarah is not downloaded yet.")
+    _playback_stop.clear()
     style = _style(voice_name)
     speed = max(0.5, min(2.0, int(speed_percent) / 100))
-    import sounddevice as sd
-
     engine = _loaded_engine()
+    audio: queue.Queue = queue.Queue(maxsize=1)
+
+    def produce() -> None:
+        try:
+            for piece in waiting:
+                if _playback_stop.is_set():
+                    break
+                samples, rate = _render(engine, piece, style, speed, pitch)
+                audio.put((piece, samples, rate))
+        finally:
+            audio.put(None)
+
+    threading.Thread(target=produce, name="babysitter-voice", daemon=True).start()
+    started = False
+    while not _playback_stop.is_set():
+        item = audio.get()
+        if item is None or _playback_stop.is_set():
+            break
+        piece, samples, rate = item
+        if not started:
+            started = True
+            if on_start is not None:
+                on_start()
+        finished = _play_blocks(samples, rate)
+        if finished and on_piece is not None:
+            on_piece(piece)
+
+
+def _render(engine, text: str, style, speed: float, pitch: int):
     with _lock:
-        samples, sample_rate = engine.create(spoken, voice=style, speed=speed, lang="en-us")
-    # A lower playback rate drops the pitch. -1 is one semitone down.
+        samples, sample_rate = engine.create(text, voice=style, speed=speed, lang="en-us")
     shifted = int(sample_rate * (2 ** (int(pitch) / 12)))
     shifted = max(8000, min(48000, shifted))
-    sd.play(samples, shifted)
-    sd.wait()
+    return samples, shifted
+
+
+def _play_blocks(samples, sample_rate: int, block_ms: int = 30) -> bool:
+    """Play raw audio in short blocks so a stop lands quickly. True if it finished."""
+    import sounddevice as sd
+
+    block = max(1, int(sample_rate * block_ms / 1000))
+    position = 0
+    try:
+        with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
+            while position < len(samples):
+                if _playback_stop.is_set():
+                    return False
+                stream.write(samples[position : position + block])
+                position += block
+    except Exception:
+        return False
+    return not _playback_stop.is_set()
 
 
 def _loaded_engine():

@@ -226,12 +226,14 @@ class OllamaClient:
             raise OllamaError("The model returned an empty reply.")
         return reply
 
-    def iter_reply(self, model: str, prompt: str, num_ctx: int):
+    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
         body = chat_body(model, prompt, num_ctx)
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
                 while True:
+                    if cancel is not None and cancel.is_set():
+                        break
                     raw = response.readline()
                     if not raw:
                         break
@@ -266,9 +268,8 @@ class OllamaClient:
             "stream": False,
             "keep_alive": -1,
             "options": {"num_ctx": int(num_ctx), "num_predict": 8, "temperature": 0},
+            "think": False,
         }
-        if "qwen" in model.lower():
-            body["think"] = False
         self._request("POST", "/api/chat", body, timeout=240)
 
     def unload_all(self) -> list[str]:
@@ -304,10 +305,7 @@ class OllamaClient:
                 "Ollama is not installed, or BabySitter cannot find ollama.exe. "
                 "Install it from https://ollama.com/download and open BabySitter again."
             )
-        environment = os.environ.copy()
-        # Force a private listener even if the user previously set OLLAMA_HOST
-        # to 0.0.0.0. This applies only to the server BabySitter starts.
-        environment["OLLAMA_HOST"] = f"{LOCAL_HOST}:{self.port}"
+        environment = server_environment(os.environ, LOCAL_HOST, self.port)
         log_path = ollama_log_path()
         handle = open(log_path, "ab")
         try:
@@ -385,17 +383,29 @@ class OllamaClient:
         return closed
 
 
+def server_environment(base, host: str, port: int) -> dict:
+    """Settings for the Ollama BabySitter starts. They do not change one that is already running."""
+    environment = dict(base)
+    environment["OLLAMA_HOST"] = f"{host}:{port}"
+    environment["OLLAMA_CONTEXT_LENGTH"] = "16384"
+    environment["OLLAMA_FLASH_ATTENTION"] = "1"
+    environment["OLLAMA_KV_CACHE_TYPE"] = "q8_0"
+    environment["OLLAMA_NUM_PARALLEL"] = "1"
+    environment["OLLAMA_MAX_LOADED_MODELS"] = "1"
+    environment["OLLAMA_KEEP_ALIVE"] = "5m"
+    return environment
+
+
 def chat_body(model: str, prompt: str, num_ctx: int) -> dict:
-    """The local chat request. Qwen skips its hidden thinking so the first words arrive sooner."""
+    """The local chat request. Voice turns do not use hidden thinking."""
     body = {
         "model": model,
         "messages": chat_messages(prompt),
         "stream": True,
         "keep_alive": -1,
+        "think": False,
         "options": {"num_ctx": int(num_ctx)},
     }
-    if "qwen" in model.lower():
-        body["think"] = False
     return body
 
 
@@ -431,13 +441,13 @@ def chat_messages(prompt: str, now=None) -> list[dict]:
         {
             "role": "system",
             "content": (
-                f"Current local time: {clock} ({zone}). "
-                "Use this when asked the time or the date. "
+                "You are BabySitter, a local voice assistant on this PC. "
+                "Reply in plain spoken sentences. "
                 "Start with one sentence of no more than 12 words. "
                 "Put any extra detail after that sentence."
             ),
         },
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": f"Current local time: {clock} ({zone}). {prompt}"},
     ]
 
 

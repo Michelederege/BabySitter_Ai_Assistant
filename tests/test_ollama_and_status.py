@@ -9,6 +9,7 @@ from babysitter.ollama import (
     classify_ollama_process,
     chat_body,
     content_from_stream_line,
+    server_environment,
     gpu_placement_label,
     models_from_ps,
     parse_ollama_version,
@@ -28,20 +29,31 @@ def test_a_streamed_line_is_only_the_new_words():
     assert done is True
 
 
-def test_qwen_skips_hidden_thinking():
+def test_voice_turns_skip_hidden_thinking():
     low = chat_body("qwen3.5:9b", "what time is it", 4096)
     medium = chat_body("gemma4:12b", "what time is it", 8192)
     assert low["think"] is False
-    assert "think" not in medium
+    assert medium["think"] is False
     assert "no more than 12 words" in low["messages"][0]["content"]
+    assert "November" not in low["messages"][0]["content"]
 
 
-def test_every_question_includes_the_local_clock():
+def test_the_clock_stays_on_the_newest_message():
     messages = chat_messages("what time is it", now=datetime(2026, 11, 13, 17, 46))
-    assert messages[1]["content"] == "what time is it"
-    assert "Current local time" in messages[0]["content"]
-    assert "November 13, 2026" in messages[0]["content"]
-    assert "05:46 PM" in messages[0]["content"]
+    assert "what time is it" in messages[1]["content"]
+    assert "Current local time" in messages[1]["content"]
+    assert "November 13, 2026" in messages[1]["content"]
+    assert "05:46 PM" in messages[1]["content"]
+    assert "Current local time" not in messages[0]["content"]
+
+
+def test_the_server_baby_sitter_starts_keeps_one_model_warm():
+    environment = server_environment({}, "127.0.0.1", 11434)
+    assert environment["OLLAMA_HOST"] == "127.0.0.1:11434"
+    assert environment["OLLAMA_KEEP_ALIVE"] == "5m"
+    assert environment["OLLAMA_KV_CACHE_TYPE"] == "q8_0"
+    assert environment["OLLAMA_MAX_LOADED_MODELS"] == "1"
+    assert environment["OLLAMA_FLASH_ATTENTION"] == "1"
 
 
 def test_only_this_computer():

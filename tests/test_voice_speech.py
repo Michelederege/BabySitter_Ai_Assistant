@@ -3,12 +3,30 @@ from babysitter.plugins.voice.speech import (
     closed_lead,
     first_sentence,
     for_speech,
+    interrupt_note,
+    is_resume,
     lead_and_rest,
     more_answer,
     remainder_after,
     sapi_rate,
+    strip_thinking,
 )
 from babysitter.plugins.voice.windows_voice import speak_command
+
+
+def test_thinking_is_not_spoken():
+    assert "secret plan" not in strip_thinking("Hello. <think>secret plan</think> The sky is blue.")
+    assert strip_thinking("Hello. <think>secret plan</think> The sky is blue.").startswith("Hello.")
+
+
+def test_an_interruption_keeps_only_the_words_already_spoken():
+    heard = "Dancing has no single inventor."
+    assert "long explanation" not in heard
+    assert interrupt_note(heard) == "you were interrupted after: Dancing has no single inventor."
+    assert interrupt_note("") == "you were interrupted before you spoke."
+    assert is_resume("carry on")
+    assert is_resume("what were you saying")
+    assert not is_resume("what time is it")
 
 
 def test_speech_drops_markdown_and_code():
