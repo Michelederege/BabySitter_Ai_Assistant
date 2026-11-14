@@ -74,7 +74,7 @@ The window opens compact: power, Normal/Game, and one status line. **Expand** op
 3. Click it again. It unloads the model and stops Ollama. The message should say that nothing is listening on port **11434**, and it should tell you the video-memory numbers.
 4. Press **Ctrl+Alt+F12** from anywhere, even if the window is hidden. That is the emergency stop. It turns the AI fully off. **Ctrl+Alt+F11** turns it back on. You can change both keys in Settings.
 5. While the AI is on, click **Switch** under Game mode. The model unloads so a game can use the graphics card. Ollama stays running with nothing loaded. Click **Switch** again to load the model.
-6. Close the window with the X. The app stays in the tray (the little BS icon by the clock). Right-click that icon, or the orb, for the same power commands. **Quit** is how you actually exit.
+6. Close the window with the X. The window hides in the tray and the AI turns off, so the model leaves memory. **Quit** on the tray icon closes BabySitter. Either way, Ollama does not keep running.
 
 Start with Windows is **off** unless you check it in Settings. Even if you turn that on later, the AI still starts off.
 

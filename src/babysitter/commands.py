@@ -17,6 +17,12 @@ class QuickCommand:
 def match_quick_command(text: str) -> QuickCommand | None:
     words = re.findall(r"[a-z0-9']+", (text or "").lower())
     phrase = " ".join(words)
+    if phrase.startswith("babysitter "):
+        phrase = phrase[len("babysitter ") :].strip()
+        words = phrase.split()
+    elif phrase.startswith("baby sitter "):
+        phrase = phrase[len("baby sitter ") :].strip()
+        words = phrase.split()
     if not phrase:
         return None
     if phrase in {"undo", "cancel that", "cancel the timer"}:

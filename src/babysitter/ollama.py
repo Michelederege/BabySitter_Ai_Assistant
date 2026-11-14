@@ -34,6 +34,10 @@ from babysitter.security import (
 
 log = get_logger()
 
+# A loaded model is dropped after five quiet minutes. Quit and closing the
+# window unload it immediately. -1 would leave it in memory after BabySitter is gone.
+IDLE_KEEP_ALIVE = "5m"
+
 
 class OllamaError(Exception):
     """Something went wrong talking to Ollama. The message is safe to show."""
@@ -260,7 +264,7 @@ class OllamaClient:
         cancel=None,
         history=None,
         images=None,
-        keep_alive=-1,
+        keep_alive=IDLE_KEEP_ALIVE,
         num_batch=None,
         facts=None,
         personality: str = "",
@@ -325,7 +329,7 @@ class OllamaClient:
             "model": model,
             "messages": [{"role": "user", "content": "Reply with only the word ready."}],
             "stream": False,
-            "keep_alive": -1,
+            "keep_alive": IDLE_KEEP_ALIVE,
             "options": options,
             "think": False,
         }
@@ -355,7 +359,7 @@ class OllamaClient:
                 timeout=60,
             )
 
-    def start_server(self) -> None:
+    def start_server(self, num_ctx: int = 4096) -> None:
         if self.port_open():
             return
         executable = find_ollama_executable()
@@ -364,7 +368,7 @@ class OllamaClient:
                 "Ollama is not installed, or BabySitter cannot find ollama.exe. "
                 "Install it from https://ollama.com/download and open BabySitter again."
             )
-        environment = server_environment(os.environ, LOCAL_HOST, self.port)
+        environment = server_environment(os.environ, LOCAL_HOST, self.port, num_ctx)
         log_path = ollama_log_path()
         handle = open(log_path, "ab")
         try:
@@ -457,12 +461,13 @@ def _close_when_cancelled(cancel, response) -> None:
         return
 
 
-def server_environment(base, host: str, port: int) -> dict:
+def server_environment(base, host: str, port: int, num_ctx: int = 4096) -> dict:
     """Settings for the Ollama BabySitter starts. They do not change one that is already running."""
     environment = dict(base)
     environment["OLLAMA_HOST"] = f"{host}:{port}"
-    # High still asks for 16,384. Low and Medium send a smaller num_ctx per request.
-    environment["OLLAMA_CONTEXT_LENGTH"] = "16384"
+    # The level that is turning on sets the default. A later request can still
+    # send its own num_ctx. 16,384 here made a quiet load reserve a long cache.
+    environment["OLLAMA_CONTEXT_LENGTH"] = str(max(2048, min(16384, int(num_ctx))))
     # Quantized KV cache needs flash attention. q4_0 is about half of q8_0.
     environment["OLLAMA_FLASH_ATTENTION"] = "1"
     environment["OLLAMA_KV_CACHE_TYPE"] = "q4_0"
@@ -493,7 +498,7 @@ def chat_body(
     prompt: str,
     num_ctx: int,
     history=None,
-    keep_alive=-1,
+    keep_alive=IDLE_KEEP_ALIVE,
     num_batch=None,
     facts=None,
     personality: str = "",
@@ -679,29 +684,42 @@ def _processes_of_kind(kind: str) -> list[psutil.Process]:
 
 def _terminate_popen(proc: subprocess.Popen) -> None:
     try:
-        proc.terminate()
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        proc.kill()
+        if proc.pid:
+            _terminate_psutil(psutil.Process(proc.pid))
+    except (psutil.Error, OSError):
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
+            proc.terminate()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except OSError:
             pass
     except OSError:
         pass
 
 
 def _terminate_psutil(process: psutil.Process) -> None:
+    """Stop this process and the runners it spawned. A parent kill can leave the model loaded."""
+    victims = [process]
     try:
-        process.terminate()
-        process.wait(timeout=5)
-    except psutil.TimeoutExpired:
+        victims = process.children(recursive=True) + [process]
+    except (psutil.Error, OSError):
+        victims = [process]
+    for proc in victims:
         try:
-            process.kill()
-        except psutil.Error:
+            proc.terminate()
+        except (psutil.Error, OSError):
+            continue
+    _gone, alive = psutil.wait_procs(victims, timeout=5)
+    for proc in alive:
+        try:
+            proc.kill()
+        except (psutil.Error, OSError):
             pass
-    except psutil.Error:
-        pass
 
 
 def _tail(path: Path, limit: int = 400) -> str:
