@@ -7,7 +7,7 @@ on this PC. It must not be handed to the model.
 from babysitter.commands import match_quick_command
 from babysitter.intents import match_tool
 from babysitter.ollama import system_prompt
-from babysitter.pcscan import scan
+from babysitter.pcscan import memory_sentence, scan, spoken_reading
 from babysitter.plugins.voice.keyword import command_after_keyword
 from babysitter.plugins.voice.speech import followup_phrase, unread_detail, voice_and_rest
 
@@ -56,6 +56,9 @@ def test_voice_lines_land_on_the_right_action():
         "my ram usage is very high": "scan",
         "what's using my memory": "scan",
         "check my ram": "scan",
+        "why is my ram so high": "scan",
+        "my computer is slow": "scan",
+        "free up some memory": "scan",
         "optimize my pc please": "scan",
         "what time is it": "time",
         "what's my vram": "vram",
@@ -73,20 +76,34 @@ def test_voice_lines_land_on_the_right_action():
 
 def test_a_scan_names_a_real_program_instead_of_a_shell_command():
     megabyte = 1024 * 1024
+    gigabyte = 1024 ** 3
     heavy = scan(
         [("chrome.exe", 1800 * megabyte, 4), ("notepad.exe", 20 * megabyte, 5)],
         [],
+        memory=(20 * gigabyte, 32 * gigabyte),
     )
     speech = heavy.suggestions[0].speech
     assert "chrome.exe" in speech
     assert "Close it?" in speech
+    assert heavy.memory_line == "Memory is using 20.0 of 32.0 GB, 62 percent."
     assert "powershell" not in speech.lower()
     assert "voice interface" not in speech.lower()
+    assert "powershell" not in heavy.memory_line.lower()
 
-    modest = scan([("chrome.exe", 400 * megabyte, 4)], [])
+    modest = scan(
+        [("chrome.exe", 400 * megabyte, 4)],
+        [],
+        memory=(8 * gigabyte, 32 * gigabyte),
+    )
     assert modest.suggestions == []
     assert modest.summary.startswith("chrome.exe is the heaviest")
     assert "would not close it" in modest.summary
+    heard = f"{modest.memory_line} {modest.summary} {speech}"
+    assert "Task Manager" not in heard
+    assert spoken_reading(20 * gigabyte, 32 * gigabyte, 14).startswith(
+        "Memory is using 20.0 of 32.0 GB, 62 percent. CPU is at 14 percent."
+    )
+    assert memory_sentence(0, 0) == ""
 
 
 def test_the_spoken_line_is_not_printed_twice():
@@ -97,4 +114,5 @@ def test_the_spoken_line_is_not_printed_twice():
     assert "voice interface" not in detail.lower()
     assert "Get-Process" in detail
     assert "Task Manager" in detail
-    assert "cannot scan the hardware" in system_prompt()
+    assert "Do not paste shell commands" in system_prompt()
+    assert "Do not invent a scan result" in system_prompt()

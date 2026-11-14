@@ -79,6 +79,7 @@ from babysitter.pcscan import (
     collect_startups,
     pids_named,
     scan,
+    spoken_reading,
     suggestion_answer,
     terminate_pid,
     windows_startup_store,
@@ -520,6 +521,7 @@ class Shell:
         self._suggestions: list = []
         self._suggestion_at = 0
         self._scan_prefix = ""
+        self._scan_when_free = False
         self._soft_undo = None
         self._google_notified = False
         self._google_speak_errors = True
@@ -2252,6 +2254,11 @@ class Shell:
         if nudge_line:
             self.window.home.set_phase("on", nudge_line)
             self._nudge = ""
+        if getattr(self, "_scan_when_free", False) and not self._scan_blocked():
+            self._scan_when_free = False
+            self._close_followup()
+            self._begin_scan()
+            return
         self._open_followup()
 
     def _remember_exchange(self, user: str, assistant: str) -> None:
@@ -2340,9 +2347,12 @@ class Shell:
             self._speak(speech)
             return True
         if quick.kind == "health":
-            self._read_health()
-            speech = "The PC check is on the PC Health tab. I did not change anything."
-            self.window.home.set_reply(text, speech, "Read only.")
+            snap = getattr(self.controller, "latest_status", None)
+            if snap is None:
+                speech = spoken_reading(0, 0, None)
+            else:
+                speech = spoken_reading(snap.ram_used_bytes, snap.ram_total_bytes, snap.cpu_percent)
+            self.window.home.set_reply(text, speech, "Read from this PC. Nothing was changed.")
             self._speak(speech)
             return True
         if quick.kind == "screen":
@@ -2464,11 +2474,18 @@ class Shell:
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
         self._speak(speech)
 
+    def _scan_blocked(self) -> bool:
+        job = getattr(self, "_ask_job", None)
+        if job is not None and job.isRunning() and not job.cancel.is_set():
+            return True
+        return bool(self.turns.busy())
+
     def _begin_scan(self) -> None:
-        if self.turns.busy():
-            self.window.health_page.body.setPlainText("I'll scan when this reply finishes.")
-            self._speak("I'll scan when this reply finishes.")
+        if self._scan_blocked():
+            self._scan_when_free = True
+            self.window.home.set_phase(self.controller.state, "I'll scan as soon as this reply finishes.")
             return
+        self._scan_when_free = False
         result = scan(
             collect_processes(),
             collect_startups(),
@@ -2477,9 +2494,14 @@ class Shell:
         self._suggestions = list(result.suggestions)
         self._suggestion_at = 0
         self._awaiting_more = False
-        self._scan_prefix = "I left games alone. " if result.left_games else ""
+        parts: list[str] = []
+        if result.left_games:
+            parts.append("I left games alone.")
+        if result.memory_line:
+            parts.append(result.memory_line)
         if result.summary:
-            self._scan_prefix += result.summary + " "
+            parts.append(result.summary)
+        self._scan_prefix = (" ".join(parts) + " ") if parts else ""
         if not self._suggestions:
             speech = self._scan_prefix.strip()
             if not result.summary:

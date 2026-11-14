@@ -119,50 +119,30 @@ _SCAN_PHRASES = (
 )
 
 
-def _wants_pc_scan(phrase: str) -> bool:
-    """True when the sentence is asking for this PC's own scan.
+_PRESSURE = {"high", "usage", "using", "used", "slow", "full", "check", "scan", "heavy", "eating", "hogging", "free"}
 
-    Exact lines such as "scan my pc" still match. So does a normal spoken
-    request like "I'd like you to scan my computer, my RAM usage is very high."
-    A search, a reminder, and a saved memory do not.
+
+def _wants_pc_scan(phrase: str) -> bool:
+    """True when the sentence is asking this PC to look at itself.
+
+    The heard line from a real session was "i'd like you to scan my computer
+    my ram usage is very high." That has to scan here. So does "why is my ram
+    so high" and "my computer is slow." A web search, a reminder, and a story
+    about a memory do not.
     """
     if phrase.startswith(("search ", "remember ", "remind me")):
+        return False
+    if "ram is in the" in phrase or "memory of" in phrase or "memory from" in phrase:
         return False
     if any(part in phrase for part in _SCAN_PHRASES):
         return True
     words = set(phrase.split())
-    if "ram" in words:
-        return any(
-            part in phrase
-            for part in (
-                "usage",
-                "using",
-                "scan",
-                "check",
-                "heavy",
-                "too much",
-                "eating",
-                "ram is high",
-                "ram is very high",
-                "high ram",
-            )
-        )
-    if "memory" not in words:
-        return False
-    return any(
-        part in phrase
-        for part in (
-            "memory usage",
-            "using memory",
-            "using my memory",
-            "too much memory",
-            "check my memory",
-            "check the memory",
-            "memory is high",
-            "high memory",
-            "eating my memory",
-        )
-    )
+    if "ram" in words and (words & _PRESSURE or "too much" in phrase):
+        return True
+    if "memory" in words and (words & _PRESSURE or "too much" in phrase):
+        return True
+    machine = bool(words & {"pc", "computer", "hardware"})
+    return machine and bool(words & {"scan", "optimize", "slow", "cleanup"})
 
 
 def _rating(phrase: str) -> str:

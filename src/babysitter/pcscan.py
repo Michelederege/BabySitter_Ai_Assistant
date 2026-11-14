@@ -66,6 +66,36 @@ class ScanResult:
     suggestions: list[Suggestion]
     left_games: bool
     summary: str = ""
+    memory_line: str = ""
+
+
+def memory_sentence(used_bytes: int, total_bytes: int) -> str:
+    """One spoken sentence for the memory reading. Empty when there is no total."""
+    total = int(total_bytes or 0)
+    used = max(0, int(used_bytes or 0))
+    if total <= 0:
+        return ""
+    percent = round(100 * used / total)
+    used_gb = used / (1024 ** 3)
+    total_gb = total / (1024 ** 3)
+    return f"Memory is using {used_gb:.1f} of {total_gb:.1f} GB, {percent} percent."
+
+
+def spoken_reading(used_bytes: int, total_bytes: int, cpu_percent: float | None) -> str:
+    """What to say for "how is my pc". The numbers, not a pointer at a tab."""
+    line = memory_sentence(used_bytes, total_bytes)
+    if cpu_percent is not None:
+        line = (line + f" CPU is at {float(cpu_percent):.0f} percent.").strip()
+    if not line:
+        return "I don't have a memory reading yet. I did not change anything."
+    return line + " I did not change anything."
+
+
+def host_memory() -> tuple[int, int]:
+    import psutil
+
+    memory = psutil.virtual_memory()
+    return int(memory.used), int(memory.total)
 
 
 def _stem(name: str) -> str:
@@ -113,7 +143,7 @@ def suggestion_answer(text: str) -> str | None:
     return None
 
 
-def scan(processes, startups, games=()) -> ScanResult:
+def scan(processes, startups, games=(), memory: tuple[int, int] | None = None) -> ScanResult:
     """Pick at most two heavy apps and one startup item.
 
     `processes` is (name, rss bytes, pid). `startups` is (name, command).
@@ -169,7 +199,13 @@ def scan(processes, startups, games=()) -> ScanResult:
             f"{heaviest[0]} is the heaviest I can see, at {gigabytes:.1f} GB. "
             "I would not close it from here."
         )
-    return ScanResult(suggestions=suggestions[:3], left_games=left_games, summary=summary)
+    used, total = host_memory() if memory is None else (int(memory[0]), int(memory[1]))
+    return ScanResult(
+        suggestions=suggestions[:3],
+        left_games=left_games,
+        summary=summary,
+        memory_line=memory_sentence(used, total),
+    )
 
 
 def close_named(name: str, *, pids, terminate) -> str:
