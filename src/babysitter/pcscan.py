@@ -65,6 +65,7 @@ class Suggestion:
 class ScanResult:
     suggestions: list[Suggestion]
     left_games: bool
+    summary: str = ""
 
 
 def _stem(name: str) -> str:
@@ -122,14 +123,17 @@ def scan(processes, startups, games=()) -> ScanResult:
     suggestions: list[Suggestion] = []
     left_games = False
     ranked = sorted(processes, key=lambda row: int(row[1]), reverse=True)
+    heaviest: tuple[str, int] | None = None
     closes = 0
     for name, rss, pid in ranked:
-        if closes >= 2:
-            break
         if not _plain_name(str(name)) or _protected_process(str(name)):
             continue
         if _stem(str(name)) in game_stems:
             left_games = True
+            continue
+        if heaviest is None:
+            heaviest = (str(name), int(rss))
+        if closes >= 2:
             continue
         if int(rss) < HEAVY_BYTES:
             continue
@@ -158,7 +162,14 @@ def scan(processes, startups, games=()) -> ScanResult:
             )
         )
         startups_added += 1
-    return ScanResult(suggestions=suggestions[:3], left_games=left_games)
+    summary = ""
+    if closes == 0 and heaviest is not None and heaviest[1] >= 50 * 1024 * 1024:
+        gigabytes = heaviest[1] / (1024 ** 3)
+        summary = (
+            f"{heaviest[0]} is the heaviest I can see, at {gigabytes:.1f} GB. "
+            "I would not close it from here."
+        )
+    return ScanResult(suggestions=suggestions[:3], left_games=left_games, summary=summary)
 
 
 def close_named(name: str, *, pids, terminate) -> str:
