@@ -49,11 +49,20 @@ def first_sentence(text: str) -> str:
 
 
 def closed_lead(text: str) -> str | None:
-    """The first sentence once another sentence has started. None while it is unfinished."""
+    """A piece that is ready to say. None while the opening is still unfinished."""
     lead, rest = lead_and_rest(text)
     if lead and rest:
         return lead
-    return None
+    spoken = plain_speech(text)
+    cut = spoken.rfind(",")
+    if cut < 1 or cut >= len(spoken) - 1:
+        return None
+    chunk = spoken[:cut].strip()
+    if len(chunk.split()) < 8:
+        return None
+    if chunk[-1] not in ".!?":
+        chunk += "."
+    return chunk
 
 
 def lead_and_rest(text: str) -> tuple[str, str]:
@@ -69,6 +78,17 @@ _YES = {"yes", "yeah", "yep", "yup", "sure", "please", "ok", "okay"}
 _NO = {"no", "nope", "nah"}
 _YES_PHRASES = {"tell me more", "read it", "read the rest", "go ahead", "go on"}
 _NO_PHRASES = {"no thanks", "no thank you", "thats enough", "that's enough", "stop"}
+
+
+def remainder_after(spoken_lead: str, reply: str) -> str:
+    """The words still unread after the part that was already spoken."""
+    plain = plain_speech(reply)
+    lead = (spoken_lead or "").strip()
+    if lead:
+        bare = lead[:-1].rstrip() if lead[-1] in ".!?" else lead
+        if bare and plain.startswith(bare):
+            return plain[len(bare) :].lstrip(" \t.,!?;:").strip()
+    return lead_and_rest(reply)[1]
 
 
 def more_answer(text: str) -> str | None:
