@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -45,6 +45,12 @@ class Settings:
     keyword: str = "baby sitter"
     followup_seconds: int = 10
     keep_off_game_cores: bool = False
+    vad_enabled: bool = False
+    smart_turn: bool = False
+    echo_cancel: bool = False
+    talk_over: bool = False
+    proactivity: int = 1
+    last_weekly_review: str = ""
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -66,6 +72,12 @@ class Settings:
             "keyword": self.keyword,
             "followup_seconds": self.followup_seconds,
             "keep_off_game_cores": self.keep_off_game_cores,
+            "vad_enabled": self.vad_enabled,
+            "smart_turn": self.smart_turn,
+            "echo_cancel": self.echo_cancel,
+            "talk_over": self.talk_over,
+            "proactivity": self.proactivity,
+            "last_weekly_review": self.last_weekly_review,
         }
 
 
@@ -133,11 +145,38 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("keep_off_game_cores", False)
         incoming["schema_version"] = 7
         version = 7
+    if version < 8:
+        incoming.setdefault("vad_enabled", False)
+        incoming.setdefault("smart_turn", False)
+        incoming.setdefault("echo_cancel", False)
+        incoming.setdefault("talk_over", False)
+        incoming.setdefault("proactivity", 1)
+        incoming.setdefault("last_weekly_review", "")
+        incoming["schema_version"] = 8
+        version = 8
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
     incoming["schema_version"] = SCHEMA_VERSION
     return incoming
+
+
+def _proactivity(value: object) -> int:
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        level = 1
+    return max(0, min(3, level))
+
+
+def _weekly_day(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) != 10:
+        return ""
+    parts = text.split("-")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return ""
+    return text
 
 
 def _followup_seconds(value: object) -> int:
@@ -198,6 +237,12 @@ def settings_from_dict(data: dict) -> Settings:
         keyword=_clean_keyword(data.get("keyword"), notices),
         followup_seconds=_followup_seconds(data.get("followup_seconds")),
         keep_off_game_cores=bool(data.get("keep_off_game_cores", False)),
+        vad_enabled=bool(data.get("vad_enabled", False)),
+        smart_turn=bool(data.get("smart_turn", False)),
+        echo_cancel=bool(data.get("echo_cancel", False)),
+        talk_over=bool(data.get("talk_over", False)),
+        proactivity=_proactivity(data.get("proactivity", 1)),
+        last_weekly_review=_weekly_day(data.get("last_weekly_review", "")),
         notices=notices,
     )
 

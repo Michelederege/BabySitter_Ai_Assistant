@@ -22,7 +22,12 @@ from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
-from babysitter.pictures import benchmark_warning, image_tokens, scaled_size
+from babysitter.pictures import benchmark_warning, fit_screenshot, image_tokens
+from babysitter.embedder import rank_texts
+from babysitter.personality import record as record_rating
+from babysitter.personality import session_clause
+from babysitter.proactivity import nudge, offer_more, weekly_review
+from babysitter.turngate import TurnGate
 from babysitter.plugins.voice.keyword import (
     KeywordError,
     KeywordListener,
@@ -102,11 +107,27 @@ class _KeywordDownloadJob(QThread):
 
 
 class _WarmVoiceJob(QThread):
+    def __init__(self, busy) -> None:
+        super().__init__()
+        self._busy = busy
+
     def run(self) -> None:
+        if self._busy():
+            return
         try:
-            from babysitter.plugins.voice.kokoro_voice import warm
+            from babysitter.plugins.voice.kokoro_voice import ready, warm
+            from babysitter.plugins.voice.fillers import library
 
             warm()
+            if self._busy() or not ready():
+                return
+
+            def render(text: str):
+                from babysitter.plugins.voice.kokoro_voice import render_clip
+
+                return render_clip(text)
+
+            library().prepare(render, self._busy)
         except Exception:
             return
 
@@ -121,11 +142,12 @@ def _png_base64(picture: QPixmap) -> str:
 class _BenchJob(QThread):
     finished_text = Signal(str)
 
-    def __init__(self, ollama, model: str, num_ctx: int) -> None:
+    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._num_ctx = num_ctx
+        self._num_batch = num_batch
 
     def run(self) -> None:
         from babysitter.pictures import format_benchmark
@@ -136,7 +158,10 @@ class _BenchJob(QThread):
                 started = time.perf_counter()
                 stats: dict = {}
                 for _piece in self._ollama.iter_reply(
-                    self._model, "Reply with only the word ready.", self._num_ctx
+                    self._model,
+                    "Reply with only the word ready.",
+                    self._num_ctx,
+                    num_batch=self._num_batch,
                 ):
                     stats = {}
                 stats = dict(getattr(self._ollama, "last_turn_stats", {}) or {})
@@ -156,7 +181,19 @@ class _AskJob(QThread):
     failed = Signal(str)
     measured = Signal(object)
 
-    def __init__(self, ollama, model: str, prompt: str, num_ctx: int, history=None, images=None, keep_alive=-1) -> None:
+    def __init__(
+        self,
+        ollama,
+        model: str,
+        prompt: str,
+        num_ctx: int,
+        history=None,
+        images=None,
+        keep_alive=-1,
+        num_batch: int = 512,
+        facts=None,
+        personality: str = "",
+    ) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
@@ -165,6 +202,9 @@ class _AskJob(QThread):
         self._history = list(history or [])
         self._images = images
         self._keep_alive = keep_alive
+        self._num_batch = num_batch
+        self._facts = list(facts or [])
+        self._personality = personality
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -183,6 +223,9 @@ class _AskJob(QThread):
                 self._history,
                 self._images,
                 self._keep_alive,
+                self._num_batch,
+                self._facts,
+                self._personality,
             ):
                 self._images = None
                 if self.cancel.is_set():
@@ -244,14 +287,18 @@ class _SpeakJob(QThread):
         self._text = ""
         prefs = self._prefs
         try:
-            pieces = speech_chunks(text)
+            pieces = speech_chunks(text, limit=120 if prefs.get("engine") == "windows" else 400)
             if prefs.get("engine") == "windows":
                 announced = False
                 for piece in pieces:
+                    if speaker.cancelled.is_set():
+                        break
                     if not announced:
                         self.started.emit()
                         announced = True
                     speaker.speak(piece, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
+                    if speaker.cancelled.is_set():
+                        break
                     self.phrase_done.emit(piece)
             else:
                 from babysitter.plugins.voice.kokoro_voice import speak_sequence
@@ -356,6 +403,11 @@ class Shell:
         self._power_ready = False
         self._turn_id = 0
         self._responsiveness = ResponsivenessLog()
+        self.turns = TurnGate()
+        self._model_turn_open = False
+        self._filler_stop = threading.Event()
+        self._session_personality = ""
+        self._weekly_offered = False
         self._filler_n = 0
         self._finished_phrases: list[str] = []
         self._unheard = ""
@@ -432,6 +484,10 @@ class Shell:
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
         settings.off_game_cores.toggled.connect(self._set_core_avoidance)
+        settings.vad_enabled.toggled.connect(lambda on: self._set_flag("vad_enabled", on))
+        settings.smart_turn.toggled.connect(lambda on: self._set_flag("smart_turn", on))
+        settings.echo_cancel.toggled.connect(lambda on: self._set_flag("echo_cancel", on))
+        settings.talk_over.toggled.connect(lambda on: self._set_flag("talk_over", on))
         self._hide_charts = _HideCharts(self.controller.probe)
         self.window.installEventFilter(self._hide_charts)
         settings.emergency_change.clicked.connect(self._change_emergency)
@@ -463,6 +519,7 @@ class Shell:
         home.choose_hero.connect(self._choose_hero)
         self.window.voice_page.notice.connect(self._on_page_notice)
         self.window.voice_page.followup[1].setValue(self.controller.settings.followup_seconds)
+        self.window.voice_page.proactivity[1].setValue(self.controller.settings.proactivity)
         self.window.schedule_page.notice.connect(self._on_page_notice)
         self.window.memory_page.notice.connect(self._on_page_notice)
         self.window.screen_page.notice.connect(self._on_page_notice)
@@ -587,11 +644,14 @@ class Shell:
         if state == "off":
             release_model()
             release_kokoro()
+            self._session_personality = ""
+            self._end_model_turn()
             self._return_to_game = False
             timer = getattr(self, "_game_return_timer", None)
             if timer is not None:
                 timer.stop()
         if state == "on":
+            self._session_personality = session_clause()
             self._warm_voice()
             self._warm_hearing()
             self._arm_game_return()
@@ -606,6 +666,8 @@ class Shell:
         )
 
     def _warm_hearing(self) -> None:
+        if self.turns.busy():
+            return
         if not packages_installed() or not model_ready():
             return
         if getattr(self, "_hearing_job", None) is not None and self._hearing_job.isRunning():
@@ -613,6 +675,8 @@ class Shell:
 
         class _Job(QThread):
             def run(self_job) -> None:
+                if self.turns.busy():
+                    return
                 try:
                     load_model()
                 except Exception:
@@ -625,7 +689,7 @@ class Shell:
     def _warm_voice(self) -> None:
         if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
             return
-        job = _WarmVoiceJob()
+        job = _WarmVoiceJob(self.turns.busy)
         self._warm_job = job
         job.start()
 
@@ -722,6 +786,21 @@ class Shell:
         if note:
             self.window.home.set_phase(self.controller.state, note)
 
+    def _set_flag(self, name: str, enabled: bool) -> None:
+        setattr(self.controller.settings, name, bool(enabled))
+        save_settings(self.controller.settings)
+        self._apply_listen_policy()
+
+    def _apply_listen_policy(self) -> None:
+        listener = getattr(self, "_listener", None)
+        if listener is None:
+            return
+        settings = self.controller.settings
+        listener.vad_enabled = bool(settings.vad_enabled)
+        listener.smart_turn = bool(settings.smart_turn)
+        listener.echo_cancel = bool(settings.echo_cancel)
+        listener.talk_over = bool(settings.talk_over and settings.echo_cancel)
+
     def _change_emergency(self) -> None:
         self._capture_key("emergency stop", emergency=True)
 
@@ -783,7 +862,7 @@ class Shell:
 
     def _fill_settings(self) -> None:
         page = self.window.settings_page
-        toggles = (page.autostart, page.on_top, page.auto_game, page.quit_off)
+        toggles = page.toggles()
         for toggle in toggles:
             toggle.blockSignals(True)
         page.fill(self.controller.settings, self.controller.data_folder())
@@ -1093,6 +1172,7 @@ class Shell:
     def _sync_keyword(self) -> None:
         if getattr(self, "_listener", None) is None:
             return
+        self._apply_listen_policy()
         busy = getattr(self, "_speaking", False) or getattr(self, "_holding", False)
         settings = self.controller.settings
         ready = keyword_packages_installed() and keyword_model_ready()
@@ -1111,6 +1191,10 @@ class Shell:
 
     def _keyword_status(self, status: str) -> None:
         word = self.controller.settings.keyword
+        if status == "talk_over":
+            self._cut_off()
+            self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
+            return
         if status == "capturing":
             self.orb.set_state("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
@@ -1184,7 +1268,9 @@ class Shell:
         if self.controller.state == "game":
             self._offer_load = True
             self._close_followup()
-            self._speak("I'm in Game mode. Load the brain? It needs about 8 GB of video memory.")
+            mode = get_mode(self.controller.settings.intelligence)
+            gigabytes = max(1, round(mode.vram_mib / 1024))
+            self._speak(f"I'm in Game mode. Load the brain? It needs about {gigabytes} GB of video memory.")
             return
         if self.controller.state != "on":
             if self.controller.state in {"off", "starting"} or self.controller._busy:
@@ -1208,13 +1294,26 @@ class Shell:
         if getattr(self, "_clock", None) is None:
             self._clock = TurnClock()
         self._clock.mark("transcript")
+        self._filler_stop.clear()
         self._filler.start(1500)
+        self._begin_model_turn()
         note = getattr(self, "_interrupt_note", "")
         if note:
             text = f"{note}\n{text}"
             self._interrupt_note = ""
         alive = "2m" if getattr(self, "_return_to_game", False) else -1
-        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx, self._history, keep_alive=alive)
+        facts = self._facts_for(text)
+        job = _AskJob(
+            self.controller.ollama,
+            mode.model,
+            text,
+            mode.num_ctx,
+            self._history,
+            keep_alive=alive,
+            num_batch=mode.num_batch,
+            facts=facts,
+            personality=getattr(self, "_session_personality", ""),
+        )
         job.turn = self._turn_id
         self._ask_job = job
         job.measured.connect(lambda stats, turn=job.turn: self._on_measured(stats, turn))
@@ -1242,21 +1341,70 @@ class Shell:
             return
         self._clock.mark("first_token")
 
+    def _facts_for(self, text: str) -> list[str]:
+        items = [str(item.get("text") or "") for item in load_list("memory.json")]
+        return rank_texts(text, items, k=2)
+
+    def _begin_model_turn(self) -> None:
+        if self._model_turn_open:
+            return
+        self.turns.enter()
+        self._model_turn_open = True
+        self.controller.probe.defer_probes = True
+
+    def _end_model_turn(self) -> None:
+        if not self._model_turn_open:
+            return
+        self.turns.leave()
+        self._model_turn_open = False
+        self.controller.probe.defer_probes = False
+
     def _cue_waiting(self) -> None:
         clock = getattr(self, "_clock", None)
         if clock is None or "first_sound" in clock.marks or not self._same_turn(self._turn_id):
             return
-        line = ("One moment.", "Still working.", "Give me a second.")[self._filler_n % 3]
+        from babysitter.plugins.voice.fillers import PHRASES, library
+
+        index = self._filler_n % len(PHRASES)
+        line = PHRASES[index]
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
         self.orb.set_state("thinking", line)
-        if kokoro_ready() and not getattr(self, "_speaking", False):
-            self._speak(line, filler=True)
+        clip = library().clip(index)
+        if clip is None or getattr(self, "_speaking", False):
+            return
+        pcm, rate = clip
+        self._filler_stop.clear()
+        self._speaking = True
+        self._is_filler = True
+
+        class _Play(QThread):
+            def run(self_play) -> None:
+                from babysitter.plugins.voice.fillers import play_clip
+
+                play_clip(pcm, rate, self._filler_stop)
+
+        job = _Play()
+        self._filler_job = job
+        job.finished.connect(self._filler_done)
+        job.start()
+        if clock is not None:
+            clock.mark("first_sound")
+            self._responsiveness.add(clock.as_row())
+            self.window.voice_page.set_responsiveness(self._responsiveness.summary())
+
+    def _filler_done(self) -> None:
+        if getattr(self, "_is_filler", False):
+            self._is_filler = False
+            self._speaking = False
+            self._sync_keyword()
 
     def _cut_off(self) -> None:
         started = time.perf_counter()
         self._turn_id += 1
         self._filler.stop()
+        self._filler_stop.set()
+        self._end_model_turn()
         job = getattr(self, "_ask_job", None)
         if job is not None:
             job.cancel.set()
@@ -1281,6 +1429,8 @@ class Shell:
         if turn and not self._same_turn(turn):
             return
         self._filler.stop()
+        self._filler_stop.set()
+        self._end_model_turn()
         self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
         self._speaking = False
@@ -1310,10 +1460,32 @@ class Shell:
         self._spoken_for_history = spoken
         heard = getattr(self, "_pending_line", "")
         self._more_text = rest
-        self._awaiting_more = False
-        if getattr(self, "_listener", None) is not None:
-            self._listener.expect_yes_no(False)
-        self.window.home.set_reply(heard, spoken, reply)
+        level = int(self.controller.settings.proactivity)
+        fact = ""
+        if level >= 2:
+            matches = self._facts_for(heard)
+            fact = matches[0] if matches else ""
+        from datetime import date as _date
+
+        weekly = False
+        if level >= 3 and not self._weekly_offered:
+            from babysitter.proactivity import offer_weekly
+
+            weekly = offer_weekly(
+                level,
+                self.controller.settings.last_weekly_review,
+                _date.today(),
+                self._weekly_offered,
+            )
+            if weekly:
+                self._weekly_offered = True
+        self._awaiting_more = offer_more(level, bool(rest))
+        if self._awaiting_more and getattr(self, "_listener", None) is not None:
+            self._listener.expect_yes_no(True)
+        note = nudge(level, bool(rest), fact, weekly)
+        self._nudge = note
+        detail = reply if not note else f"{reply}\n\n{note}"
+        self.window.home.set_reply(heard, spoken, detail)
         if early:
             self._early_lead = ""
             bare = early[:-1].rstrip() if early[-1:] in ".!?" else early
@@ -1322,8 +1494,12 @@ class Shell:
                 extra = spoken[len(bare) :].lstrip(" \t,")
             if extra:
                 self._pending_offer = extra
+            if not getattr(self, "_speaking", False):
+                self._end_model_turn()
             return
         self._speak(spoken)
+        if not getattr(self, "_speaking", False):
+            self._end_model_turn()
 
     def _clear_more(self) -> None:
         self._awaiting_more = False
@@ -1431,6 +1607,15 @@ class Shell:
         if text.startswith("FOLLOWUP "):
             self._save_followup(text)
             return
+        if text.startswith("PROACTIVITY "):
+            self._save_proactivity(text)
+            return
+        if text.startswith("RATE "):
+            self._save_rating(text.split(" ", 1)[1])
+            return
+        if text == "WEEKLY review":
+            self._speak_weekly()
+            return
         self.controller._remember(text)
         self.window.home.set_history(self.controller.history)
 
@@ -1451,14 +1636,17 @@ class Shell:
             self.controller.enter_game()
 
     def _look_at_screen(self, full: bool = False) -> None:
+        mode = get_mode(self.controller.settings.intelligence)
+        native = full and mode.num_ctx > 4096
+        edge = mode.image_edge if not full else 1280
         if not ask_yes_no(
             self.window,
             "Look at the screen?",
             "BabySitter will take one picture in memory and ask the model that is already loaded. "
             + (
                 "Small text is sent at full size, so this takes a few seconds. "
-                if full
-                else "The long edge is shrunk to 1280 pixels. "
+                if native
+                else f"The long edge stays at or under {edge} pixels so it fits this level. "
             )
             + "The picture is not saved.",
             "Look now",
@@ -1471,10 +1659,10 @@ class Shell:
             self.window.screen_page.body.setPlainText("No screen was found. Nothing was saved.")
             return
         picture = screen.grabWindow(0)
-        if full:
+        if native:
             self.window.home.set_phase("thinking", "This takes a few seconds.")
         else:
-            width, height = scaled_size(picture.width(), picture.height())
+            width, height = fit_screenshot(picture.width(), picture.height(), edge=edge, num_ctx=mode.num_ctx)
             if (width, height) != (picture.width(), picture.height()):
                 picture = picture.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         encoded = _png_base64(picture)
@@ -1490,7 +1678,6 @@ class Shell:
         self.window.home.set_phase("thinking", "Looking at the screen.")
         self._speak("Looking at the screen.", filler=True)
         self._pending_line = "What is on the screen?"
-        mode = get_mode(self.controller.settings.intelligence)
         self._early_lead = ""
         self._pending_offer = ""
         self._finished_phrases = []
@@ -1503,6 +1690,7 @@ class Shell:
         if getattr(self, "_clock", None) is not None:
             self._clock.marks["image_tokens"] = tokens
         alive = "2m" if getattr(self, "_return_to_game", False) else -1
+        self._begin_model_turn()
         job = _AskJob(
             self.controller.ollama,
             mode.model,
@@ -1511,6 +1699,9 @@ class Shell:
             self._history,
             [encoded],
             keep_alive=alive,
+            num_batch=mode.num_batch,
+            facts=self._facts_for(text),
+            personality=getattr(self, "_session_personality", ""),
         )
         job.turn = self._turn_id
         self._ask_job = job
@@ -1523,6 +1714,9 @@ class Shell:
         job.start()
 
     def _read_health(self) -> None:
+        if self.turns.busy():
+            self.window.health_page.body.setPlainText("A reply is in progress. The PC check waits until it finishes.")
+            return
         if sys.platform != "win32":
             self.window.health_page.body.setPlainText(
                 "These checks run on your Windows PC. They are read-only. "
@@ -1610,7 +1804,8 @@ class Shell:
         speaker.stop()
         self._speaking = True
         self._pending_speech = text
-        if getattr(self, "_listener", None) is not None:
+        allow_barge = self.controller.settings.talk_over and self.controller.settings.echo_cancel
+        if getattr(self, "_listener", None) is not None and not allow_barge:
             self._listener.stop()
         prefs = self._voice_prefs()
         if filler and prefs["engine"] == "kokoro" and not kokoro_ready():
@@ -1622,6 +1817,8 @@ class Shell:
             return
         if prefs["engine"] == "windows" and sys.platform != "win32":
             self._speaking = False
+            if not filler:
+                self._end_model_turn()
             self._sync_keyword()
             return
         self._start_speech(text, prefs)
@@ -1643,6 +1840,7 @@ class Shell:
                 "Heart and Sarah is not downloaded, so nothing was spoken with that voice.",
             )
             self._sync_keyword()
+            self._end_model_turn()
             return
         job = _KokoroDownloadJob()
         self._kokoro_job = job
@@ -1657,12 +1855,15 @@ class Shell:
 
     def _kokoro_failed(self, message: str) -> None:
         self._speaking = False
+        self._end_model_turn()
         self.window.home.set_phase("on", message)
         self._sync_keyword()
 
     def _start_speech(self, text: str, prefs: dict) -> None:
         if not text:
             self._speaking = False
+            if not getattr(self, "_is_filler", False):
+                self._end_model_turn()
             self._sync_keyword()
             return
         job = _SpeakJob(text, prefs, self._turn_id)
@@ -1677,6 +1878,7 @@ class Shell:
 
     def _sound_started(self) -> None:
         self._filler.stop()
+        self._filler_stop.set()
         clock = getattr(self, "_clock", None)
         if clock is None:
             return
@@ -1693,6 +1895,7 @@ class Shell:
         self._finished_phrases.append(phrase)
 
     def _speech_failed(self, message: str) -> None:
+        self._end_model_turn()
         self.window.home.set_phase(self.controller.state, message)
 
     def _speak_done(self) -> None:
@@ -1706,7 +1909,14 @@ class Shell:
             self._speak(offer)
             return
         self._remember_exchange(getattr(self, "_pending_line", ""), getattr(self, "_spoken_for_history", ""))
+        job = getattr(self, "_ask_job", None)
+        if job is None or not job.isRunning():
+            self._end_model_turn()
         self._arm_game_return()
+        nudge_line = getattr(self, "_nudge", "")
+        if nudge_line:
+            self.window.home.set_phase("on", nudge_line)
+            self._nudge = ""
         self._open_followup()
 
     def _remember_exchange(self, user: str, assistant: str) -> None:
@@ -1794,14 +2004,31 @@ class Shell:
             self._look_at_screen(full=True)
             return True
         if quick.kind == "why":
+            query = text
+            for item in reversed(self._history):
+                if item.get("role") == "user":
+                    query = str(item.get("content") or query)
+                    break
+            facts = self._facts_for(query)
             lines = []
             for item in self._history[-6:]:
                 role = "You" if item.get("role") == "user" else "BabySitter"
                 lines.append(f"{role}: {str(item.get('content') or '')[:240]}")
-            detail = "\n".join(lines) if lines else "Nothing from this conversation was sent with the last reply."
-            speech = "I used the recent conversation. It is on the screen. Saved facts are not sent to the model yet."
+            if facts:
+                lines.append("Saved facts that matched:")
+                lines.extend(facts)
+                speech = "I used the recent conversation and the saved facts that matched. Both are on the screen."
+            else:
+                speech = "I used the recent conversation. No saved fact matched. It is on the screen."
+            detail = "\n".join(lines) if lines else "Nothing from this conversation was kept."
             self.window.home.set_reply(text, speech, detail)
             self._speak(speech)
+            return True
+        if quick.kind == "weekly":
+            self._speak_weekly()
+            return True
+        if quick.kind == "rate":
+            self._save_rating(quick.detail)
             return True
         if quick.kind == "timer":
             self._begin_timer(quick.seconds)
@@ -1850,6 +2077,41 @@ class Shell:
         save_settings(self.controller.settings)
         self.window.voice_page.status.setText(f"Follow-up listening is {seconds} seconds. Saved on this PC.")
 
+    def _save_proactivity(self, text: str) -> None:
+        try:
+            level = int(text.split()[1])
+        except (IndexError, ValueError):
+            return
+        self.controller.settings.proactivity = max(0, min(3, level))
+        save_settings(self.controller.settings)
+        self.window.voice_page.status.setText(
+            f"Proactivity is {self.controller.settings.proactivity}. Saved on this PC."
+        )
+
+    def _save_rating(self, label: str) -> None:
+        try:
+            record_rating(label)
+        except ValueError:
+            return
+        speech = "Saved. I'll use that the next time the AI turns on."
+        self.window.voice_page.status.setText(speech)
+        self.window.home.set_reply("rating", speech, "The tone stays fixed until the next time you turn the AI on.")
+        self._speak(speech)
+
+    def _speak_weekly(self) -> None:
+        if self.turns.busy():
+            self.window.home.set_phase("on", "The weekly review waits until this reply finishes.")
+            return
+        memories = [str(item.get("text") or "") for item in load_list("memory.json")]
+        notes = [str(item.get("content") or "") for item in self._history if item.get("role") == "user"]
+        speech = weekly_review(memories, notes)
+        from datetime import date
+
+        self.controller.settings.last_weekly_review = date.today().isoformat()
+        save_settings(self.controller.settings)
+        self.window.home.set_reply("weekly review", speech, "Written on this PC. The model was not asked.")
+        self._speak(speech)
+
     def _benchmark(self) -> None:
         if self.controller.state != "on":
             self.window.models_page.body.setPlainText("Turn the AI on before the benchmark. Nothing was sent.")
@@ -1860,10 +2122,12 @@ class Shell:
             return
         mode = get_mode(self.controller.settings.intelligence)
         running_voice = getattr(self, "_ask_job", None)
-        if running_voice is not None and running_voice.isRunning():
-            self.window.models_page.body.setPlainText("A reply is in progress. The benchmark waits so it does not wipe that conversation.")
+        if self.turns.busy() or (running_voice is not None and running_voice.isRunning()):
+            self.window.models_page.body.setPlainText(
+                "A reply is in progress. The benchmark waits so it does not load the card again."
+            )
             return
-        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx)
+        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
         self._bench_job = job
         self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
         job.finished_text.connect(self._benchmark_done)

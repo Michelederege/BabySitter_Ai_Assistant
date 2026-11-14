@@ -18,9 +18,11 @@ from dataclasses import dataclass, field
 
 from babysitter.audio import AudioGate
 from babysitter.hotkeys import HotkeyBook
+from babysitter.intelligence import batch_for
 from babysitter.ollama import OllamaClient, OllamaError, context_problem, spill_problem
 from babysitter.pictures import room_for_model
 from babysitter.status import StatusCollector, explain_gpu_hold, format_mib
+from babysitter.vram import low_load_note
 
 
 OFF = "off"
@@ -112,7 +114,7 @@ class PowerService:
             if blocked:
                 self._stop_if_we_started()
                 return self._fail(blocked)
-            self.ollama.preload(model, num_ctx)
+            self.ollama.preload(model, num_ctx, batch_for(model, num_ctx))
             placed = self._after_load(model, num_ctx)
             if placed:
                 return placed
@@ -168,7 +170,7 @@ class PowerService:
             blocked = room_for_model(free, model, num_ctx)
             if blocked:
                 return self._fail(blocked)
-            self.ollama.preload(model, num_ctx)
+            self.ollama.preload(model, num_ctx, batch_for(model, num_ctx))
             placed = self._after_load(model, num_ctx)
             if placed:
                 return placed
@@ -197,9 +199,15 @@ class PowerService:
                 pass
             self._stop_if_we_started()
             return self._fail(spilled)
+        notes: list[str] = []
         short = context_problem(match, num_ctx)
         if short:
-            self._load_note = short
+            notes.append(short)
+        budget = low_load_note(match.name, match.vram_bytes, num_ctx)
+        if budget:
+            notes.append(budget)
+        if notes:
+            self._load_note = " ".join(notes)
         return None
 
     def enter_game_mode(self, progress) -> PowerResult:

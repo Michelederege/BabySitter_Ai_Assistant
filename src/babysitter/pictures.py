@@ -3,6 +3,15 @@
 from __future__ import annotations
 
 
+def fit_screenshot(width: int, height: int, *, edge: int, num_ctx: int) -> tuple[int, int]:
+    """Shrink until the picture and a short conversation share one context."""
+    width, height = scaled_size(width, height, edge)
+    budget = max(256, int(num_ctx) - 1200)
+    while image_tokens(width, height) > budget and max(width, height) > 256:
+        width, height = scaled_size(width, height, max(256, int(max(width, height) * 0.8)))
+    return width, height
+
+
 def scaled_size(width: int, height: int, limit: int = 1280) -> tuple[int, int]:
     """Keep the long edge at or under the limit. Native size is kept when it already fits."""
     width = max(0, int(width))
@@ -74,10 +83,6 @@ def benchmark_warning(current_tps: int, baseline_tps: int) -> str | None:
 
 
 def _need_mib(model: str, num_ctx: int) -> int:
-    name = model.lower()
-    if "gemma" in name:
-        # Measured near 10 GB at 8K on a 12 GB card. A longer context asks for more.
-        return 11000 if int(num_ctx) > 8192 else 9500
-    if "vl" in name:
-        return 9000
-    return 9000 if int(num_ctx) >= 16384 else 8500
+    from babysitter.vram import need_mib
+
+    return need_mib(model, num_ctx)

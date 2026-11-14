@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.12.0 — Low fits in 4 to 6 GB, and the remaining local features
+
+The code from 0.11.0 is tagged `checkpoint-0.11.0`. Check that tag out if this build misbehaves.
+
+Low still uses `qwen3.5:9b`, so voice, tools, and pictures stay. The context is 4,096 tokens and the batch is 128. That is the room a short talk and a shrunk screenshot need. When BabySitter starts Ollama, the cache is q4 and flash attention stays on. The weights of a 9B Q4 model are about 5.4 GB, so Low lands around 6 GB rather than 4 GB. Layers are not moved into system memory, because that makes replies slow and BabySitter would unload the model. Medium stays at 8,192. High stays at 16,384 and still loads only when the card has room.
+
+Video memory is read from the NVIDIA driver library when it is present. `nvidia-smi` is the fallback. Those reads pause during a voice turn. A benchmark, a PC check, filler rendering, and the weekly review wait too. Game-name checks still run.
+
+"One moment", "Still working", and "Give me a second" play from clips rendered ahead of time, not from the live voice. Stopping speech is checked every 10 ms, and the Windows voice stops between short pieces. Silero is used when `silero_vad.onnx` is already in the BabySitter folder. Otherwise a loud-versus-quiet check on the processor does the job. Smart Turn, echo subtraction, and talking over a reply are in Settings and are off. Saved facts that match the question can ride along with it, still on this PC. You can rate a reply. The rating applies the next time the AI turns on. Proactivity runs from 0 to 3, and the default is 1. A weekly review is written from local notes and does not load a model.
+
+Speech-to-speech and a cloud realtime voice are still not built.
+
 ## 0.11.0 — Keep the model on the graphics card
 
 Low now gives qwen3.5:9b a 16,384-token conversation. That extra room is small on this model. Medium stays at 8,192 because the writing model already fills a 12 GB card. High still asks for 16,384 and loads only when the card has room. If the model spills into system memory, BabySitter unloads it and says so. A short context is reported instead of being ignored. Holding talk while the AI is off starts the load while you are still speaking. In Game mode, saying yes loads the model and unloads it again two minutes after the answer. Speech recognition stays loaded while the AI is on, on four processor threads. Heart and Sarah is capped the same way and stops spinning while it waits. The benchmark records speeds, not words, and warns if a later run is much slower.

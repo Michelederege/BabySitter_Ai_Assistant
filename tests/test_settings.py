@@ -101,3 +101,20 @@ def test_round_trip(tmp_path, monkeypatch):
     again = load_settings()
     assert again.game_processes == ["game.exe"]
     assert again.intelligence == "low"
+
+
+def test_schema_seven_gains_the_listening_extras_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"schema_version": 7, "intelligence": "low", "keep_off_game_cores": False}),
+        encoding="utf-8",
+    )
+    settings = load_settings()
+    assert settings.schema_version == SCHEMA_VERSION
+    assert settings.vad_enabled is False
+    assert settings.smart_turn is False
+    assert settings.echo_cancel is False
+    assert settings.talk_over is False
+    assert settings.proactivity == 1
+    assert settings.last_weekly_review == ""
+    assert settings.keep_off_game_cores is False

@@ -66,8 +66,10 @@ class WindowsSpeaker:
     def __init__(self) -> None:
         self._proc = None
         self._lock = threading.Lock()
+        self.cancelled = threading.Event()
 
     def stop(self) -> None:
+        self.cancelled.set()
         with self._lock:
             proc = self._proc
             self._proc = None
@@ -85,7 +87,9 @@ class WindowsSpeaker:
         spoken = (text or "").strip()
         if not spoken:
             return
+        self.cancelled.clear()
         self.stop()
+        self.cancelled.clear()
         env = os.environ.copy()
         if voice:
             env["BS_VOICE"] = voice
