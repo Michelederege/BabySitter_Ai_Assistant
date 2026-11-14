@@ -56,6 +56,45 @@ def test_game_match_ignores_case():
     assert first_matching_game(["bg3.exe"], {"explorer.exe"}) is None
 
 
+def test_a_game_is_noticed_by_its_install_folder():
+    from babysitter.games import detect_game, looks_like_game_path
+
+    # The common stores.
+    assert looks_like_game_path(r"D:\SteamLibrary\steamapps\common\Baldurs Gate 3\bin\bg3.exe")
+    assert looks_like_game_path(r"C:\Program Files\Epic Games\Hades\x64\Hades.exe")
+    assert looks_like_game_path(r"C:\GOG Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe")
+    assert looks_like_game_path(r"C:\XboxGames\Starfield\Content\Starfield.exe")
+    assert looks_like_game_path(r"C:\Riot Games\VALORANT\live\VALORANT.exe")
+    assert looks_like_game_path(r"D:\Games\ELDEN RING\Game\eldenring.exe")
+    # Store programs that are not the game itself.
+    assert not looks_like_game_path(r"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe")
+    assert not looks_like_game_path(r"C:\Riot Games\Riot Client\RiotClientServices.exe")
+    assert not looks_like_game_path(r"D:\SteamLibrary\steamapps\common\Some Game\EasyAntiCheat\EasyAntiCheat.exe")
+    assert not looks_like_game_path(r"C:\Program Files (x86)\Battle.net\Battle.net.exe")
+    # Everyday programs. "Epic Games" as part of a word does not count.
+    assert not looks_like_game_path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    assert not looks_like_game_path(r"C:\Program Files\Steam\steam.exe")
+    assert not looks_like_game_path(r"C:\Users\me\AppData\Local\Programs\Ollama\ollama.exe")
+    assert not looks_like_game_path("")
+    assert detect_game(
+        {
+            "chrome.exe": r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            "bg3.exe": r"D:\SteamLibrary\steamapps\common\Baldurs Gate 3\bin\bg3.exe",
+        }
+    ) == "bg3.exe"
+    assert detect_game({"chrome.exe": r"C:\Program Files\Google\Chrome\Application\chrome.exe"}) is None
+
+
+def test_the_detected_game_obeys_the_same_wake_rules():
+    # A detected game and a listed game go through the same GameWatch, so
+    # waking the model keeps the AI on until that game closes.
+    watch = GameWatch()
+    assert watch.auto_switch_target("eldenring.exe") == "eldenring.exe"
+    watch.suppress("eldenring.exe")
+    assert watch.auto_switch_target("eldenring.exe") is None
+    assert watch.auto_switch_target(None) is None
+
+
 def test_wake_suppresses_auto_switch_until_the_game_closes():
     watch = GameWatch()
     assert watch.auto_switch_target("bg3.exe") == "bg3.exe"

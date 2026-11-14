@@ -37,6 +37,7 @@ class StatusSnapshot:
     gpu: GpuInfo | None = None
     gpu_error: str | None = None
     process_names: set[str] = field(default_factory=set)
+    detected_game: str | None = None
     taken_at: float = 0.0
 
 
@@ -178,6 +179,7 @@ class StatusCollector:
         else:
             gpu, gpu_error = self._gpu()
             self._last_gpu = (gpu, gpu_error)
+        names, detected = self._scan_processes()
         return StatusSnapshot(
             cpu_percent=cpu,
             ram_used_bytes=int(memory.used),
@@ -187,20 +189,30 @@ class StatusCollector:
             models_error=models_error,
             gpu=gpu,
             gpu_error=gpu_error,
-            process_names=self._process_names(),
+            process_names=names,
+            detected_game=detected,
             taken_at=time.time(),
         )
 
-    def _process_names(self) -> set[str]:
+    def _scan_processes(self) -> tuple[set[str], str | None]:
+        """Every process name, and the first one installed where games live."""
+        from babysitter.games import looks_like_game_path
+
         names: set[str] = set()
+        detected: str | None = None
         try:
-            for proc in psutil.process_iter(["name"]):
+            for proc in psutil.process_iter(["name", "exe"]):
                 name = proc.info.get("name")
-                if name:
-                    names.add(str(name))
+                if not name:
+                    continue
+                names.add(str(name))
+                if detected is None:
+                    path = proc.info.get("exe")
+                    if path and looks_like_game_path(str(path)):
+                        detected = str(name)
         except (psutil.Error, OSError):
-            return names
-        return names
+            return names, detected
+        return names, detected
 
     def read_gpu(self) -> tuple[GpuInfo | None, str | None]:
         return self._gpu(processes=True)

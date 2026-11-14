@@ -617,6 +617,7 @@ class Shell:
         settings.autostart.toggled.connect(self._set_autostart)
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
+        settings.detect_games.toggled.connect(self._set_detect_games)
         settings.off_game_cores.toggled.connect(self._set_core_avoidance)
         settings.vad_enabled.toggled.connect(lambda on: self._set_flag("vad_enabled", on))
         settings.smart_turn.toggled.connect(lambda on: self._set_flag("smart_turn", on))
@@ -953,6 +954,10 @@ class Shell:
         self.controller.set_auto_game(enabled)
         self._refresh_game_note()
 
+    def _set_detect_games(self, enabled: bool) -> None:
+        self.controller.set_detect_games(enabled)
+        self._refresh_game_note()
+
     def _set_core_avoidance(self, enabled: bool) -> None:
         note = self.controller.set_core_avoidance(enabled)
         if note:
@@ -1026,6 +1031,12 @@ class Shell:
         settings = self.controller.settings
         if not settings.auto_game_mode:
             text = "Auto game mode is off."
+        elif settings.detect_games and settings.game_processes:
+            text = (
+                "Watching game folders, and: " + ", ".join(settings.game_processes)
+            )
+        elif settings.detect_games:
+            text = "Watching for any game run from a game folder."
         elif not settings.game_processes:
             text = "Auto game mode is on, but you have not added a program yet."
         else:

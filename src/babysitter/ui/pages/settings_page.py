@@ -77,12 +77,19 @@ class SettingsPage(QWidget):
         self.hotkey_note.setObjectName("hint")
         root.addWidget(self.hotkey_note)
 
-        self.auto_game = QCheckBox("Switch to game mode when a program below is running")
+        self.auto_game = QCheckBox("Switch to game mode by itself when a game opens")
         self.auto_game.setToolTip(
-            "Looks only at the program name. It does not read the game's memory "
-            "and does not draw anything inside the game. Off by default."
+            "Looks only at the program name and the folder it runs from. It does not "
+            "read the game's memory and does not draw anything inside the game."
         )
         root.addWidget(self.auto_game)
+        self.detect_games = QCheckBox("Count any program running from a game folder as a game")
+        self.detect_games.setToolTip(
+            "Steam's steamapps, Epic Games, GOG, the Xbox app, Riot Games, and any "
+            "folder simply named Games. A game somewhere else still needs its name "
+            "in the list below. On by default."
+        )
+        root.addWidget(self.detect_games)
         self.hide_orb_for_games = QCheckBox("Hide the orb while a watched game is in front")
         self.hide_orb_for_games.setToolTip(
             "Off by default. This hides BabySitter's own light. It does not draw on the game."
@@ -205,6 +212,7 @@ class SettingsPage(QWidget):
         self.emergency.setText(settings.emergency_hotkey)
         self.power_on.setText(settings.power_on_hotkey)
         self.auto_game.setChecked(settings.auto_game_mode)
+        self.detect_games.setChecked(settings.detect_games)
         self.off_game_cores.setChecked(settings.keep_off_game_cores)
         self.hide_orb_for_games.setChecked(settings.hide_orb_for_games)
         self.quiet_hours.setChecked(settings.quiet_hours)
@@ -227,6 +235,7 @@ class SettingsPage(QWidget):
             self.autostart,
             self.on_top,
             self.auto_game,
+            self.detect_games,
             self.off_game_cores,
             self.hide_orb_for_games,
             self.quiet_hours,
