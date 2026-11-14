@@ -147,8 +147,11 @@ class HealthPage(_Page):
             "PC Health",
             "Read only. BabySitter will not change the PC. There is no Fix button. "
             "On Windows these are three fixed checks. "
-            "One setup step BabySitter cannot do for you: NVIDIA Control Panel, Manage 3D settings, "
-            "Program Settings, ollama.exe, CUDA Sysmem Fallback Policy, Prefer No Sysmem Fallback.",
+            "Two setup steps BabySitter cannot do for you. "
+            "NVIDIA Control Panel, Manage 3D settings, Program Settings, ollama.exe, "
+            "CUDA Sysmem Fallback Policy, Prefer No Sysmem Fallback. "
+            "And, if Ollama was already running from its own tray icon, quit that icon and start it again "
+            "after the context setting is saved. BabySitter sets that only when it starts Ollama itself.",
         )
         run = QPushButton("Read memory, startup, and RAM speed")
         run.setToolTip("Runs the fixed read-only checks. They do not change Windows.")

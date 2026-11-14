@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from babysitter.audio import AudioGate
 from babysitter.hotkeys import HotkeyBook
-from babysitter.ollama import OllamaClient, OllamaError
+from babysitter.ollama import OllamaClient, OllamaError, context_problem, spill_problem
 from babysitter.pictures import room_for_model
 from babysitter.status import StatusCollector, explain_gpu_hold, format_mib
 
@@ -67,6 +67,7 @@ class PowerService:
         if self.state == ON and not cancel.is_set():
             return PowerResult(ON, "The AI is already on.", True)
         self.state = STARTING
+        self._load_note = ""
         progress("Starting Ollama in the background…")
         try:
             if cancel.is_set():
@@ -74,7 +75,7 @@ class PowerService:
             if not self.ollama.port_open():
                 self.ollama.start_server()
                 progress("Waiting for Ollama to answer on this computer…")
-                up = self.ollama.wait_until_up(30, cancel)
+                up = self.ollama.wait_until_up(180, cancel, progress)
                 if cancel.is_set():
                     return self._cancelled()
                 if not up:
@@ -103,15 +104,18 @@ class PowerService:
             progress(f"Loading {model}. The first time can take a minute…")
             gpu, _gpu_error = self.probe.read_gpu()
             free = None if gpu is None else gpu.total_mib - gpu.used_mib
-            if room_for_model(free, model) and self.ollama.port_open():
+            if room_for_model(free, model, num_ctx) and self.ollama.port_open():
                 self.ollama.unload_all()
                 gpu, _gpu_error = self.probe.read_gpu()
                 free = None if gpu is None else gpu.total_mib - gpu.used_mib
-            blocked = room_for_model(free, model)
+            blocked = room_for_model(free, model, num_ctx)
             if blocked:
                 self._stop_if_we_started()
                 return self._fail(blocked)
             self.ollama.preload(model, num_ctx)
+            placed = self._after_load(model, num_ctx)
+            if placed:
+                return placed
             if cancel.is_set():
                 return self._cancelled()
         except OllamaError as exc:
@@ -133,9 +137,12 @@ class PowerService:
         privacy = ""
         if private is None and not self.ollama.we_started_server:
             privacy = " I could not check whether other computers can reach Ollama."
+        note = getattr(self, "_load_note", "")
+        self._load_note = ""
+        extra = f" {note}" if note else ""
         return PowerResult(
             ON,
-            f"The AI is on. {model} is loaded ({num_ctx:,} of context). {where}{privacy}",
+            f"The AI is on. {model} is loaded ({num_ctx:,} of context). {where}{privacy}{extra}",
             True,
         )
 
@@ -149,6 +156,7 @@ class PowerService:
             )
         if self.state != ON:
             return PowerResult(self.state, "Turn the AI on before reloading the model.", False)
+        self._load_note = ""
         progress("Reloading the model with the new intelligence setting…")
         try:
             if cancel.is_set():
@@ -157,14 +165,42 @@ class PowerService:
                 self.ollama.unload_all()
             gpu, _gpu_error = self.probe.read_gpu()
             free = None if gpu is None else gpu.total_mib - gpu.used_mib
-            blocked = room_for_model(free, model)
+            blocked = room_for_model(free, model, num_ctx)
             if blocked:
                 return self._fail(blocked)
             self.ollama.preload(model, num_ctx)
+            placed = self._after_load(model, num_ctx)
+            if placed:
+                return placed
         except OllamaError as exc:
             return self._fail(str(exc))
         self.state = ON
-        return PowerResult(ON, f"Reloaded {model} with {num_ctx:,} of context.", True)
+        note = getattr(self, "_load_note", "")
+        self._load_note = ""
+        extra = f" {note}" if note else ""
+        return PowerResult(ON, f"Reloaded {model} with {num_ctx:,} of context.{extra}", True)
+
+    def _after_load(self, model: str, num_ctx: int) -> PowerResult | None:
+        """Unload a spilled model. A short context is a warning, not a crash."""
+        try:
+            running = self.ollama.running_models()
+        except OllamaError:
+            return None
+        match = next((item for item in running if model.split(":")[0] in item.name), None)
+        if match is None:
+            return None
+        spilled = spill_problem(match)
+        if spilled:
+            try:
+                self.ollama.unload_all()
+            except OllamaError:
+                pass
+            self._stop_if_we_started()
+            return self._fail(spilled)
+        short = context_problem(match, num_ctx)
+        if short:
+            self._load_note = short
+        return None
 
     def enter_game_mode(self, progress) -> PowerResult:
         self._progress = progress

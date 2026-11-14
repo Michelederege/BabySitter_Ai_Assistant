@@ -112,6 +112,15 @@ def warm() -> None:
     _style("Heart & Sarah blend")
 
 
+def release() -> None:
+    """Drop the voice from memory. The files stay on disk."""
+    global _engine
+    stop()
+    with _lock:
+        _engine = None
+        _styles.clear()
+
+
 def stop() -> None:
     _playback_stop.set()
     try:
@@ -191,6 +200,33 @@ def _play_blocks(samples, sample_rate: int, block_ms: int = 30) -> bool:
     return not _playback_stop.is_set()
 
 
+def _limit_onnx_threads() -> None:
+    """Cap Kokoro at four threads and stop it spinning while it waits."""
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        return
+    if getattr(ort.InferenceSession, "_babysitter_capped", False):
+        return
+    original = ort.InferenceSession
+
+    def limited(*args, **kwargs):
+        if "sess_options" not in kwargs and len(args) < 2:
+            options = ort.SessionOptions()
+            options.intra_op_num_threads = 4
+            options.inter_op_num_threads = 1
+            options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+            try:
+                options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+            except Exception:
+                pass
+            kwargs["sess_options"] = options
+        return original(*args, **kwargs)
+
+    limited._babysitter_capped = True  # type: ignore[attr-defined]
+    ort.InferenceSession = limited
+
+
 def _loaded_engine():
     global _engine
     with _lock:
@@ -199,6 +235,7 @@ def _loaded_engine():
                 raise KokoroError("Heart and Sarah is not downloaded yet.")
             from kokoro_onnx import Kokoro
 
+            _limit_onnx_threads()
             folder = voice_dir()
             _engine = Kokoro(str(folder / "kokoro-v1.0.onnx"), str(folder / "voices-v1.0.bin"))
         return _engine

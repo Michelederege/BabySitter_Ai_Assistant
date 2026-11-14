@@ -54,6 +54,12 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "what is on my screen",
     }:
         return QuickCommand("screen")
+    if phrase in {
+        "read the small text",
+        "read the small text on my screen",
+        "read the small text on the screen",
+    }:
+        return QuickCommand("screen_text")
     timer = _timer_seconds(phrase)
     if timer:
         return QuickCommand("timer", seconds=timer)

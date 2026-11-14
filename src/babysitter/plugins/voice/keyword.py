@@ -198,6 +198,9 @@ class KeywordListener:
             self._thread = None
 
     def _run(self, keyword: str, on_phrase, on_status, on_error) -> None:
+        from babysitter.platform import mark_current_thread_efficient
+
+        mark_current_thread_efficient()
         try:
             import sounddevice as sd
             from vosk import Model

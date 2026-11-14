@@ -4,15 +4,19 @@ from babysitter.intelligence import MAIN_MODEL, MODES, WRITING_MODEL
 from datetime import datetime
 
 from babysitter.ollama import (
+    LoadedModel,
     OllamaClient,
     chat_messages,
     classify_ollama_process,
     chat_body,
     content_from_stream_line,
+    context_problem,
     server_environment,
     gpu_placement_label,
     models_from_ps,
     parse_ollama_version,
+    spill_problem,
+    stats_from_stream_line,
     version_is_older,
 )
 from babysitter.security import bind_is_private, bind_is_public, require_local_host
@@ -83,6 +87,9 @@ def test_version_parsing_and_the_security_cutoff():
     assert version_is_older((0, 17, 0), (0, 17, 1))
     assert not version_is_older((0, 17, 1), (0, 17, 1))
     assert not version_is_older((0, 18, 0), (0, 17, 1))
+    _found, older, message = version_message((0, 20, 0), "", None)
+    assert not older
+    assert "0.34.2" in message
     _found, older, message = version_message((0, 6, 2), "", None)
     assert older
     assert "CVE-2026-7482" in message
@@ -110,6 +117,24 @@ def test_model_is_fully_on_the_gpu_only_when_vram_matches():
     assert models[0].gpu_label == "100% on the GPU"
 
 
+def test_a_finished_line_keeps_counts_not_words():
+    line = (
+        '{"done":true,"prompt_eval_count":40,"prompt_eval_duration":20000000,'
+        '"eval_count":10,"eval_duration":200000000,"load_duration":0,'
+        '"message":{"content":"secret words"}}'
+    )
+    stats = stats_from_stream_line(line)
+    assert stats["prompt_tokens"] == 40
+    assert stats["gen_tokens"] == 10
+    assert stats["prompt_tps"] == 2000
+    assert stats["gen_tps"] == 50
+    assert "secret" not in str(stats)
+    spilled = LoadedModel("qwen3.5:9b", 8_000_000_000, 7_000_000_000, 16384)
+    assert spill_problem(spilled)
+    assert spill_problem(LoadedModel("qwen3.5:9b", 1000, 1000)) is None
+    assert "4,096" in context_problem(LoadedModel("qwen3.5:9b", 1000, 1000, 4096), 16384)
+
+
 def test_nvidia_csv():
     gpu, error = parse_gpu_memory_csv("4812, 12282\n")
     assert error is None
@@ -129,5 +154,12 @@ def test_intelligence_uses_one_model_per_level():
     assert MODES["low"].model == MAIN_MODEL
     assert MODES["medium"].model == WRITING_MODEL
     assert MODES["high"].model == WRITING_MODEL
-    assert MODES["low"].num_ctx < MODES["medium"].num_ctx < MODES["high"].num_ctx
+    # Qwen's long context is cheap. Gemma's is not, so Medium stays smaller than High.
+    assert MODES["low"].num_ctx == 16384
+    assert MODES["medium"].num_ctx == 8192
+    assert MODES["high"].num_ctx == 16384
+    assert MODES["medium"].num_ctx < MODES["high"].num_ctx
     assert WRITING_MODEL != MAIN_MODEL
+    low = chat_body(MAIN_MODEL, "hello", MODES["low"].num_ctx)
+    again = chat_body(MAIN_MODEL, "again", MODES["low"].num_ctx)
+    assert low["options"]["num_ctx"] == again["options"]["num_ctx"] == 16384

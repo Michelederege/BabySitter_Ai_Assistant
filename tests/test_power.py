@@ -30,7 +30,7 @@ class FakeOllama:
         self.port = True
         self.we_started_server = True
 
-    def wait_until_up(self, timeout: float, cancel: threading.Event) -> bool:
+    def wait_until_up(self, timeout: float, cancel: threading.Event, progress=None) -> bool:
         return self.port and not cancel.is_set()
 
     def endpoint_is_private(self):

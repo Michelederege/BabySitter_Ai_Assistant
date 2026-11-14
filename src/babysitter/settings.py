@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -44,6 +44,7 @@ class Settings:
     keyword_listening: bool = False
     keyword: str = "baby sitter"
     followup_seconds: int = 10
+    keep_off_game_cores: bool = False
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -64,6 +65,7 @@ class Settings:
             "keyword_listening": self.keyword_listening,
             "keyword": self.keyword,
             "followup_seconds": self.followup_seconds,
+            "keep_off_game_cores": self.keep_off_game_cores,
         }
 
 
@@ -127,6 +129,10 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("followup_seconds", 10)
         incoming["schema_version"] = 6
         version = 6
+    if version < 7:
+        incoming.setdefault("keep_off_game_cores", False)
+        incoming["schema_version"] = 7
+        version = 7
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -191,6 +197,7 @@ def settings_from_dict(data: dict) -> Settings:
         keyword_listening=bool(data.get("keyword_listening", False)),
         keyword=_clean_keyword(data.get("keyword"), notices),
         followup_seconds=_followup_seconds(data.get("followup_seconds")),
+        keep_off_game_cores=bool(data.get("keep_off_game_cores", False)),
         notices=notices,
     )
 

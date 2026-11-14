@@ -23,6 +23,7 @@ from babysitter.paths import data_dir, logs_dir
 from babysitter.platform import (
     autostart_command,
     default_autostart_backend,
+    apply_game_core_avoidance,
     lower_own_priority,
     source_launcher_path,
     sync_autostart,
@@ -106,6 +107,9 @@ class StatusThread(QThread):
         self._stop.set()
 
     def run(self) -> None:
+        from babysitter.platform import mark_current_thread_efficient
+
+        mark_current_thread_efficient()
         try:
             report = check_ollama(self.ollama)
         except Exception as exc:  # noqa: BLE001
@@ -126,7 +130,7 @@ class StatusThread(QThread):
                     gpu_error=str(exc),
                 )
             self.snapshot.emit(snap)
-            if self._stop.wait(2):
+            if self._stop.wait(1):
                 return
 
 
@@ -160,6 +164,7 @@ class Controller(QObject):
         self._emergency_latched = False
         self.accepted_old_version = False
         self._priority_note = lower_own_priority()
+        self._core_note = apply_game_core_avoidance(self.settings.keep_off_game_cores)
         self.worker = PowerThread(self.power, self.cancel)
         self.status_thread = StatusThread(self.probe, self.ollama)
         self.worker.finished_job.connect(self._on_job)
@@ -322,6 +327,15 @@ class Controller(QObject):
     def set_auto_game(self, enabled: bool) -> None:
         self.settings.auto_game_mode = enabled
         save_settings(self.settings)
+
+    def set_core_avoidance(self, enabled: bool) -> str:
+        self.settings.keep_off_game_cores = bool(enabled)
+        save_settings(self.settings)
+        note = apply_game_core_avoidance(self.settings.keep_off_game_cores)
+        self._core_note = note
+        if not enabled:
+            return "Core avoidance is off."
+        return note or "Core avoidance is on."
 
     def add_game(self, name: str) -> str:
         cleaned = clean_process_name(name)

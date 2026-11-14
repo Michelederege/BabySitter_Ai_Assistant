@@ -83,6 +83,12 @@ class SettingsPage(QWidget):
             "and does not draw anything inside the game. Off by default."
         )
         root.addWidget(self.auto_game)
+        self.off_game_cores = QCheckBox("Keep BabySitter off the game's processor cores")
+        self.off_game_cores.setToolTip(
+            "Off by default. On a Ryzen 9 7900X this uses logical processors 12 to 23. "
+            "Leave it off until you have compared game frame times with it on and off."
+        )
+        root.addWidget(self.off_game_cores)
 
         self.quit_off = QCheckBox("Turn the AI off when quitting")
         self.quit_off.setToolTip(
@@ -134,6 +140,7 @@ class SettingsPage(QWidget):
         self.emergency.setText(settings.emergency_hotkey)
         self.power_on.setText(settings.power_on_hotkey)
         self.auto_game.setChecked(settings.auto_game_mode)
+        self.off_game_cores.setChecked(settings.keep_off_game_cores)
         self.quit_off.setChecked(settings.quit_turns_ai_off)
         self.games.clear()
         self.games.addItems(settings.game_processes)

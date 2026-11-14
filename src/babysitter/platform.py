@@ -65,6 +65,53 @@ def run_hidden(args: list[str], timeout: float = 8) -> subprocess.CompletedProce
     return subprocess.run(args, **kwargs)
 
 
+def mark_current_thread_efficient() -> None:
+    """Ask Windows to run this idle thread at an efficient speed.
+
+    Speech and transcription threads do not call this, so a reply stays fast.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _Throttle(ctypes.Structure):
+            _fields_ = [
+                ("Version", wintypes.ULONG),
+                ("ControlMask", wintypes.ULONG),
+                ("StateMask", wintypes.ULONG),
+            ]
+
+        state = _Throttle(1, 0x1, 0x1)
+        ctypes.windll.kernel32.SetThreadInformation(
+            ctypes.windll.kernel32.GetCurrentThread(),
+            3,
+            ctypes.byref(state),
+            ctypes.sizeof(state),
+        )
+    except (OSError, AttributeError):
+        return
+
+
+def apply_game_core_avoidance(enabled: bool) -> str:
+    """Optional. Off unless the user turns it on, and only on a 24-thread CPU.
+
+    Logical processors 12–23 are the usual second half of a Ryzen 9 7900X.
+    Check frame times before leaving it on. A smaller CPU is left alone.
+    """
+    if not enabled:
+        return ""
+    count = psutil.cpu_count(logical=True) or 0
+    if count < 24:
+        return "Core avoidance stayed off. This PC does not have 24 logical processors."
+    try:
+        psutil.Process().cpu_affinity(list(range(12, min(24, count))))
+    except (psutil.Error, OSError, AttributeError) as exc:
+        return f"Could not set processor affinity ({exc})."
+    return "BabySitter is staying on logical processors 12 to 23. Test game frame times before you leave this on."
+
+
 def lower_own_priority() -> str:
     """Keep BabySitter from stealing frames from a game.
 
