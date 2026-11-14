@@ -2,6 +2,24 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.15.0 — Game mode switches by itself, plus the November review
+
+Opening a game now switches to game mode without you typing its name first. A program running from a folder where game stores install — Steam's `steamapps`, Epic Games, GOG, the Xbox app, Riot Games, or a folder simply named `Games` — counts as a game. Launchers, anti-cheat helpers, and installers in those folders do not. Only the file name and the folder it runs from are read; nothing reads a game's memory. This one update turns automatic game mode on, since it was asked to work by itself. Two switches in Settings turn it off: one for the folder detection, one for automatic game mode entirely. A game installed somewhere unusual still needs its name in the list, and **Switch** under Game mode still works by hand. Waking the model during a game still keeps the AI on until that game closes.
+
+## Also in 0.15.0 — The November review: a newer Ollama gate, faster loads, and checked downloads
+
+The security cutoff moves from Ollama 0.17.1 to **0.35.0**. October 2026 brought CVE-2026-103663: on anything from 0.34.2 up to 0.35.0, a program that can reach Ollama's local port can make it write a file outside its model folder, and that file runs the next time Ollama starts. The old message even recommended 0.34.2 for speed, which sits inside that range. Anything older than 0.35.0 now gets the warning and the ask before turning on.
+
+The Ollama that BabySitter starts now has Ollama's own cloud models turned off (`OLLAMA_NO_CLOUD=1`). Signing in to Ollama for another app can no longer send a BabySitter request to the internet.
+
+Loading a model no longer asks it to write a word and throw it away. The load request carries an empty conversation, so Ollama loads the model and answers at once. Power-on is a second or two faster.
+
+Low's batch goes from 128 to 256. That costs about 36 MB of video memory by this project's own arithmetic and roughly doubles how fast a long prompt — a screenshot, a tool reply — is read. Low stays inside the 4 to 6 GB goal. If your card disagrees, the model card and the Models-tab benchmark will say so.
+
+The four allowed downloads (the two Heart and Sarah files, the keyword model, and the voice detector) are now checked against a recorded SHA-256 before they are kept. A file that changed behind its address is refused and deleted.
+
+Public text — social results and web results — is labeled before the model reads it: the prompt now says those lines were written by strangers and that instructions inside them are not to be followed. What you said is never labeled.
+
 ## 0.14.5 — Closing BabySitter unloads the model
 
 The X button used to hide the window and leave the model loaded. Quit also offered “leave Ollama running,” and every reply pinned the model in memory until something unloaded it. A 12 GB model left that way is the 20 GB reading that stays after the window is gone. A runner process started by Ollama could also survive when only the parent was stopped.

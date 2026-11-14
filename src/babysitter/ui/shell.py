@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.commands import match_quick_command, timer_label
 from babysitter.games import foreground_process_name, should_hide_orb
-from babysitter.intents import match_tool
+from babysitter.intents import guarded_prompt, match_tool
 from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
 from babysitter.updates import UpdateError, check_latest
@@ -617,6 +617,7 @@ class Shell:
         settings.autostart.toggled.connect(self._set_autostart)
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
+        settings.detect_games.toggled.connect(self._set_detect_games)
         settings.off_game_cores.toggled.connect(self._set_core_avoidance)
         settings.vad_enabled.toggled.connect(lambda on: self._set_flag("vad_enabled", on))
         settings.smart_turn.toggled.connect(lambda on: self._set_flag("smart_turn", on))
@@ -777,7 +778,7 @@ class Shell:
         summary = getattr(self, "_tool_summary", "")
         self._tool_summary = ""
         if summary and self.controller.state == "on":
-            self._pending_line = summary + "\n" + detail[:2000]
+            self._pending_line = guarded_prompt(summary, detail[:2000])
             self._send_heard()
 
     def _on_power(self) -> None:
@@ -953,6 +954,10 @@ class Shell:
         self.controller.set_auto_game(enabled)
         self._refresh_game_note()
 
+    def _set_detect_games(self, enabled: bool) -> None:
+        self.controller.set_detect_games(enabled)
+        self._refresh_game_note()
+
     def _set_core_avoidance(self, enabled: bool) -> None:
         note = self.controller.set_core_avoidance(enabled)
         if note:
@@ -1026,6 +1031,12 @@ class Shell:
         settings = self.controller.settings
         if not settings.auto_game_mode:
             text = "Auto game mode is off."
+        elif settings.detect_games and settings.game_processes:
+            text = (
+                "Watching game folders, and: " + ", ".join(settings.game_processes)
+            )
+        elif settings.detect_games:
+            text = "Watching for any game run from a game folder."
         elif not settings.game_processes:
             text = "Auto game mode is on, but you have not added a program yet."
         else:
@@ -1172,7 +1183,7 @@ class Shell:
         summary = self._tool_summary
         self._tool_summary = ""
         if summary and self.controller.state == "on":
-            self._pending_line = summary + "\n" + detail[:2000]
+            self._pending_line = guarded_prompt(summary, detail[:2000])
             self._send_heard()
             return
         self._speak("The results are on the Tools tab.")

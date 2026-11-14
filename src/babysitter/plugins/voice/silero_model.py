@@ -9,7 +9,7 @@ from __future__ import annotations
 import urllib.request
 
 from babysitter.paths import data_dir
-from babysitter.security import require_silero_url
+from babysitter.security import require_matching_bytes, require_silero_url
 
 
 SILERO_URL = "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
@@ -37,6 +37,10 @@ def download_silero(opener=None) -> str:
         raise SileroError("The voice detector did not download. Nothing was changed.") from exc
     if len(raw) < 1000:
         raise SileroError("That download was empty. Nothing was saved.")
+    try:
+        require_matching_bytes(SILERO_URL, raw)
+    except ValueError as exc:
+        raise SileroError(str(exc)) from None
     temporary = destination.with_suffix(".onnx.tmp")
     temporary.write_bytes(raw)
     temporary.replace(destination)

@@ -42,7 +42,7 @@ If the command window stays open, the text in it is the reason. Copy all of it. 
 
 ![Home, with the AI off](docs/phase1-home.png)
 
-The picture above was taken on a computer that does not have Ollama or an NVIDIA card, so it shows those two warnings. On your PC the red line names your Ollama version (or stays hidden if it is 0.17.1 or newer), and the video-memory card shows the RTX 4070.
+The picture above was taken on a computer that does not have Ollama or an NVIDIA card, so it shows those two warnings. On your PC the red line names your Ollama version (or stays hidden if it is 0.35.0 or newer), and the video-memory card shows the RTX 4070.
 
 ![The orb, off](docs/phase1-orb.png)
 
@@ -145,7 +145,7 @@ These are on purpose. Say if you want one of them changed.
 - The personal folder is `%LOCALAPPDATA%\BabySitter\`, not `AIControlCenter`. The name is decided, so the folder should match it.
 - **Game mode** unloads models but leaves the Ollama program running, so waking the model is faster. **Off** stops Ollama completely. If Ollama's own tray app would restart it, BabySitter asks before closing that app. Emergency stop closes it without asking, then tells you that it did.
 - After a watched game closes, BabySitter **stays** in game mode. It does not load a model by surprise.
-- Automatic game mode is off until you add a program name (for example `bg3.exe`) and check the box. It compares the file name only. It does not read game memory and does not draw anything inside a game.
+- Automatic game mode is on. A program running from a folder where game stores install (Steam's `steamapps`, Epic Games, GOG, the Xbox app, Riot Games, or a folder simply named `Games`) counts as a game, and game mode switches on by itself. Both switches are in Settings if you want this off. A game installed somewhere unusual still needs its name (for example `bg3.exe`) in the list. Only the file name and its folder are read. It does not read game memory and does not draw anything inside a game.
 - The app itself runs at below-normal priority so it is less likely to steal frames. Ollama stays at normal priority so a reply is not sluggish. Replies are not in this phase yet.
 - Low is `qwen3.5:9b`. Medium and High are `gemma4:12b`. Only one model is loaded. A second model would have to kick the first one out.
 - Mouse side buttons cannot use the same safe keyboard method (`RegisterHotKey`). Push-to-talk is Phase 2. If you want a mouse button then, it will be off whenever the AI is off, and off in game mode, so it does not get in the way of a game.
@@ -216,6 +216,8 @@ If you turn Google on, a mail or calendar check goes to `gmail.googleapis.com` a
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 
-Ollama older than **0.17.1** has a critical flaw, CVE-2026-7482: a malicious model file can make Ollama leak what it has in memory. BabySitter warns you and asks before turning on.
+Ollama older than **0.35.0** has a critical flaw, CVE-2026-103663: a program that can reach Ollama's local port can make it write a file outside its model folder, and that file runs the next time Ollama starts. Older than 0.17.1 also has CVE-2026-7482, which leaks what Ollama has in memory. BabySitter warns you and asks before turning on. Update Ollama itself from the download page; `ollama pull` only refreshes models, not the engine.
+
+When BabySitter starts Ollama, that process also has Ollama's own cloud models turned off. Even if you sign in to Ollama for another app, a BabySitter request cannot be answered from the internet.
 
 There is no voice cloning in this project, and there will not be.

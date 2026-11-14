@@ -13,9 +13,34 @@ def test_fresh_settings_are_off_and_versioned(tmp_path, monkeypatch):
     assert settings.intelligence == "medium"
     assert settings.emergency_hotkey == "Ctrl+Alt+F12"
     assert settings.power_on_hotkey == "Ctrl+Alt+F11"
-    assert settings.auto_game_mode is False
+    assert settings.auto_game_mode is True
+    assert settings.detect_games is True
     assert settings.social_search_enabled is False
     assert (tmp_path / "settings.json").is_file()
+
+
+def test_schema_ten_turns_game_detection_on_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    (tmp_path / "settings.json").write_text(
+        json.dumps({"schema_version": 10, "auto_game_mode": False}),
+        encoding="utf-8",
+    )
+    settings = load_settings()
+    # The folder-based detection was asked to work by itself, so the one
+    # migration turns both switches on. Settings can turn them back off.
+    assert settings.auto_game_mode is True
+    assert settings.detect_games is True
+    save_settings(settings)
+    (tmp_path / "settings.json").write_text(
+        json.dumps(
+            {"schema_version": SCHEMA_VERSION, "auto_game_mode": False, "detect_games": False}
+        ),
+        encoding="utf-8",
+    )
+    kept = load_settings()
+    # A choice made on the current schema is kept.
+    assert kept.auto_game_mode is False
+    assert kept.detect_games is False
 
 
 def test_version_zero_is_migrated(tmp_path, monkeypatch):

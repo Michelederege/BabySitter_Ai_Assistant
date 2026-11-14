@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -34,7 +34,8 @@ class Settings:
     orb_always_on_top: bool = True
     emergency_hotkey: str = DEFAULT_EMERGENCY
     power_on_hotkey: str = DEFAULT_POWER_ON
-    auto_game_mode: bool = False
+    auto_game_mode: bool = True
+    detect_games: bool = True
     game_processes: list[str] = field(default_factory=list)
     orb_x: int | None = None
     orb_y: int | None = None
@@ -71,6 +72,7 @@ class Settings:
             "emergency_hotkey": self.emergency_hotkey,
             "power_on_hotkey": self.power_on_hotkey,
             "auto_game_mode": self.auto_game_mode,
+            "detect_games": self.detect_games,
             "game_processes": list(self.game_processes),
             "orb_x": self.orb_x,
             "orb_y": self.orb_y,
@@ -188,6 +190,14 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("searx_port", 8080)
         incoming["schema_version"] = 10
         version = 10
+    if version < 11:
+        # Game mode now notices a game by its install folder, so it no
+        # longer needs a typed name. It was asked to work by itself, so
+        # this one update turns the switch on. Settings can turn it off.
+        incoming["detect_games"] = True
+        incoming["auto_game_mode"] = True
+        incoming["schema_version"] = 11
+        version = 11
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -293,7 +303,8 @@ def settings_from_dict(data: dict) -> Settings:
         orb_always_on_top=bool(data.get("orb_always_on_top", True)),
         emergency_hotkey=emergency,
         power_on_hotkey=power_on,
-        auto_game_mode=bool(data.get("auto_game_mode", False)),
+        auto_game_mode=bool(data.get("auto_game_mode", True)),
+        detect_games=bool(data.get("detect_games", True)),
         game_processes=_clean_games(data.get("game_processes")),
         orb_x=orb_x if isinstance(orb_x, int) else None,
         orb_y=orb_y if isinstance(orb_y, int) else None,

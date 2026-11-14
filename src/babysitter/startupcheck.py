@@ -1,14 +1,16 @@
 """Checks Ollama's version once, when the window opens.
 
-Older than 0.17.1 is CVE-2026-7482: a crafted model file can make Ollama
-read past the end of a buffer and leak whatever is in its memory.
+Older than 0.35.0 is CVE-2026-103663: a program that can reach Ollama's
+local port can make it write a file outside its model folder, and that
+file runs the next time Ollama starts. Older than 0.17.1 also has
+CVE-2026-7482, where a crafted model file leaks what Ollama has in memory.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from babysitter.intelligence import MIN_OLLAMA_VERSION, SPEED_OLLAMA_VERSION
+from babysitter.intelligence import MIN_OLLAMA_VERSION
 from babysitter.ollama import OllamaClient, parse_ollama_version, version_is_older
 
 
@@ -37,19 +39,13 @@ def version_message(found: tuple[int, int, int] | None, raw: str, missing: str |
         safe = ".".join(str(part) for part in MIN_OLLAMA_VERSION)
         return True, True, (
             f"Ollama {dotted} is older than {safe}. "
-            "Anything older has a critical security flaw (CVE-2026-7482): "
-            "a malicious model file can make Ollama leak what it has in memory. "
-            "Update Ollama before you turn the AI on. "
+            "Anything older has a critical security flaw (CVE-2026-103663): "
+            "a program on this PC can make Ollama write a file outside its "
+            "model folder and run it. Update Ollama itself before you turn "
+            "the AI on. ollama pull only refreshes models, not the engine. "
             "The download page is https://ollama.com/download"
         )
-    message = f"Ollama {dotted} is new enough."
-    if version_is_older(found, SPEED_OLLAMA_VERSION):
-        fast = ".".join(str(part) for part in SPEED_OLLAMA_VERSION)
-        message += (
-            f" Version {fast} or newer is faster. Update Ollama itself from "
-            "https://ollama.com/download. ollama pull only refreshes models, not the engine."
-        )
-    return True, False, message
+    return True, False, f"Ollama {dotted} is new enough."
 
 
 def check_ollama(ollama: OllamaClient) -> VersionReport:
