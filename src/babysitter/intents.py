@@ -1,0 +1,112 @@
+"""Spoken requests that should become a tool, after one yes.
+
+A search still waits for yes, because the words leave this PC.
+Ad libraries are not offered: this app has no ad-library source.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ToolIntent:
+    kind: str
+    action_id: str
+    query: str
+    ask: str
+    summary: str = ""
+
+
+_SITES = {
+    "tiktok": "tiktok-posts",
+    "instagram": "instagram-reels",
+    "youtube": "youtube",
+    "reddit": "reddit",
+    "threads": "threads",
+    "pinterest": "pinterest",
+}
+
+
+def match_tool(text: str) -> ToolIntent | None:
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    lowered = raw.lower()
+    if "ad library" in lowered or "ad libraries" in lowered:
+        return ToolIntent(
+            "refuse",
+            "",
+            "",
+            "I don't have an ad-library source. Nothing was sent.",
+        )
+    if lowered.startswith("search the web for "):
+        query = raw[len("search the web for ") :].strip()
+        return _web(query)
+    if lowered.startswith("web search for "):
+        return _web(raw[len("web search for ") :].strip())
+    social = re.match(r"search ([a-z]+) for (.+)", lowered)
+    if social and social.group(1) in _SITES:
+        query = raw.split(" for ", 1)[1].strip()
+        action = _SITES[social.group(1)]
+        return ToolIntent(
+            "social",
+            action,
+            query,
+            f"Send a public {social.group(1)} search for {query}? About 1 credit.",
+            "Summarize those public results in two or three sentences. Do not guess anyone's age or gender.",
+        )
+    if lowered.startswith("comment themes "):
+        target = raw[len("comment themes ") :].strip()
+        action = "tiktok-comments" if "tiktok.com" in lowered else "reddit-comments"
+        return ToolIntent(
+            "social",
+            action,
+            target,
+            f"Read the public comments at that link? About 1 credit.",
+            "Group the public comments into a few themes. Do not guess anyone's age or gender.",
+        )
+    recipe = _recipe(raw, lowered)
+    if recipe is not None:
+        return recipe
+    if lowered in {"check my search credits", "how many credits", "how many credits are left"}:
+        return ToolIntent("social", "credits", "", "Ask ScrapeCreators how many credits are left?")
+    return None
+
+
+def _web(query: str) -> ToolIntent | None:
+    if not query:
+        return None
+    return ToolIntent(
+        "web",
+        "",
+        query,
+        f"Search your own SearXNG on this PC for {query}?",
+        "Answer from these search results in two or three sentences. Say if they do not answer it.",
+    )
+
+
+def _recipe(raw: str, lowered: str) -> ToolIntent | None:
+    table = (
+        ("outlier posts about ", "youtube", "Which of these public posts stand out? Two or three sentences."),
+        ("compare the public profile ", "tiktok-profile", "Describe this one public profile in two or three sentences."),
+        ("creator notes for ", "tiktok-profile", "Describe this public creator's recent posts in two or three sentences."),
+        ("repurpose this post ", "youtube-transcript", "Turn this public post into a few ideas for other posts."),
+        ("product demand for ", "reddit", "Are people publicly asking for this? Two or three sentences."),
+        ("trends about ", "youtube", "What public topics show up here? Two or three sentences."),
+        ("listening brief for ", "reddit", "Follow this topic across the public posts. Two or three sentences."),
+    )
+    for prefix, action, summary in table:
+        if lowered.startswith(prefix):
+            query = raw[len(prefix) :].strip()
+            if not query:
+                return None
+            return ToolIntent(
+                "social",
+                action,
+                query,
+                f"Send this public lookup for {query}? About 1 credit.",
+                summary + " Do not guess anyone's age or gender.",
+            )
+    return None

@@ -83,6 +83,49 @@ class SettingsPage(QWidget):
             "and does not draw anything inside the game. Off by default."
         )
         root.addWidget(self.auto_game)
+        self.hide_orb_for_games = QCheckBox("Hide the orb while a watched game is in front")
+        self.hide_orb_for_games.setToolTip(
+            "Off by default. This hides BabySitter's own light. It does not draw on the game."
+        )
+        root.addWidget(self.hide_orb_for_games)
+
+        self.quiet_hours = QCheckBox("Quiet hours, when the AI refuses to turn on")
+        self.quiet_hours.setToolTip("Off by default. Emergency stop still works. 22:00 to 07:00 wraps past midnight.")
+        root.addWidget(self.quiet_hours)
+        quiet_row = QHBoxLayout()
+        self.quiet_start = QLineEdit()
+        self.quiet_start.setPlaceholderText("22:00")
+        self.quiet_end = QLineEdit()
+        self.quiet_end.setPlaceholderText("07:00")
+        self.quiet_save = QPushButton("Save quiet hours")
+        quiet_row.addWidget(self.quiet_start)
+        quiet_row.addWidget(self.quiet_end)
+        quiet_row.addWidget(self.quiet_save)
+        root.addLayout(quiet_row)
+
+        self.side_button = QCheckBox("Use a mouse side button to talk while the AI is on")
+        self.side_button.setToolTip(
+            "Off by default. It does nothing while the AI is off or in Game mode. Windows only."
+        )
+        root.addWidget(self.side_button)
+
+        self.searx_enabled = QCheckBox("Use SearXNG on this PC for web search")
+        self.searx_enabled.setToolTip("Off by default. BabySitter only talks to 127.0.0.1.")
+        root.addWidget(self.searx_enabled)
+        searx_row = QHBoxLayout()
+        self.searx_port = QLineEdit()
+        self.searx_port.setPlaceholderText("8080")
+        self.searx_save = QPushButton("Save SearXNG port")
+        searx_row.addWidget(self.searx_port)
+        searx_row.addWidget(self.searx_save)
+        root.addLayout(searx_row)
+
+        self.check_updates = QPushButton("Check for an update")
+        self.check_updates.setToolTip(
+            "Asks GitHub if a newer release exists. It does not download or install it."
+        )
+        root.addWidget(self.check_updates)
+
         self.off_game_cores = QCheckBox("Keep BabySitter off the game's processor cores")
         self.off_game_cores.setToolTip(
             "Off by default. On a Ryzen 9 7900X this uses logical processors 12 to 23. "
@@ -161,6 +204,13 @@ class SettingsPage(QWidget):
         self.power_on.setText(settings.power_on_hotkey)
         self.auto_game.setChecked(settings.auto_game_mode)
         self.off_game_cores.setChecked(settings.keep_off_game_cores)
+        self.hide_orb_for_games.setChecked(settings.hide_orb_for_games)
+        self.quiet_hours.setChecked(settings.quiet_hours)
+        self.quiet_start.setText(settings.quiet_start)
+        self.quiet_end.setText(settings.quiet_end)
+        self.side_button.setChecked(settings.side_button)
+        self.searx_enabled.setChecked(settings.searx_enabled)
+        self.searx_port.setText(str(settings.searx_port))
         self.quit_off.setChecked(settings.quit_turns_ai_off)
         self.vad_enabled.setChecked(settings.vad_enabled)
         self.smart_turn.setChecked(settings.smart_turn)
@@ -176,6 +226,10 @@ class SettingsPage(QWidget):
             self.on_top,
             self.auto_game,
             self.off_game_cores,
+            self.hide_orb_for_games,
+            self.quiet_hours,
+            self.side_button,
+            self.searx_enabled,
             self.quit_off,
             self.vad_enabled,
             self.smart_turn,

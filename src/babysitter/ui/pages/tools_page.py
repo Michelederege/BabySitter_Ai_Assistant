@@ -33,6 +33,7 @@ class ToolsPage(QWidget):
     save_google = Signal(str)
     delete_google = Signal()
     google_check = Signal(str)
+    google_sign_in_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -102,6 +103,20 @@ class ToolsPage(QWidget):
         check_row.addWidget(self.calendar_button)
         check_row.addStretch(1)
         layout.addLayout(check_row)
+        self.google_client = QLineEdit()
+        self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
+        self.google_client.setToolTip(
+            "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
+            "BabySitter asks only for read-only mail and calendar."
+        )
+        layout.addWidget(self.google_client)
+        self.google_sign_in = QPushButton("Sign in with Google")
+        self.google_sign_in.setToolTip(
+            "Opens your browser. The token is encrypted on this PC and can be refreshed. "
+            "BabySitter does not send or delete mail."
+        )
+        self.google_sign_in.clicked.connect(lambda: self.google_sign_in_requested.emit(self.google_client.text()))
+        layout.addWidget(self.google_sign_in)
 
         self.enabled = QCheckBox("Turn on social search")
         self.enabled.setToolTip(

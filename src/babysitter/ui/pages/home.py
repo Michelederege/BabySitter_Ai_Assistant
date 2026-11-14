@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSlider,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -142,6 +143,13 @@ class HomePage(QWidget):
             self.intel_buttons[mode_id] = button
         self.intel_buttons["medium"].setChecked(True)
         layout.addLayout(row)
+        self.intel_slider = QSlider(Qt.Orientation.Horizontal)
+        self.intel_slider.setRange(0, 2)
+        self.intel_slider.setValue(1)
+        self.intel_slider.setPageStep(1)
+        self.intel_slider.setToolTip("Low, Medium, or High. It snaps to those three. Only one model is loaded.")
+        self.intel_slider.valueChanged.connect(self._slider_moved)
+        layout.addWidget(self.intel_slider)
         self.intel_summary = QLabel(MODES["medium"].summary)
         self.intel_summary.setWordWrap(True)
         self.intel_summary.setObjectName("hint")
@@ -463,10 +471,20 @@ class HomePage(QWidget):
         if not ready:
             self.power_hint.setText("Checking Ollama…")
 
+    def _slider_moved(self, value: int) -> None:
+        mode_id = ("low", "medium", "high")[max(0, min(2, int(value)))]
+        button = self.intel_buttons[mode_id]
+        if not button.isChecked():
+            button.click()
+
     def set_intelligence(self, mode_id: str) -> None:
         mode = MODES.get(mode_id, MODES["medium"])
         for key, button in self.intel_buttons.items():
             button.setChecked(key == mode.id)
+        positions = {"low": 0, "medium": 1, "high": 2}
+        self.intel_slider.blockSignals(True)
+        self.intel_slider.setValue(positions.get(mode.id, 1))
+        self.intel_slider.blockSignals(False)
         self.intel_summary.setText(
             f"{mode.summary} Context {mode.num_ctx:,}. About {mode.vram_mib / 1024:.1f} GB of video memory."
         )
