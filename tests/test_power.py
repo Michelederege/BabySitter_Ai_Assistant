@@ -25,10 +25,11 @@ class FakeOllama:
     def port_open(self) -> bool:
         return self.port
 
-    def start_server(self) -> None:
+    def start_server(self, num_ctx: int = 4096) -> None:
         self.started += 1
         self.port = True
         self.we_started_server = True
+        self.started_ctx = num_ctx
 
     def wait_until_up(self, timeout: float, cancel: threading.Event, progress=None) -> bool:
         return self.port and not cancel.is_set()

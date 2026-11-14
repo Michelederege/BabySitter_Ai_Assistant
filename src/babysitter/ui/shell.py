@@ -24,7 +24,7 @@ from babysitter.updates import UpdateError, check_latest
 from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.deskstore import add_item, hero_path, load_list, remove_item
 from babysitter.intelligence import get_mode
-from babysitter.ollama import OllamaError, classify_ollama_process
+from babysitter.ollama import IDLE_KEEP_ALIVE, OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
 from babysitter.pictures import benchmark_warning, fit_screenshot, image_tokens
@@ -108,7 +108,6 @@ from babysitter.settings import save_settings
 from babysitter.ui.dialogs import (
     HotkeyCapture,
     ProcessPicker,
-    ask_three,
     ask_yes_no,
     show_copyable,
 )
@@ -614,6 +613,7 @@ class Shell:
         self.controller.confirm_old_version.connect(self._on_old_version)
         self.controller.notice.connect(self._on_notice)
         self.controller.quit_ready.connect(self._finish_quit)
+        self.window.hidden_to_tray.connect(self._on_hidden_to_tray)
         settings.autostart.toggled.connect(self._set_autostart)
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
@@ -1649,7 +1649,7 @@ class Shell:
         if note:
             text = f"{note}\n{text}"
             self._interrupt_note = ""
-        alive = "2m" if getattr(self, "_return_to_game", False) else -1
+        alive = "2m" if getattr(self, "_return_to_game", False) else IDLE_KEEP_ALIVE
         facts = self._facts_for(text)
         job = _AskJob(
             self.controller.ollama,
@@ -2033,7 +2033,7 @@ class Shell:
         text = "What is on this screen? Answer in two or three plain sentences."
         if getattr(self, "_clock", None) is not None:
             self._clock.marks["image_tokens"] = tokens
-        alive = "2m" if getattr(self, "_return_to_game", False) else -1
+        alive = "2m" if getattr(self, "_return_to_game", False) else IDLE_KEEP_ALIVE
         self._begin_model_turn()
         job = _AskJob(
             self.controller.ollama,
@@ -2942,23 +2942,54 @@ class Shell:
 
     def _quit(self) -> None:
         decision = self.controller.request_quit()
+        if decision == "wait":
+            return
+        self._release_local_voice()
         if decision == "quit":
             self._finish_quit()
             return
-        if decision == "wait":
+        self.controller.quit_after_stopping()
+
+    def _on_hidden_to_tray(self) -> None:
+        """The X button hides the window. The model does not stay loaded behind it."""
+        self._release_local_voice()
+        if self._ai_is_resident():
+            self.controller.turn_off(emergency=False, tray_choice="close")
+            self.window.home.set_phase(self.controller.state, "The window is hidden. The AI is turning off.")
             return
-        choice = ask_three(
-            self.window,
-            "Quit BabySitter?",
-            "The AI is not fully off. Stopping Ollama unloads the model and closes the server "
-            "BabySitter is using.",
-        )
-        if choice == "stop":
-            self.controller.quit_after_stopping()
-        elif choice == "leave":
-            self._finish_quit()
+        self.window.home.set_phase("off", "The window is hidden. The AI is off. Nothing is listening.")
+
+    def _ai_is_resident(self) -> bool:
+        ollama = self.controller.ollama
+        port_open = False
+        try:
+            port_open = bool(ollama.port_open())
+        except OSError:
+            port_open = False
+        return self.controller.state != "off" or port_open or bool(getattr(ollama, "we_started_server", False))
+
+    def _release_local_voice(self) -> None:
+        """Drop the speech models and close the microphone. The files stay on disk."""
+        try:
+            release_model()
+        except Exception:
+            pass
+        try:
+            release_kokoro()
+        except Exception:
+            pass
+        listener = getattr(self, "_listener", None)
+        if listener is not None:
+            listener.stop()
+        recorder = getattr(self, "_recorder", None)
+        if recorder is not None:
+            try:
+                recorder.close()
+            except Exception:
+                pass
 
     def _finish_quit(self) -> None:
+        self._release_local_voice()
         try:
             self.registrar.clear()
         except OSError:

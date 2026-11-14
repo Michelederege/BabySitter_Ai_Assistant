@@ -63,6 +63,7 @@ def test_the_server_baby_sitter_starts_keeps_one_model_warm():
     environment = server_environment({}, "127.0.0.1", 11434)
     assert environment["OLLAMA_HOST"] == "127.0.0.1:11434"
     assert environment["OLLAMA_KEEP_ALIVE"] == "5m"
+    assert environment["OLLAMA_CONTEXT_LENGTH"] == "4096"
     assert environment["OLLAMA_KV_CACHE_TYPE"] == "q4_0"
     assert environment["OLLAMA_MAX_LOADED_MODELS"] == "1"
     assert environment["OLLAMA_FLASH_ATTENTION"] == "1"
