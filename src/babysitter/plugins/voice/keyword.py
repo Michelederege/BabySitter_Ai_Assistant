@@ -162,6 +162,11 @@ class KeywordListener:
         self._thread: threading.Thread | None = None
         self._yes_no = False
         self._followup = False
+        self.vad_enabled = False
+        self.smart_turn = False
+        self.echo_cancel = False
+        self.talk_over = False
+        self._hot = 0
 
     @property
     def running(self) -> bool:
@@ -206,6 +211,7 @@ class KeywordListener:
             from vosk import Model
 
             model = Model(str(model_dir()))
+            self._ensure_vad()
             audio: queue.Queue[bytes] = queue.Queue()
 
             def on_audio(indata, _frames, _time, status) -> None:
@@ -226,6 +232,10 @@ class KeywordListener:
                     try:
                         chunk = audio.get(timeout=0.2)
                     except queue.Empty:
+                        continue
+                    chunk, echoed = self._hear(chunk)
+                    if echoed and self._barge(chunk):
+                        on_status("talk_over")
                         continue
                     if not recognizer.AcceptWaveform(chunk):
                         continue
@@ -257,18 +267,77 @@ class KeywordListener:
         finally:
             self._thread = None
 
+    def _ensure_vad(self) -> None:
+        if not self.vad_enabled:
+            self._vad = None
+            return
+        from babysitter.paths import data_dir
+        from babysitter.plugins.voice.turntaking import open_vad
+
+        self._vad = open_vad(True, data_dir() / "models" / "silero" / "silero_vad.onnx")
+
+    def _speech(self, chunk: bytes) -> bool:
+        vad = getattr(self, "_vad", None)
+        if vad is not None:
+            return bool(vad.speech(chunk))
+        from babysitter.plugins.voice.turntaking import is_speech
+
+        return is_speech(chunk)
+
+    def _hear(self, chunk: bytes) -> tuple[bytes, bool]:
+        from babysitter.plugins.voice.playback import latest_playback
+        from babysitter.plugins.voice.turntaking import prepare_chunk
+
+        if not self.echo_cancel and not self.talk_over and not self.vad_enabled:
+            return chunk, False
+        return prepare_chunk(chunk, self.echo_cancel, latest_playback())
+
+    def _barge(self, chunk: bytes) -> bool:
+        from babysitter.plugins.voice.turntaking import barge_in, rms
+
+        tripped, self._hot = barge_in(rms(chunk), True, self.talk_over, self._hot)
+        return tripped
+
     def _capture_question(self, model, audio: queue.Queue[bytes]) -> str:
+        from babysitter.plugins.voice.turntaking import endpoint_delays, finished_by_silence
+
         recognizer = _recognizer(model)
+        delays = endpoint_delays(self.smart_turn, 0)
+        tune = getattr(recognizer, "SetEndpointerDelays", None)
+        if delays and callable(tune):
+            tune(*delays)
         deadline = time.time() + 8
+        quiet = 0
+        heard_words = 0
         while time.time() < deadline and not self._stop.is_set():
             try:
                 chunk = audio.get(timeout=0.2)
             except queue.Empty:
                 continue
+            chunk, _echoed = self._hear(chunk)
+            if self.vad_enabled or self.smart_turn:
+                if self._speech(chunk):
+                    quiet = 0
+                else:
+                    quiet += 1
             if recognizer.AcceptWaveform(chunk):
                 text = json.loads(recognizer.Result()).get("text", "").strip()
                 if text and text != "[unk]":
                     return text
+            partial = ""
+            partial_fn = getattr(recognizer, "PartialResult", None)
+            if callable(partial_fn):
+                try:
+                    partial = json.loads(partial_fn()).get("partial", "")
+                except (json.JSONDecodeError, TypeError):
+                    partial = ""
+            heard_words = len([word for word in partial.split() if word])
+            if self.smart_turn and heard_words:
+                again = endpoint_delays(True, heard_words)
+                if again and callable(tune):
+                    tune(*again)
+            if finished_by_silence(quiet, heard_words, self.smart_turn, self.vad_enabled):
+                break
         final = json.loads(recognizer.FinalResult()).get("text", "").strip()
         if final == "[unk]":
             return ""

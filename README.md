@@ -82,13 +82,13 @@ Start with Windows is **off** unless you check it in Settings. Even if you turn 
 
 Only one model is loaded at a time. Switching levels unloads the one that is in memory first.
 
-- **Low** is `qwen3.5:9b`. Brief replies, and it can look at pictures later.
-- **Medium** is `gemma4:12b`. This is the everyday default.
-- **High** is the same writing model with a longer memory. A cloud brain is not used unless you turn it on, and it still asks first.
+- **Low** is `qwen3.5:9b` with 4,096 tokens of context. Brief replies, tools, and pictures stay. It aims for 4 to 6 GB of video memory. On this 12 GB card the Q4 weights themselves are about 5.4 GB, so a normal Low load is about 6 GB. BabySitter does not push layers into system memory to chase a smaller number.
+- **Medium** is `gemma4:12b` with 8,192 tokens. This is the everyday default.
+- **High** is the same writing model with 16,384 tokens. It loads only when the card has room.
 
-If the AI is already on when you change this, click **Reload the model with this setting**. The model card tells you if the model is 100% on the GPU. If it is not, drop from High to Medium.
+If the AI is already on when you change this, click **Reload the model with this setting**. The model card tells you if the model is 100% on the GPU. If Low reports more than 6 GB, the model file is larger than the goal and the context is already as small as the pictures allow. If you start Ollama yourself, quit it from the tray so BabySitter can start it with the smaller q4 cache.
 
-`qwen3-vl:8b` is for screenshots later. It is not loaded until you ask BabySitter to look at the screen and confirm that picture.
+A look at the screen uses the model that is already loaded, shrunk so it fits that level. You do not get a second confirmation after you ask. `qwen3-vl:8b` is optional and is not loaded for that look.
 
 ## Your files
 
@@ -147,9 +147,26 @@ These are on purpose. Say if you want one of them changed.
 - After a watched game closes, BabySitter **stays** in game mode. It does not load a model by surprise.
 - Automatic game mode is off until you add a program name (for example `bg3.exe`) and check the box. It compares the file name only. It does not read game memory and does not draw anything inside a game.
 - The app itself runs at below-normal priority so it is less likely to steal frames. Ollama stays at normal priority so a reply is not sluggish. Replies are not in this phase yet.
-- Low / Medium / High changes context size, not which model is loaded. A second model would have to kick the first one out.
+- Low is `qwen3.5:9b`. Medium and High are `gemma4:12b`. Only one model is loaded. A second model would have to kick the first one out.
 - Mouse side buttons cannot use the same safe keyboard method (`RegisterHotKey`). Push-to-talk is Phase 2. If you want a mouse button then, it will be off whenever the AI is off, and off in game mode, so it does not get in the way of a game.
 - The orb starts above other windows. You can turn that off in Settings, and you can drag the orb.
+
+## Google mail and calendar
+
+This is off until you turn it on. It reads your own Gmail and Calendar. It does not send mail and does not delete mail.
+
+1. Open Tools.
+2. Check **Turn on Google mail and calendar**. Until you do, nothing is sent to Google.
+3. Paste a read-only token from your own Google account and press **Save token**. On your PC the token is encrypted for your Windows user, in its own file. It is not saved in settings.json and it is not written into the log.
+4. Press **Check mail** or **Check calendar**, or say “check my email” or “what’s on my calendar”.
+
+When the AI turns on, BabySitter can speak unread subjects and the next events once. Say the phrase again later to check again.
+
+## Scan this PC
+
+Say “scan my PC”, or open PC Health and press **Suggest changes, one at a time**. BabySitter names one heavy app or one program that starts with Windows. Say yes to do that one, or no, deny, or leave it. The next suggestion follows. Games, Windows itself, and security tools are not closed. Turning a startup item off can be undone within 10 seconds. Closing an app cannot be reopened.
+
+The other PC Health button only reads. It does not change anything.
 
 ## Social search
 
@@ -165,9 +182,19 @@ Results list the public text and the link when ScrapeCreators returns one. Each 
 
 This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. The bigger research recipes in that GitHub project (comparing creators, reading ad libraries, and so on) need the talking assistant, which is not built yet. General web search through your own SearXNG is also still later.
 
+## History, web search, and updates
+
+Finished replies are saved under History. Search them, export one, delete one, or type WIPE and press Wipe. They stay on this PC.
+
+Web search uses a SearXNG you run on this computer. Turn it on in Settings and say “search the web for …”. BabySitter only talks to `127.0.0.1`, and it still asks before the query is sent. Public social searches can be spoken the same way, one yes, then a short summary.
+
+**Check for an update** asks GitHub if a newer release exists. It does not download, install, or sign anything. Signing needs a certificate you keep.
+
+Quiet hours, hiding the orb while a watched game is in front, and a mouse side button for talk are in Settings and off. The side button works only while the AI is on, not in Game mode. The intelligence slider snaps to Low, Medium, and High.
+
 ## Not in this phase
 
-Voice, captions of speech, memory, the pinboard, reminders, screen capture, history, and the updater. The tabs are there so you can see the map. The microphone is closed.
+The updater does not install a release by itself. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
 
 ## Ideas I have not built
 
@@ -181,9 +208,11 @@ Say if you want any of these in a later phase:
 
 ## Privacy in this phase
 
-BabySitter does not collect usage data. There is no account and no phone-home. With social search left off, it talks only to `127.0.0.1` (this computer). Files, the screen, memory, and what you say to the assistant are never attached to a search. Leave social search off when the information is confidential. The Ollama download page is shown as text when a version is too old. Opening it is your browser, and only if you click it.
+BabySitter does not collect usage data. There is no phone-home. With social search and Google left off, it talks only to `127.0.0.1` (this computer). Files, the screen, memory, and what you say to the assistant are never attached to a search. Leave social search off when the information is confidential. The Ollama download page is shown as text when a version is too old. Opening it is your browser, and only if you click it.
 
 If you turn social search on, a search you confirm also goes to `api.scrapecreators.com`. Nothing else is added to that request: not your files, not a screenshot, not what the model said. The key travels with the request and is not printed in the results.
+
+If you turn Google on, a mail or calendar check goes to `gmail.googleapis.com` and `www.googleapis.com`. The request is a read. The token travels in the header and is not printed in the result.
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 

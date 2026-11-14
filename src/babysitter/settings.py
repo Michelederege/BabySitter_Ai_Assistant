@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 10
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -45,6 +45,21 @@ class Settings:
     keyword: str = "baby sitter"
     followup_seconds: int = 10
     keep_off_game_cores: bool = False
+    vad_enabled: bool = False
+    smart_turn: bool = False
+    echo_cancel: bool = False
+    talk_over: bool = False
+    proactivity: int = 1
+    last_weekly_review: str = ""
+    google_enabled: bool = False
+    google_client_id: str = ""
+    quiet_hours: bool = False
+    quiet_start: str = "22:00"
+    quiet_end: str = "07:00"
+    hide_orb_for_games: bool = False
+    side_button: bool = False
+    searx_enabled: bool = False
+    searx_port: int = 8080
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -66,6 +81,21 @@ class Settings:
             "keyword": self.keyword,
             "followup_seconds": self.followup_seconds,
             "keep_off_game_cores": self.keep_off_game_cores,
+            "vad_enabled": self.vad_enabled,
+            "smart_turn": self.smart_turn,
+            "echo_cancel": self.echo_cancel,
+            "talk_over": self.talk_over,
+            "proactivity": self.proactivity,
+            "last_weekly_review": self.last_weekly_review,
+            "google_enabled": self.google_enabled,
+            "google_client_id": self.google_client_id,
+            "quiet_hours": self.quiet_hours,
+            "quiet_start": self.quiet_start,
+            "quiet_end": self.quiet_end,
+            "hide_orb_for_games": self.hide_orb_for_games,
+            "side_button": self.side_button,
+            "searx_enabled": self.searx_enabled,
+            "searx_port": self.searx_port,
         }
 
 
@@ -133,11 +163,87 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("keep_off_game_cores", False)
         incoming["schema_version"] = 7
         version = 7
+    if version < 8:
+        incoming.setdefault("vad_enabled", False)
+        incoming.setdefault("smart_turn", False)
+        incoming.setdefault("echo_cancel", False)
+        incoming.setdefault("talk_over", False)
+        incoming.setdefault("proactivity", 1)
+        incoming.setdefault("last_weekly_review", "")
+        incoming["schema_version"] = 8
+        version = 8
+    if version < 9:
+        # Google mail and calendar stay off. The token is never in this file.
+        incoming["google_enabled"] = False
+        incoming["schema_version"] = 9
+        version = 9
+    if version < 10:
+        incoming.setdefault("google_client_id", "")
+        incoming.setdefault("quiet_hours", False)
+        incoming.setdefault("quiet_start", "22:00")
+        incoming.setdefault("quiet_end", "07:00")
+        incoming.setdefault("hide_orb_for_games", False)
+        incoming.setdefault("side_button", False)
+        incoming.setdefault("searx_enabled", False)
+        incoming.setdefault("searx_port", 8080)
+        incoming["schema_version"] = 10
+        version = 10
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
     incoming["schema_version"] = SCHEMA_VERSION
     return incoming
+
+
+def _client_id(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    from babysitter.plugins.tools.google_account import clean_client_id
+    from babysitter.secrets import SecretsError
+
+    try:
+        return clean_client_id(text)
+    except SecretsError:
+        return ""
+
+
+def _clock(value: object, default: str) -> str:
+    from babysitter.quiet import parse_hhmm
+
+    try:
+        parsed = parse_hhmm(str(value or ""))
+    except ValueError:
+        return default
+    return f"{parsed.hour:02d}:{parsed.minute:02d}"
+
+
+def _port(value: object) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 8080
+    if number < 1 or number > 65535:
+        return 8080
+    return number
+
+
+def _proactivity(value: object) -> int:
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        level = 1
+    return max(0, min(3, level))
+
+
+def _weekly_day(value: object) -> str:
+    text = str(value or "").strip()
+    if len(text) != 10:
+        return ""
+    parts = text.split("-")
+    if len(parts) != 3 or not all(part.isdigit() for part in parts):
+        return ""
+    return text
 
 
 def _followup_seconds(value: object) -> int:
@@ -198,6 +304,21 @@ def settings_from_dict(data: dict) -> Settings:
         keyword=_clean_keyword(data.get("keyword"), notices),
         followup_seconds=_followup_seconds(data.get("followup_seconds")),
         keep_off_game_cores=bool(data.get("keep_off_game_cores", False)),
+        vad_enabled=bool(data.get("vad_enabled", False)),
+        smart_turn=bool(data.get("smart_turn", False)),
+        echo_cancel=bool(data.get("echo_cancel", False)),
+        talk_over=bool(data.get("talk_over", False)),
+        proactivity=_proactivity(data.get("proactivity", 1)),
+        last_weekly_review=_weekly_day(data.get("last_weekly_review", "")),
+        google_enabled=bool(data.get("google_enabled", False)),
+        google_client_id=_client_id(data.get("google_client_id", "")),
+        quiet_hours=bool(data.get("quiet_hours", False)),
+        quiet_start=_clock(data.get("quiet_start", "22:00"), "22:00"),
+        quiet_end=_clock(data.get("quiet_end", "07:00"), "07:00"),
+        hide_orb_for_games=bool(data.get("hide_orb_for_games", False)),
+        side_button=bool(data.get("side_button", False)),
+        searx_enabled=bool(data.get("searx_enabled", False)),
+        searx_port=_port(data.get("searx_port", 8080)),
         notices=notices,
     )
 

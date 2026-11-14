@@ -2,6 +2,40 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.0 — Saved chats, spoken tools, and a few switches that were waiting
+
+Conversations are saved on this PC when a reply finishes. History can search them, export one as a text file, delete one, or wipe them after you type WIPE.
+
+Say “search the web for …” to use a SearXNG you run on this computer. Say “search reddit for …” (or TikTok, YouTube, Instagram, Threads, Pinterest) and BabySitter asks once, then can summarize the public results. Ad libraries are refused. There is no ad-library source here.
+
+Google sign-in uses your own OAuth client id and a page on 127.0.0.1. The token can be refreshed. Mail and calendar stay read-only. While the AI is on, new mail and events can be spoken about every 15 minutes. A pasted token still works.
+
+Quiet hours, hiding the orb while a watched game is in front, and a side mouse button for talk are in Settings and off. The side button does nothing while the AI is off or in Game mode. The intelligence slider snaps to Low, Medium, and High. Check for an update asks GitHub and does not download or install. Silero can be downloaded after a confirm, and stays off until the detector setting is on.
+
+Speech-to-speech, a cloud realtime voice, voice cloning, and signing the installer are not in this build. Signing needs your certificate.
+
+## 0.13.0 — A conversation, your Google account, and one suggestion at a time
+
+Low stays on `qwen3.5:9b`. A 3B or 4B model would be smaller and would miss tools, mail, and calendar. `gemma4:12b` stays for longer writing when the card is free. Only one model is loaded. Cutting the context from 4,096 to 2,048 saves about 80 MB and clips a screenshot and a tool reply, so Low stays at 4,096. That is a calculation for this 12 GB card, not a live measurement.
+
+The standing instructions now start with the answer and do not ask you to confirm a chat. A yes or a no is for one change on this PC, or for something that leaves it. Looking at the screen no longer asks a second time after you already asked. A reminder or a remembered fact is saved, and you can say undo within 10 seconds.
+
+Google mail and calendar are off until you turn them on under Tools and paste a read-only token from your own account. The token is encrypted on Windows, in its own file, and is not stored in settings.json. BabySitter only reads. It does not send mail and does not delete mail. When the AI turns on, it can speak unread mail and the next events once.
+
+Say scan my PC, or press Suggest changes. BabySitter names one heavy app or one startup item. Say yes to do that one, or no to leave it. Games, Windows, and security tools are not closed. A startup item can be put back with undo within 10 seconds. Closing an app cannot be undone.
+
+## 0.12.0 — Low fits in 4 to 6 GB, and the remaining local features
+
+The code from 0.11.0 is tagged `checkpoint-0.11.0`. Check that tag out if this build misbehaves.
+
+Low still uses `qwen3.5:9b`, so voice, tools, and pictures stay. The context is 4,096 tokens and the batch is 128. That is the room a short talk and a shrunk screenshot need. When BabySitter starts Ollama, the cache is q4 and flash attention stays on. The weights of a 9B Q4 model are about 5.4 GB, so Low lands around 6 GB rather than 4 GB. Layers are not moved into system memory, because that makes replies slow and BabySitter would unload the model. Medium stays at 8,192. High stays at 16,384 and still loads only when the card has room.
+
+Video memory is read from the NVIDIA driver library when it is present. `nvidia-smi` is the fallback. Those reads pause during a voice turn. A benchmark, a PC check, filler rendering, and the weekly review wait too. Game-name checks still run.
+
+"One moment", "Still working", and "Give me a second" play from clips rendered ahead of time, not from the live voice. Stopping speech is checked every 10 ms, and the Windows voice stops between short pieces. Silero is used when `silero_vad.onnx` is already in the BabySitter folder. Otherwise a loud-versus-quiet check on the processor does the job. Smart Turn, echo subtraction, and talking over a reply are in Settings and are off. Saved facts that match the question can ride along with it, still on this PC. You can rate a reply. The rating applies the next time the AI turns on. Proactivity runs from 0 to 3, and the default is 1. A weekly review is written from local notes and does not load a model.
+
+Speech-to-speech and a cloud realtime voice are still not built.
+
 ## 0.11.0 — Keep the model on the graphics card
 
 Low now gives qwen3.5:9b a 16,384-token conversation. That extra room is small on this model. Medium stays at 8,192 because the writing model already fills a 12 GB card. High still asks for 16,384 and loads only when the card has room. If the model spills into system memory, BabySitter unloads it and says so. A short context is reported instead of being ignored. Holding talk while the AI is off starts the load while you are still speaking. In Game mode, saying yes loads the model and unloads it again two minutes after the answer. Speech recognition stays loaded while the AI is on, on four processor threads. Heart and Sarah is capped the same way and stops spinning while it waits. The benchmark records speeds, not words, and warns if a later run is much slower.

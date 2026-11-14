@@ -261,9 +261,21 @@ class OllamaClient:
         history=None,
         images=None,
         keep_alive=-1,
+        num_batch=None,
+        facts=None,
+        personality: str = "",
     ):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
-        body = chat_body(model, prompt, num_ctx, history, keep_alive=keep_alive)
+        body = chat_body(
+            model,
+            prompt,
+            num_ctx,
+            history,
+            keep_alive=keep_alive,
+            num_batch=num_batch,
+            facts=facts,
+            personality=personality,
+        )
         if images:
             body["messages"][-1]["images"] = list(images)
         self.last_turn_stats = {}
@@ -304,14 +316,17 @@ class OllamaClient:
         payload = self._request("GET", "/api/ps", timeout=5)
         return models_from_ps(payload)
 
-    def preload(self, model: str, num_ctx: int) -> None:
+    def preload(self, model: str, num_ctx: int, num_batch: int | None = None) -> None:
         """Load a model and leave it in memory. The one-word reply is discarded."""
+        options = {"num_ctx": int(num_ctx), "num_predict": 8, "temperature": 0}
+        if num_batch:
+            options["num_batch"] = int(num_batch)
         body = {
             "model": model,
             "messages": [{"role": "user", "content": "Reply with only the word ready."}],
             "stream": False,
             "keep_alive": -1,
-            "options": {"num_ctx": int(num_ctx), "num_predict": 8, "temperature": 0},
+            "options": options,
             "think": False,
         }
         self._request("POST", "/api/chat", body, timeout=240)
@@ -446,9 +461,11 @@ def server_environment(base, host: str, port: int) -> dict:
     """Settings for the Ollama BabySitter starts. They do not change one that is already running."""
     environment = dict(base)
     environment["OLLAMA_HOST"] = f"{host}:{port}"
+    # High still asks for 16,384. Low and Medium send a smaller num_ctx per request.
     environment["OLLAMA_CONTEXT_LENGTH"] = "16384"
+    # Quantized KV cache needs flash attention. q4_0 is about half of q8_0.
     environment["OLLAMA_FLASH_ATTENTION"] = "1"
-    environment["OLLAMA_KV_CACHE_TYPE"] = "q8_0"
+    environment["OLLAMA_KV_CACHE_TYPE"] = "q4_0"
     environment["OLLAMA_NUM_PARALLEL"] = "1"
     environment["OLLAMA_MAX_LOADED_MODELS"] = "1"
     environment["OLLAMA_KEEP_ALIVE"] = "5m"
@@ -463,29 +480,43 @@ STABLE_SYSTEM = (
     "Do not repeat the same phrase twice. "
     "Speech: Answer in two or three plain sentences, like a person in the room. "
     "Put lists, code, and long detail after those sentences. "
+    "Conversation: Start with the answer. Do not ask them to confirm a chat. "
+    "A yes or a no is for one change to this PC, or for something that leaves it. "
     "Rules: Use the conversation so far. Do not invent a memory you were not given."
 )
 
 
-def chat_body(model: str, prompt: str, num_ctx: int, history=None, keep_alive=-1) -> dict:
+def chat_body(
+    model: str,
+    prompt: str,
+    num_ctx: int,
+    history=None,
+    keep_alive=-1,
+    num_batch=None,
+    facts=None,
+    personality: str = "",
+) -> dict:
     """The local chat request. Voice turns do not use hidden thinking.
 
-    num_ctx stays the same for every request at one intelligence level.
-    Changing it makes Ollama drop the loaded model and read it again.
+    num_ctx and num_batch stay the same for every request at one level.
+    Changing either one makes Ollama drop the loaded model and read it again.
     """
+    options = {
+        "num_ctx": int(num_ctx),
+        "temperature": 0.7,
+        "top_p": 0.8,
+        "top_k": 20,
+        "presence_penalty": 1.5,
+    }
+    if num_batch:
+        options["num_batch"] = int(num_batch)
     return {
         "model": model,
-        "messages": chat_messages(prompt, history),
+        "messages": chat_messages(prompt, history, facts=facts, personality=personality),
         "stream": True,
         "keep_alive": keep_alive,
         "think": False,
-        "options": {
-            "num_ctx": int(num_ctx),
-            "temperature": 0.7,
-            "top_p": 0.8,
-            "top_k": 20,
-            "presence_penalty": 1.5,
-        },
+        "options": options,
     }
 
 
@@ -547,14 +578,22 @@ def stats_from_stream_line(line: str) -> dict[str, int]:
     return stats
 
 
-def chat_messages(prompt: str, history=None, now=None) -> list[dict]:
+def system_prompt(personality: str = "") -> str:
+    """The standing instructions. A rating sentence is added only when one exists."""
+    extra = (personality or "").strip()
+    if not extra:
+        return STABLE_SYSTEM
+    return f"{STABLE_SYSTEM} {extra}"
+
+
+def chat_messages(prompt: str, history=None, now=None, facts=None, personality: str = "") -> list[dict]:
     """The standing instructions stay fixed. The clock is only on the newest line."""
     from datetime import datetime
 
     moment = now or datetime.now().astimezone()
     clock = moment.strftime("%A, %B %d, %Y, %I:%M %p")
     zone = moment.tzname() or "local time"
-    messages = [{"role": "system", "content": STABLE_SYSTEM}]
+    messages = [{"role": "system", "content": system_prompt(personality)}]
     for item in history or []:
         if not isinstance(item, dict):
             continue
@@ -562,7 +601,11 @@ def chat_messages(prompt: str, history=None, now=None) -> list[dict]:
         content = item.get("content")
         if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": f"Current local time: {clock} ({zone}). {prompt}"})
+    line = f"Current local time: {clock} ({zone}). {prompt}"
+    saved = [str(fact).strip() for fact in facts or [] if str(fact).strip()]
+    if saved:
+        line += " Saved facts from this PC: " + " | ".join(saved[:2])
+    messages.append({"role": "user", "content": line})
     return messages
 
 

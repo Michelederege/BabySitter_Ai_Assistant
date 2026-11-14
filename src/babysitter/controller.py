@@ -15,6 +15,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from babysitter.audio import AudioGate
 from babysitter.games import GameWatch, clean_process_name, first_matching_game
+from babysitter.quiet import in_quiet_hours, quiet_sentence
 from babysitter.hotkeys import HotkeyBook, HotkeyError, UnavailableRegistrar, canonical_hotkey
 from babysitter.intelligence import get_mode
 from babysitter.logsetup import get_logger
@@ -196,6 +197,15 @@ class Controller(QObject):
         self.worker.wait(2000)
 
     def turn_on(self, *, ignore_old_version: bool = False) -> None:
+        if in_quiet_hours(
+            self.settings.quiet_hours,
+            self.settings.quiet_start,
+            self.settings.quiet_end,
+        ):
+            message = quiet_sentence(self.settings.quiet_start, self.settings.quiet_end)
+            self._remember(message)
+            self.state_changed.emit(self.state, message)
+            return
         if (
             self.version
             and self.version.older

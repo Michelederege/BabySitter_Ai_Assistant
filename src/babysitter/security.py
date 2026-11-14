@@ -1,7 +1,9 @@
 """Small rules about who BabySitter is allowed to talk to.
 
 Ollama stays on this computer (127.0.0.1). Social search, if you turn it
-on, may also talk to api.scrapecreators.com. Nothing else.
+on, may also talk to api.scrapecreators.com. Google mail and calendar, if
+you turn them on, may talk to gmail.googleapis.com and www.googleapis.com.
+Nothing else.
 """
 
 from __future__ import annotations
@@ -49,6 +51,57 @@ def require_keyword_model_url(url: str) -> None:
     """The keyword model has one allowed address, and only after you confirm."""
     if url != KEYWORD_MODEL_URL:
         raise ValueError("That model download is not allowed.")
+
+
+def require_searx_url(url: str) -> None:
+    """SearXNG stays on this computer. No other host, and only the search path."""
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != "http" or (parsed.hostname or "").lower() != "127.0.0.1":
+        raise ValueError("Web search only talks to SearXNG on this computer (127.0.0.1).")
+    if parsed.path != "/search" or parsed.username or parsed.password:
+        raise ValueError("That search address is not allowed.")
+
+
+def require_update_url(url: str) -> None:
+    """One GitHub releases address, and only after the user asks."""
+    allowed = "https://api.github.com/repos/michele-de-rege/Ai-assistant-Babysitter/releases/latest"
+    if url != allowed:
+        raise ValueError("That update address is not allowed.")
+
+
+def require_silero_url(url: str) -> None:
+    """The voice detector has one allowed file, and only after a confirm."""
+    allowed = "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
+    if url != allowed:
+        raise ValueError("That voice-detector download is not allowed.")
+
+
+def require_google_oauth_url(url: str) -> None:
+    """Sign-in and token refresh. Not Gmail, and not a place that sends mail."""
+    allowed = {
+        "https://accounts.google.com/o/oauth2/v2/auth",
+        "https://oauth2.googleapis.com/token",
+    }
+    parsed = urllib.parse.urlsplit(url)
+    base = f"{parsed.scheme}://{parsed.hostname}{parsed.path}"
+    if parsed.scheme != "https" or base not in allowed or parsed.username or parsed.password:
+        raise ValueError("That Google sign-in address is not allowed.")
+
+
+def require_google_url(url: str) -> None:
+    """Read-only Gmail and Calendar. No other Google host, and no http."""
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    if parsed.scheme != "https" or parsed.username or parsed.password:
+        raise ValueError("That Google address is not allowed.")
+    if host == "gmail.googleapis.com" and path.startswith("/gmail/v1/"):
+        return
+    if host == "www.googleapis.com" and path.startswith("/calendar/v3/"):
+        return
+    raise ValueError(
+        "Google mail and calendar only use the read-only Gmail and Calendar addresses."
+    )
 
 
 def require_scrapecreators_url(url: str) -> None:

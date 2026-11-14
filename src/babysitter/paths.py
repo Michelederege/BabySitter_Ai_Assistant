@@ -53,6 +53,11 @@ def scrapecreators_key_path() -> Path:
     return secrets_dir() / "scrapecreators.dpapi"
 
 
+def google_token_path() -> Path:
+    """Encrypted Google token. A different file from the ScrapeCreators key."""
+    return secrets_dir() / "google.dpapi"
+
+
 def ollama_log_path() -> Path:
     return logs_dir() / "ollama-serve.log"
 

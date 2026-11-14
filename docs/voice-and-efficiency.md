@@ -50,14 +50,20 @@ Items marked "do not build now" stay unbuilt.
 
 ## Still to do, in this order
 
-Priority 1 remaining: pre-made filler clips instead of speaking the line live, cancel inside one audio block, and background jobs that never run during a voice turn.
+Priority 1, Priority 2, and Priority 3 from the November list are in 0.12.0, with the limits below.
 
-Priority 2: Silero and Smart Turn, echo cancellation, and optional talk-over. Off by default. The follow-up window itself is in.
-
-Priority 3 remaining: personality ratings, the proactivity ladder, and the weekly review. Quick confirm with undo is in for timers only. “Why did you say that” shows the recent conversation, not saved facts.
+- Filler lines play from clips made while no voice turn is open. If Heart and Sarah is not downloaded, the line stays on screen and is not spoken live.
+- Stop is checked every 10 ms of Kokoro audio, and between short Windows-voice pieces.
+- A benchmark, the PC-health read, filler rendering, and the weekly review do not run during a voice turn. Game-name checks still run.
+- Silero runs only when `models/silero/silero_vad.onnx` is already on this PC. Otherwise the processor energy check is used. Smart Turn, echo subtraction, and talk-over are off until Settings enables them. Talk-over does nothing unless echo subtraction is also on.
+- Personality ratings apply the next time the AI turns on, so the standing instructions stay fixed during a session.
+- Proactivity defaults to 1. The weekly review is local text. It does not load a model.
+- “Why did you say that” shows the recent conversation and any saved fact the on-PC embedder matched.
 
 Priority 4 and E9: do not build now. No speech-to-speech model and no cloud realtime voice.
 
-E1 remaining: gemma on Medium stays at 8,192 because a 12 GB card was already full there. High is 16,384 only when the guard allows it. Not every request uses 16,384.
+0.13.0 checked the floor again. A 2,048-token context saves about 80 MB on this 9B model and clips screenshots and tool replies, so Low stays at 4,096. Conversation stays one model, a short first sentence, and a spoken yes or no for one PC change. Google mail and calendar are a separate read, off until you connect them, and they do not load a second model.
 
-E2 through E8 remaining: NVML instead of nvidia-smi, an in-process embedder, and pre-rendered filler clips. The core-avoidance setting exists and stays off until frame times are compared. Do not build a llama-server backend or remove PyTorch in this pass.
+E1: Low is 4,096 so the 9B model stays near 6 GB. Medium stays at 8,192. High is 16,384 only when the guard allows it. Every request at one level sends that level's context and batch.
+
+E2 through E8: video memory is read through NVML when the driver library is present, with nvidia-smi as the fallback. Facts are ranked by an in-process embedder, not a second model. Filler clips are pre-rendered. The core-avoidance setting still exists and stays off until frame times are compared. There is no llama-server backend, and PyTorch is not removed.
