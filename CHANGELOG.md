@@ -8,6 +8,8 @@ The X button used to hide the window and leave the model loaded. Quit also offer
 
 Closing the window now turns the AI off. Quit always unloads the model, stops Ollama, and closes the microphone and the local voice. An idle model also drops after five quiet minutes instead of staying forever. Ollama is started with the context size of the level you turned on, not a 16,384 default.
 
+“Please check my email,” “can you tell me the time,” and “what's on the screen” stay on this PC. A remembered line keeps its capital letters, so “Moth” is not saved as “moth.”
+
 ## 0.14.4 — “No” answers the scan, and a waiting scan still runs
 
 Saying “no” to “Close it?” was dropped. During a follow-up, a single word “no” is treated as silence, and the scan never turned on the yes-or-no listener. It does now, so “yes” and “no” both count without the keyword.

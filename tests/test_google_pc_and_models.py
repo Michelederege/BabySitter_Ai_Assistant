@@ -107,7 +107,7 @@ def test_quick_commands_for_scan_mail_and_memory():
     assert match_quick_command("what's on my calendar").kind == "calendar"
     remembered = match_quick_command("remember the cat is called Moth")
     assert remembered.kind == "remember"
-    assert "moth" in remembered.detail
+    assert "Moth" in remembered.detail
     assert match_quick_command("remind me to call mom").kind == "remind"
 
 
