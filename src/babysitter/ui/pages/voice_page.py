@@ -77,6 +77,22 @@ class VoicePage(QWidget):
         self.followup[1].sliderReleased.connect(
             lambda: self.notice.emit(f"FOLLOWUP {self.followup[1].value()}")
         )
+        self.proactivity = self._slider("Proactivity", 0, 3, 1)
+        self.proactivity[1].setToolTip(
+            "0 answers and stops. 1 offers the rest. 2 can mention a saved fact. 3 can offer the weekly review."
+        )
+        layout.addWidget(self.proactivity[0])
+        self.proactivity[1].sliderReleased.connect(
+            lambda: self.notice.emit(f"PROACTIVITY {self.proactivity[1].value()}")
+        )
+
+        ratings = QHBoxLayout()
+        for label in ("shorter", "longer", "warmer", "cooler", "just right"):
+            button = QPushButton(label)
+            button.setToolTip("Saved on this PC. It applies the next time the AI turns on.")
+            button.clicked.connect(lambda _checked=False, name=label: self.notice.emit(f"RATE {name}"))
+            ratings.addWidget(button)
+        layout.addLayout(ratings)
 
         self.status = QLabel(self._saved_line())
         self.status.setWordWrap(True)
@@ -89,6 +105,12 @@ class VoicePage(QWidget):
         )
         download.clicked.connect(lambda: self.notice.emit("INSTALL hearing"))
         layout.addWidget(download)
+        silero = QPushButton("Download the sharper voice detector")
+        silero.setToolTip(
+            "Downloads Silero onto this PC after you confirm. It stays off until you turn the detector on in Settings."
+        )
+        silero.clicked.connect(lambda: self.notice.emit("INSTALL silero"))
+        layout.addWidget(silero)
 
         note = QLabel(
             "Kokoro, Windows voices, and an optional Azure voice are engines behind one slot. "

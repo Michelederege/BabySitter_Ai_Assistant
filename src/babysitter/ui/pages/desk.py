@@ -7,10 +7,13 @@ yet. Nothing here sends data off this PC.
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -18,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from babysitter.deskstore import add_item, load_list, remove_item
+from babysitter.models import model_choice
 
 
 class _Page(QWidget):
@@ -43,14 +47,14 @@ class SchedulePage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Schedule",
-            "Reminders stay on this PC. A reminder is saved only after you confirm it from Home or from the button here.",
+            "Reminders stay on this PC. Adding one saves it, and you can say undo within 10 seconds.",
         )
         row = QHBoxLayout()
         self.text = QLineEdit()
         self.text.setPlaceholderText("Stretch at 6:00 PM")
         add = QPushButton("Add reminder")
         add.setObjectName("primary")
-        add.setToolTip("Asks before it saves. Nothing is sent off this PC.")
+        add.setToolTip("Saves on this PC. Say undo within 10 seconds to remove it.")
         add.clicked.connect(self._add)
         row.addWidget(self.text, 1)
         row.addWidget(add)
@@ -76,7 +80,7 @@ class MemoryPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Memory",
-            "A fact is saved only after you agree. You can delete each one. Memory stays on this PC.",
+            "A fact is saved when you press the button or say remember. Say undo within 10 seconds to remove it. Memory stays on this PC.",
         )
         row = QHBoxLayout()
         self.text = QLineEdit()
@@ -86,9 +90,13 @@ class MemoryPage(_Page):
         add.clicked.connect(self._add)
         forget = QPushButton("Delete the last fact")
         forget.clicked.connect(self._forget)
+        review = QPushButton("Weekly review")
+        review.setToolTip("A summary from this PC. It does not load a model.")
+        review.clicked.connect(lambda: self.notice.emit("WEEKLY review"))
         row.addWidget(self.text, 1)
         row.addWidget(add)
         row.addWidget(forget)
+        row.addWidget(review)
         self.root.insertLayout(2, row)
         self.refresh()
 
@@ -120,23 +128,84 @@ class HistoryPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "History",
-            "Past sessions will be listed here as readable transcripts. Nothing is saved until the voice loop is keeping sessions. Home is not the transcript.",
+            "Conversations are saved on this PC when a reply finishes. "
+            "Search them, export one as a text file, or delete them. Nothing here is uploaded.",
         )
-        self.body.setPlainText(
-            "No sessions yet. When a conversation is saved, you will be able to search it, export it, or delete it. "
-            "Wipe will ask you to type WIPE."
-        )
+        search_row = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search saved conversations")
+        self.search.returnPressed.connect(self.refresh)
+        find = QPushButton("Search")
+        find.clicked.connect(self.refresh)
+        search_row.addWidget(self.search, 1)
+        search_row.addWidget(find)
+        self.root.insertLayout(2, search_row)
+        self.sessions = QListWidget()
+        self.root.insertWidget(3, self.sessions)
+        buttons = QHBoxLayout()
+        export = QPushButton("Export")
+        export.setToolTip("Writes a text file in your BabySitter folder. It is not uploaded.")
+        export.clicked.connect(lambda: self.notice.emit("EXPORT session"))
+        delete = QPushButton("Delete")
+        delete.clicked.connect(lambda: self.notice.emit("DELETE session"))
+        buttons.addWidget(export)
+        buttons.addWidget(delete)
+        self.root.insertLayout(4, buttons)
+        wipe_row = QHBoxLayout()
+        self.wipe_box = QLineEdit()
+        self.wipe_box.setPlaceholderText("Type WIPE to delete every saved conversation")
+        wipe = QPushButton("Wipe")
+        wipe.clicked.connect(self._wipe)
+        wipe_row.addWidget(self.wipe_box, 1)
+        wipe_row.addWidget(wipe)
+        self.root.insertLayout(5, wipe_row)
+        self.refresh()
+
+    def selected_id(self) -> str:
+        item = self.sessions.currentItem()
+        if item is None:
+            return ""
+        return str(item.data(Qt.ItemDataRole.UserRole) or "")
+
+    def refresh(self) -> None:
+        from babysitter.sessions import search_sessions
+
+        self.sessions.clear()
+        rows = search_sessions(self.search.text())
+        if not rows:
+            self.body.setPlainText("No saved conversations match.")
+            return
+        lines = []
+        for row in rows:
+            label = f"{row['started']}  {row['preview']}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, row["id"])
+            self.sessions.addItem(item)
+            lines.append(f"{row['started']} ({row['turns']} turns) {row['preview']}")
+        self.body.setPlainText("\n".join(lines))
+
+    def _wipe(self) -> None:
+        from babysitter.sessions import wipe_sessions
+
+        if self.wipe_box.text().strip() != "WIPE":
+            self.body.setPlainText("Type WIPE to delete every saved conversation. Nothing was deleted.")
+            return
+        count = wipe_sessions()
+        self.wipe_box.clear()
+        self.refresh()
+        self.body.append(f"\nDeleted {count} saved file(s). They stayed on this PC until then.")
 
 
 class ScreenPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Screen",
-            "A look starts only when you press the button. The picture stays in memory. It is not saved to disk, and it is not sent unless you confirm that exact picture.",
+            "A look starts when you press the button or ask by voice. "
+            "The picture stays in memory. It is not saved to disk.",
         )
         look = QPushButton("Look at this screen")
         look.setObjectName("primary")
-        look.setToolTip("Asks first. Does not save a file.")
+        look.setToolTip("Takes one picture in memory. It is not saved.")
         look.clicked.connect(lambda: self.notice.emit("CONFIRM screen"))
         self.root.insertWidget(2, look)
 
@@ -145,8 +214,9 @@ class HealthPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "PC Health",
-            "Read only. BabySitter will not change the PC. There is no Fix button. "
-            "On Windows these are three fixed checks. "
+            "The checks below only read. Suggestions are separate. "
+            "BabySitter asks out loud, one at a time, and changes something only after you say yes. "
+            "On Windows the read-only checks are three fixed checks. "
             "Two setup steps BabySitter cannot do for you. "
             "NVIDIA Control Panel, Manage 3D settings, Program Settings, ollama.exe, "
             "CUDA Sysmem Fallback Policy, Prefer No Sysmem Fallback. "
@@ -156,6 +226,10 @@ class HealthPage(_Page):
         run = QPushButton("Read memory, startup, and RAM speed")
         run.setToolTip("Runs the fixed read-only checks. They do not change Windows.")
         run.clicked.connect(lambda: self.notice.emit("RUN health"))
+        suggest = QPushButton("Suggest changes, one at a time")
+        suggest.setToolTip("Speaks one idea. Say yes to do that one, or no to leave it.")
+        suggest.clicked.connect(lambda: self.notice.emit("SCAN pc"))
+        self.root.insertWidget(2, suggest)
         self.root.insertWidget(2, run)
 
 
@@ -163,9 +237,7 @@ class ModelsPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Models",
-            "Only one model is loaded at a time. qwen3.5:9b answers and can look at the screen. "
-            "gemma4:12b is for longer writing. qwen3-vl:8b is optional. "
-            "Removing a model asks first. An uninstall does not remove Ollama's models.",
+            model_choice() + " Removing a model asks first. An uninstall does not remove Ollama's models.",
         )
         ask = QPushButton("Ask Ollama which models are installed")
         ask.setObjectName("primary")

@@ -23,6 +23,11 @@ def match_quick_command(text: str) -> QuickCommand | None:
         return QuickCommand("undo", "Okay.")
     if phrase in {"why did you say that", "why did you say that?"}:
         return QuickCommand("why")
+    if phrase in {"weekly review", "review my week"}:
+        return QuickCommand("weekly")
+    rating = _rating(phrase)
+    if rating:
+        return QuickCommand("rate", detail=rating)
     if phrase in {
         "what time is it",
         "whats the time",
@@ -60,10 +65,61 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "read the small text on the screen",
     }:
         return QuickCommand("screen_text")
+    if phrase in {
+        "scan my pc",
+        "scan my computer",
+        "optimize my pc",
+        "optimize my computer",
+        "how can i optimize",
+    } or phrase.startswith("scan my pc") or phrase.startswith("optimize my pc"):
+        return QuickCommand("scan")
+    if phrase in {
+        "check my email",
+        "check my mail",
+        "any new email",
+        "any new emails",
+        "any new mail",
+        "read my email",
+        "check email",
+    }:
+        return QuickCommand("mail")
+    if phrase in {
+        "check my calendar",
+        "whats on my calendar",
+        "what's on my calendar",
+        "what is on my calendar",
+        "any meetings",
+        "check calendar",
+    }:
+        return QuickCommand("calendar")
+    if phrase.startswith("remember "):
+        detail = phrase[len("remember ") :].strip()
+        if detail:
+            return QuickCommand("remember", detail=detail)
+    if phrase.startswith("remind me"):
+        detail = phrase[len("remind me") :].strip()
+        if detail:
+            return QuickCommand("remind", detail=detail)
     timer = _timer_seconds(phrase)
     if timer:
         return QuickCommand("timer", seconds=timer)
     return None
+
+
+def _rating(phrase: str) -> str:
+    table = {
+        "rate that shorter": "shorter",
+        "too long": "shorter",
+        "rate that longer": "longer",
+        "too short": "longer",
+        "rate that warmer": "warmer",
+        "too cold": "warmer",
+        "rate that cooler": "cooler",
+        "too warm": "cooler",
+        "rate that just right": "just right",
+        "that was just right": "just right",
+    }
+    return table.get(phrase, "")
 
 
 def _timer_seconds(phrase: str) -> int:

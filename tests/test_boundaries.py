@@ -22,6 +22,16 @@ def test_http_targets_are_local_or_documented_pages():
         "https://github.com/ollama/ollama",
         # Optional social search. Off unless the user turns it on.
         "https://api.scrapecreators.com",
+        # Optional Gmail and Calendar. Off unless the user turns them on.
+        # Only the read-only paths are accepted by require_google_url.
+        "https://gmail.googleapis.com",
+        "https://www.googleapis.com/calendar/",
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://accounts.google.com/o/oauth2/",
+        "https://oauth2.googleapis.com/token",
+        "https://api.github.com/repos/alex-de-rege/Ai-assistant-Babysitter/releases/latest",
+        "https://github.com/snakers4/silero-vad/",
         "https://github.com/ScrapeCreators/social-media-research-skills",
         # The local keyword model, downloaded only after a confirm click.
         "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip",

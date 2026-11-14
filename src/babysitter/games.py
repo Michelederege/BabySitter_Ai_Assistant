@@ -47,6 +47,38 @@ def clean_process_name(name: str) -> str:
     return base
 
 
+def should_hide_orb(enabled: bool, foreground: str | None, watchlist: list[str]) -> bool:
+    """Hide BabySitter's own orb while a watched game is the front window."""
+    if not enabled or not foreground:
+        return False
+    return first_matching_game(watchlist, {foreground}) is not None
+
+
+def foreground_process_name() -> str | None:
+    """The front program's file name on Windows. None anywhere else."""
+    import sys
+
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    window = user32.GetForegroundWindow()
+    if not window:
+        return None
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(window, ctypes.byref(pid))
+    if not pid.value:
+        return None
+    try:
+        import psutil
+
+        return psutil.Process(int(pid.value)).name()
+    except (psutil.Error, OSError):
+        return None
+
+
 def first_matching_game(watchlist: list[str], running_names: set[str]) -> str | None:
     running_lower = {name.lower() for name in running_names}
     for entry in watchlist:

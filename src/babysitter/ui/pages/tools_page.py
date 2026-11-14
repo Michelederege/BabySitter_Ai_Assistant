@@ -1,7 +1,7 @@
-"""The Tools tab: optional public social search.
+"""The Tools tab: optional Google mail and calendar, and public social search.
 
-Search stays off until you turn it on. The API key is typed here and
-handed to the shell, which encrypts it. This page never writes the key
+Both stay off until you turn them on. Tokens and keys are typed here and
+handed to the shell, which encrypts them. This page never writes them
 into a file itself.
 """
 
@@ -29,6 +29,11 @@ class ToolsPage(QWidget):
     save_key = Signal(str)
     delete_key = Signal()
     search_requested = Signal(str, str)
+    google_enabled_changed = Signal(bool)
+    save_google = Signal(str)
+    delete_google = Signal()
+    google_check = Signal(str)
+    google_sign_in_requested = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -46,15 +51,72 @@ class ToolsPage(QWidget):
         title.setObjectName("title")
         layout.addWidget(title)
         intro = QLabel(
-            "This is the only part of BabySitter that can leave this computer, "
-            "and it is off until you turn it on. A search sends only the words "
-            "in the box below, after you confirm, plus your key. It never sends "
-            "files, the screen, memory, or what you say to the assistant. "
-            "Leave it off when you are working with confidential information."
+            "Two things can leave this computer, and both are off until you turn them on. "
+            "Google mail and calendar are read with your own token. BabySitter does not "
+            "send mail and does not delete mail. A social search sends only the words "
+            "in the box below, after you confirm, plus your key. Neither one sends "
+            "files, the screen, or memory. Leave both off for confidential work."
         )
         intro.setWordWrap(True)
         intro.setObjectName("hint")
         layout.addWidget(intro)
+
+        google_label = QLabel("Google mail and calendar")
+        google_label.setObjectName("section")
+        layout.addWidget(google_label)
+        self.google_enabled = QCheckBox("Turn on Google mail and calendar")
+        self.google_enabled.setToolTip(
+            "Off by default. While this is off, BabySitter will not contact Google."
+        )
+        self.google_enabled.toggled.connect(self.google_enabled_changed.emit)
+        layout.addWidget(self.google_enabled)
+        self.google_status = QLabel("No Google token saved.")
+        self.google_status.setWordWrap(True)
+        self.google_status.setObjectName("hint")
+        layout.addWidget(self.google_status)
+        google_row = QHBoxLayout()
+        self.google_input = QLineEdit()
+        self.google_input.setEchoMode(QLineEdit.Password)
+        self.google_input.setPlaceholderText("Paste a read-only Gmail and Calendar token")
+        self.google_input.setToolTip(
+            "A token from your own Google account, with read-only mail and calendar. "
+            "BabySitter encrypts it for your Windows user. It is not saved in settings.json."
+        )
+        self.google_save = QPushButton("Save token")
+        self.google_save.setToolTip("Encrypt the token and clear this box.")
+        self.google_save.clicked.connect(self._emit_google_save)
+        self.google_delete = QPushButton("Delete token")
+        self.google_delete.setToolTip("Remove the encrypted token from this PC.")
+        self.google_delete.clicked.connect(self.delete_google.emit)
+        google_row.addWidget(self.google_input, 1)
+        google_row.addWidget(self.google_save)
+        google_row.addWidget(self.google_delete)
+        layout.addLayout(google_row)
+        check_row = QHBoxLayout()
+        self.mail_button = QPushButton("Check mail")
+        self.mail_button.setToolTip("Reads unread subjects. Does not send or delete mail.")
+        self.mail_button.clicked.connect(lambda: self.google_check.emit("mail"))
+        self.calendar_button = QPushButton("Check calendar")
+        self.calendar_button.setToolTip("Reads the next few events. Does not change the calendar.")
+        self.calendar_button.clicked.connect(lambda: self.google_check.emit("calendar"))
+        check_row.addWidget(self.mail_button)
+        check_row.addWidget(self.calendar_button)
+        check_row.addStretch(1)
+        layout.addLayout(check_row)
+        self.google_client = QLineEdit()
+        self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
+        self.google_client.setToolTip(
+            "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
+            "BabySitter asks only for read-only mail and calendar."
+        )
+        layout.addWidget(self.google_client)
+        self.google_sign_in = QPushButton("Sign in with Google")
+        self.google_sign_in.setToolTip(
+            "Opens your browser. The token is encrypted on this PC and can be refreshed. "
+            "BabySitter does not send or delete mail."
+        )
+        self.google_sign_in.clicked.connect(lambda: self.google_sign_in_requested.emit(self.google_client.text()))
+        layout.addWidget(self.google_sign_in)
 
         self.enabled = QCheckBox("Turn on social search")
         self.enabled.setToolTip(
@@ -147,6 +209,31 @@ class ToolsPage(QWidget):
         self.enabled.blockSignals(False)
         self._apply_enabled(on)
 
+    def set_google_enabled(self, on: bool) -> None:
+        self.google_enabled.blockSignals(True)
+        self.google_enabled.setChecked(on)
+        self.google_enabled.blockSignals(False)
+
+    def set_google_saved(self, saved: bool, windows_ready: bool) -> None:
+        if saved:
+            self.google_status.setText(
+                "A token is saved, encrypted for your Windows user. "
+                "The token itself is not shown again."
+            )
+        elif windows_ready:
+            self.google_status.setText(
+                "No token saved. Paste a read-only Gmail and Calendar token, then press Save token."
+            )
+        else:
+            self.google_status.setText(
+                "This computer cannot encrypt a token. On your Windows PC, "
+                "BabySitter saves it with Windows DPAPI so only your user can read it."
+            )
+        self.google_delete.setEnabled(saved)
+
+    def show_google(self, text: str) -> None:
+        self.google_status.setText(text)
+
     def set_key_saved(self, saved: bool, windows_ready: bool) -> None:
         if saved:
             self.key_status.setText(
@@ -192,6 +279,10 @@ class ToolsPage(QWidget):
     def _emit_save(self) -> None:
         self.save_key.emit(self.key_input.text())
         self.key_input.clear()
+
+    def _emit_google_save(self) -> None:
+        self.save_google.emit(self.google_input.text())
+        self.google_input.clear()
 
     def _emit_search(self) -> None:
         if not self.enabled.isChecked():

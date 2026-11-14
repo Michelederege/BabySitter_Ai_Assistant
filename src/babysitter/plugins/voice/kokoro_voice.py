@@ -131,7 +131,17 @@ def stop() -> None:
         return
 
 
-def speak(text: str, voice_name: str, speed_percent: int, pitch: int) -> None:
+def render_clip(text: str) -> tuple[bytes, int]:
+    """One int16 clip from Heart and Sarah. Used to pre-render filler lines."""
+    if not ready():
+        raise KokoroError("Heart and Sarah is not downloaded yet.")
+    engine = _loaded_engine()
+    samples, rate = _render(engine, text, _style("Heart & Sarah blend"), 1.05, -1)
+    pcm = bytearray()
+    for value in samples:
+        clamped = max(-1.0, min(1.0, float(value)))
+        pcm += int(clamped * 32767).to_bytes(2, "little", signed=True)
+    return bytes(pcm), int(rate)
     speak_sequence([text], voice_name, speed_percent, pitch)
 
 
@@ -182,22 +192,24 @@ def _render(engine, text: str, style, speed: float, pitch: int):
     return samples, shifted
 
 
-def _play_blocks(samples, sample_rate: int, block_ms: int = 30) -> bool:
-    """Play raw audio in short blocks so a stop lands quickly. True if it finished."""
+def _play_blocks(samples, sample_rate: int, block_ms: int = 10) -> bool:
+    """Play raw audio in 10 ms blocks. Stop is checked inside each former 30 ms block."""
+    from babysitter.plugins.voice.playback import play_pcm_blocks, publish_playback
+
     import sounddevice as sd
 
-    block = max(1, int(sample_rate * block_ms / 1000))
-    position = 0
     try:
         with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
-            while position < len(samples):
-                if _playback_stop.is_set():
-                    return False
-                stream.write(samples[position : position + block])
-                position += block
+            return play_pcm_blocks(
+                samples,
+                sample_rate,
+                _playback_stop,
+                stream.write,
+                block_ms=block_ms,
+                publish=publish_playback,
+            )
     except Exception:
         return False
-    return not _playback_stop.is_set()
 
 
 def _limit_onnx_threads() -> None:

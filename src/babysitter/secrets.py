@@ -121,15 +121,23 @@ def default_vault() -> DpapiKeyVault:
     return DpapiKeyVault()
 
 
+def protect_blob(data: bytes, description: str) -> bytes:
+    return _crypt(data, encrypt=True, description=description)
+
+
+def unprotect_blob(data: bytes) -> bytes:
+    return _crypt(data, encrypt=False, description="")
+
+
 def _protect(data: bytes) -> bytes:
-    return _crypt(data, encrypt=True)
+    return protect_blob(data, "BabySitter ScrapeCreators key")
 
 
 def _unprotect(data: bytes) -> bytes:
-    return _crypt(data, encrypt=False)
+    return unprotect_blob(data)
 
 
-def _crypt(data: bytes, *, encrypt: bool) -> bytes:
+def _crypt(data: bytes, *, encrypt: bool, description: str) -> bytes:
     import ctypes
     from ctypes import wintypes
 
@@ -157,7 +165,7 @@ def _crypt(data: bytes, *, encrypt: bool) -> bytes:
             wintypes.DWORD,
             ctypes.POINTER(DATA_BLOB),
         ]
-        second = "BabySitter ScrapeCreators key"
+        second = description
     else:
         call = crypt32.CryptUnprotectData
         call.argtypes = [

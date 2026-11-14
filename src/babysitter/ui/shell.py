@@ -16,13 +16,23 @@ from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.commands import match_quick_command, timer_label
+from babysitter.games import foreground_process_name, should_hide_orb
+from babysitter.intents import match_tool
+from babysitter.searx import SearxError, search as searx_search
+from babysitter.sessions import append_turn, begin_session, delete_session, export_text
+from babysitter.updates import UpdateError, check_latest
 from babysitter.controller import Controller, windows_registrar_or_dummy
-from babysitter.deskstore import add_item, hero_path, load_list
+from babysitter.deskstore import add_item, hero_path, load_list, remove_item
 from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
-from babysitter.pictures import benchmark_warning, image_tokens, scaled_size
+from babysitter.pictures import benchmark_warning, fit_screenshot, image_tokens
+from babysitter.embedder import rank_texts
+from babysitter.personality import record as record_rating
+from babysitter.personality import session_clause
+from babysitter.proactivity import nudge, offer_more, weekly_review
+from babysitter.turngate import TurnGate
 from babysitter.plugins.voice.keyword import (
     KeywordError,
     KeywordListener,
@@ -61,6 +71,30 @@ from babysitter.plugins.voice.speech import (
 )
 from babysitter.responsiveness import ResponsivenessLog, TurnClock
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
+from babysitter.pcscan import (
+    apply_startup,
+    close_named,
+    collect_processes,
+    collect_startups,
+    pids_named,
+    scan,
+    suggestion_answer,
+    terminate_pid,
+    windows_startup_store,
+)
+from babysitter.plugins.tools.google_account import (
+    GoogleError,
+    GoogleReader,
+    authorization_url,
+    default_google_vault,
+    exchange_code,
+    fresh_lines,
+    http_get_json,
+    listen_for_code,
+    pkce_pair,
+    refresh_access,
+)
+from babysitter.plugins.voice.silero_model import SileroError, download_silero
 from babysitter.plugins.tools.social import (
     PreparedSearch,
     SocialSearchError,
@@ -102,11 +136,27 @@ class _KeywordDownloadJob(QThread):
 
 
 class _WarmVoiceJob(QThread):
+    def __init__(self, busy) -> None:
+        super().__init__()
+        self._busy = busy
+
     def run(self) -> None:
+        if self._busy():
+            return
         try:
-            from babysitter.plugins.voice.kokoro_voice import warm
+            from babysitter.plugins.voice.kokoro_voice import ready, warm
+            from babysitter.plugins.voice.fillers import library
 
             warm()
+            if self._busy() or not ready():
+                return
+
+            def render(text: str):
+                from babysitter.plugins.voice.kokoro_voice import render_clip
+
+                return render_clip(text)
+
+            library().prepare(render, self._busy)
         except Exception:
             return
 
@@ -121,11 +171,12 @@ def _png_base64(picture: QPixmap) -> str:
 class _BenchJob(QThread):
     finished_text = Signal(str)
 
-    def __init__(self, ollama, model: str, num_ctx: int) -> None:
+    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._num_ctx = num_ctx
+        self._num_batch = num_batch
 
     def run(self) -> None:
         from babysitter.pictures import format_benchmark
@@ -136,7 +187,10 @@ class _BenchJob(QThread):
                 started = time.perf_counter()
                 stats: dict = {}
                 for _piece in self._ollama.iter_reply(
-                    self._model, "Reply with only the word ready.", self._num_ctx
+                    self._model,
+                    "Reply with only the word ready.",
+                    self._num_ctx,
+                    num_batch=self._num_batch,
                 ):
                     stats = {}
                 stats = dict(getattr(self._ollama, "last_turn_stats", {}) or {})
@@ -156,7 +210,19 @@ class _AskJob(QThread):
     failed = Signal(str)
     measured = Signal(object)
 
-    def __init__(self, ollama, model: str, prompt: str, num_ctx: int, history=None, images=None, keep_alive=-1) -> None:
+    def __init__(
+        self,
+        ollama,
+        model: str,
+        prompt: str,
+        num_ctx: int,
+        history=None,
+        images=None,
+        keep_alive=-1,
+        num_batch: int = 512,
+        facts=None,
+        personality: str = "",
+    ) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
@@ -165,6 +231,9 @@ class _AskJob(QThread):
         self._history = list(history or [])
         self._images = images
         self._keep_alive = keep_alive
+        self._num_batch = num_batch
+        self._facts = list(facts or [])
+        self._personality = personality
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -183,6 +252,9 @@ class _AskJob(QThread):
                 self._history,
                 self._images,
                 self._keep_alive,
+                self._num_batch,
+                self._facts,
+                self._personality,
             ):
                 self._images = None
                 if self.cancel.is_set():
@@ -244,14 +316,18 @@ class _SpeakJob(QThread):
         self._text = ""
         prefs = self._prefs
         try:
-            pieces = speech_chunks(text)
+            pieces = speech_chunks(text, limit=120 if prefs.get("engine") == "windows" else 400)
             if prefs.get("engine") == "windows":
                 announced = False
                 for piece in pieces:
+                    if speaker.cancelled.is_set():
+                        break
                     if not announced:
                         self.started.emit()
                         announced = True
                     speaker.speak(piece, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
+                    if speaker.cancelled.is_set():
+                        break
                     self.phrase_done.emit(piece)
             else:
                 from babysitter.plugins.voice.kokoro_voice import speak_sequence
@@ -331,6 +407,92 @@ class _SearchJob(QThread):
             key = ""
 
 
+class _GoogleJob(QThread):
+    ready = Signal(str)
+
+    def __init__(self, token: str, kind: str) -> None:
+        super().__init__()
+        self._token = token
+        self._kind = kind
+
+    def run(self) -> None:
+        secret = self._token
+        self._token = ""
+        try:
+            reader = GoogleReader(secret, http_get_json)
+            if self._kind == "mail":
+                speech = reader.unread()
+            elif self._kind == "calendar":
+                speech = reader.upcoming()
+            else:
+                speech = reader.unread() + " " + reader.upcoming()
+        except GoogleError as exc:
+            speech = str(exc)
+        except Exception:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        if secret and secret in speech:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        secret = ""
+        self.ready.emit(speech)
+
+
+class _GooglePollJob(QThread):
+    ready = Signal(str, list)
+
+    def __init__(self, token: str, seen: set[str]) -> None:
+        super().__init__()
+        self._token = token
+        self._seen = set(seen)
+
+    def run(self) -> None:
+        secret = self._token
+        self._token = ""
+        updated = set(self._seen)
+        try:
+            reader = GoogleReader(secret, http_get_json)
+            mail_ids, mail_titles = reader.mail_index()
+            event_ids, event_titles = reader.event_index()
+            speech, updated = fresh_lines(
+                list(mail_ids) + list(event_ids),
+                list(mail_titles) + list(event_titles),
+                self._seen,
+            )
+        except GoogleError as exc:
+            speech = str(exc)
+        except Exception:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        if secret and secret in speech:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        secret = ""
+        self.ready.emit(speech, list(updated))
+
+
+class _SignInJob(QThread):
+    open_browser = Signal(str)
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, client_id: str, verifier: str, state: str, url: str) -> None:
+        super().__init__()
+        self._client_id = client_id
+        self._verifier = verifier
+        self._state = state
+        self._url = url
+        self.bundle: dict | None = None
+
+    def run(self) -> None:
+        try:
+            code = listen_for_code(self._state, on_ready=lambda: self.open_browser.emit(self._url))
+            self.bundle = exchange_code(self._client_id, code, self._verifier)
+            self.finished_ok.emit()
+        except GoogleError as exc:
+            self.failed.emit(str(exc))
+        except Exception:
+            self.failed.emit("Google sign-in did not finish. Nothing was saved.")
+        finally:
+            self._verifier = ""
+
+
 class _HideCharts(QObject):
     def __init__(self, collector) -> None:
         super().__init__()
@@ -352,10 +514,31 @@ class Shell:
         self.tray = Tray(self.icon)
         self.registrar = windows_registrar_or_dummy()
         self.vault = default_vault()
+        self.google_vault = default_google_vault()
+        self._startup_store = windows_startup_store()
+        self._suggestions: list = []
+        self._suggestion_at = 0
+        self._scan_prefix = ""
+        self._soft_undo = None
+        self._google_notified = False
+        self._google_speak_errors = True
+        self._session_id = ""
+        self._pending_tool = None
+        self._tool_summary = ""
+        self._seen_google: set[str] = set()
+        self._load_seen_google()
+        self._google_poll = QTimer(self.window)
+        self._google_poll.setInterval(15 * 60 * 1000)
+        self._google_poll.timeout.connect(lambda: self._start_google("both", speak_errors=False, only_new=True))
         self._search_job: _SearchJob | None = None
         self._power_ready = False
         self._turn_id = 0
         self._responsiveness = ResponsivenessLog()
+        self.turns = TurnGate()
+        self._model_turn_open = False
+        self._filler_stop = threading.Event()
+        self._session_personality = ""
+        self._weekly_offered = False
         self._filler_n = 0
         self._finished_phrases: list[str] = []
         self._unheard = ""
@@ -432,6 +615,17 @@ class Shell:
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
         settings.off_game_cores.toggled.connect(self._set_core_avoidance)
+        settings.vad_enabled.toggled.connect(lambda on: self._set_flag("vad_enabled", on))
+        settings.smart_turn.toggled.connect(lambda on: self._set_flag("smart_turn", on))
+        settings.echo_cancel.toggled.connect(lambda on: self._set_flag("echo_cancel", on))
+        settings.talk_over.toggled.connect(lambda on: self._set_flag("talk_over", on))
+        settings.hide_orb_for_games.toggled.connect(lambda on: self._set_flag("hide_orb_for_games", on))
+        settings.quiet_hours.toggled.connect(lambda on: self._set_flag("quiet_hours", on))
+        settings.side_button.toggled.connect(lambda on: self._set_flag("side_button", on))
+        settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
+        settings.quiet_save.clicked.connect(self._save_quiet_hours)
+        settings.searx_save.clicked.connect(self._save_searx_port)
+        settings.check_updates.clicked.connect(self._check_updates)
         self._hide_charts = _HideCharts(self.controller.probe)
         self.window.installEventFilter(self._hide_charts)
         settings.emergency_change.clicked.connect(self._change_emergency)
@@ -446,10 +640,19 @@ class Shell:
         tools.save_key.connect(self._save_social_key)
         tools.delete_key.connect(self._delete_social_key)
         tools.search_requested.connect(self._prepare_search)
+        tools.google_enabled_changed.connect(self._set_google)
+        tools.save_google.connect(self._save_google_token)
+        tools.delete_google.connect(self._delete_google_token)
+        tools.google_check.connect(self._google_from_button)
+        tools.google_sign_in_requested.connect(self._google_sign_in)
+        tools.google_client.setText(self.controller.settings.google_client_id)
         tools.set_enabled(self.controller.settings.social_search_enabled)
-        self.window.home.set_privacy(self.controller.settings.social_search_enabled)
+        tools.set_google_enabled(self.controller.settings.google_enabled)
+        self._refresh_privacy()
         saved = self.vault.has_key() if self.vault.available else False
         tools.set_key_saved(saved, self.vault.available)
+        saved_google = self.google_vault.has_token() if self.google_vault.available else False
+        tools.set_google_saved(saved_google, self.google_vault.available)
         self.window.expand_button.clicked.connect(self._toggle_expand)
         self.window.set_expanded(self.controller.settings.window_expanded)
         self.window.pin_open.connect(self._show_pin)
@@ -463,6 +666,7 @@ class Shell:
         home.choose_hero.connect(self._choose_hero)
         self.window.voice_page.notice.connect(self._on_page_notice)
         self.window.voice_page.followup[1].setValue(self.controller.settings.followup_seconds)
+        self.window.voice_page.proactivity[1].setValue(self.controller.settings.proactivity)
         self.window.schedule_page.notice.connect(self._on_page_notice)
         self.window.memory_page.notice.connect(self._on_page_notice)
         self.window.screen_page.notice.connect(self._on_page_notice)
@@ -488,7 +692,16 @@ class Shell:
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
         save_settings(self.controller.settings)
-        self.window.home.set_privacy(bool(on))
+        self._refresh_privacy()
+
+    def _set_google(self, on: bool) -> None:
+        self.controller.settings.google_enabled = bool(on)
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+
+    def _refresh_privacy(self) -> None:
+        settings = self.controller.settings
+        self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -519,7 +732,7 @@ class Shell:
         page.set_key_saved(False, self.vault.available)
         page.show_message("The saved key was deleted. Nothing was sent.")
 
-    def _prepare_search(self, action_id: str, text: str) -> None:
+    def _prepare_search(self, action_id: str, text: str, already_yes: bool = False) -> None:
         page = self.window.tools_page
         if self._search_job is not None and self._search_job.isRunning():
             page.show_message("A search is already running.")
@@ -532,7 +745,7 @@ class Shell:
         except SocialSearchError as exc:
             page.show_message(str(exc))
             return
-        if not ask_yes_no(
+        if not already_yes and not ask_yes_no(
             self.window,
             "Send this search?",
             prepared.ask,
@@ -558,6 +771,11 @@ class Shell:
 
     def _search_ok(self, spoken: str, detail: str) -> None:
         self.window.tools_page.show_message(spoken + "\n\n" + detail)
+        summary = getattr(self, "_tool_summary", "")
+        self._tool_summary = ""
+        if summary and self.controller.state == "on":
+            self._pending_line = summary + "\n" + detail[:2000]
+            self._send_heard()
 
     def _on_power(self) -> None:
         if not self._power_ready and self.controller.state == "off" and not self.controller._busy:
@@ -587,11 +805,17 @@ class Shell:
         if state == "off":
             release_model()
             release_kokoro()
+            self._session_personality = ""
+            self._google_notified = False
+            self._session_id = ""
+            self._google_poll.stop()
+            self._end_model_turn()
             self._return_to_game = False
             timer = getattr(self, "_game_return_timer", None)
             if timer is not None:
                 timer.stop()
         if state == "on":
+            self._session_personality = session_clause()
             self._warm_voice()
             self._warm_hearing()
             self._arm_game_return()
@@ -600,12 +824,18 @@ class Shell:
                 self._queued_after_load = ""
                 self._pending_line = queued
                 self._send_heard()
+            elif self.controller.settings.google_enabled and not self._google_notified:
+                self._google_notified = True
+                self._start_google("both", speak_errors=False, only_new=True)
+                self._google_poll.start()
         self.window.home.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
         )
 
     def _warm_hearing(self) -> None:
+        if self.turns.busy():
+            return
         if not packages_installed() or not model_ready():
             return
         if getattr(self, "_hearing_job", None) is not None and self._hearing_job.isRunning():
@@ -613,6 +843,8 @@ class Shell:
 
         class _Job(QThread):
             def run(self_job) -> None:
+                if self.turns.busy():
+                    return
                 try:
                     load_model()
                 except Exception:
@@ -625,13 +857,14 @@ class Shell:
     def _warm_voice(self) -> None:
         if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
             return
-        job = _WarmVoiceJob()
+        job = _WarmVoiceJob(self.turns.busy)
         self._warm_job = job
         job.start()
 
     def _on_status(self, snap) -> None:
         self.window.home.set_status(snap)
         self._refresh_game_note()
+        self._hide_orb_if_game()
         tray = any(classify_ollama_process(name) == "tray" for name in snap.process_names)
         if tray:
             self.window.home.tray_button.show()
@@ -722,6 +955,21 @@ class Shell:
         if note:
             self.window.home.set_phase(self.controller.state, note)
 
+    def _set_flag(self, name: str, enabled: bool) -> None:
+        setattr(self.controller.settings, name, bool(enabled))
+        save_settings(self.controller.settings)
+        self._apply_listen_policy()
+
+    def _apply_listen_policy(self) -> None:
+        listener = getattr(self, "_listener", None)
+        if listener is None:
+            return
+        settings = self.controller.settings
+        listener.vad_enabled = bool(settings.vad_enabled)
+        listener.smart_turn = bool(settings.smart_turn)
+        listener.echo_cancel = bool(settings.echo_cancel)
+        listener.talk_over = bool(settings.talk_over and settings.echo_cancel)
+
     def _change_emergency(self) -> None:
         self._capture_key("emergency stop", emergency=True)
 
@@ -781,9 +1029,154 @@ class Shell:
             text = "Watching for: " + ", ".join(settings.game_processes)
         self.window.home.game_note.setText(text)
 
+    def _hide_orb_if_game(self) -> None:
+        settings = self.controller.settings
+        hide = should_hide_orb(
+            settings.hide_orb_for_games,
+            foreground_process_name(),
+            settings.game_processes,
+        )
+        if hide:
+            self.orb.hide()
+        elif not self.orb.isVisible():
+            self.orb.show()
+
+    def _save_quiet_hours(self) -> None:
+        from babysitter.quiet import parse_hhmm
+
+        page = self.window.settings_page
+        try:
+            start = parse_hhmm(page.quiet_start.text())
+            end = parse_hhmm(page.quiet_end.text())
+        except ValueError as exc:
+            page.hotkey_note.setText(str(exc))
+            return
+        self.controller.settings.quiet_start = f"{start.hour:02d}:{start.minute:02d}"
+        self.controller.settings.quiet_end = f"{end.hour:02d}:{end.minute:02d}"
+        save_settings(self.controller.settings)
+        page.hotkey_note.setText("Quiet hours saved on this PC.")
+
+    def _save_searx_port(self) -> None:
+        page = self.window.settings_page
+        try:
+            port = int(page.searx_port.text().strip())
+        except ValueError:
+            page.hotkey_note.setText("Use a port number, such as 8080.")
+            return
+        if port < 1 or port > 65535:
+            page.hotkey_note.setText("That port is not allowed.")
+            return
+        self.controller.settings.searx_port = port
+        save_settings(self.controller.settings)
+        page.hotkey_note.setText("SearXNG port saved. Search still waits for a yes.")
+
+    def _check_updates(self) -> None:
+        if not ask_yes_no(
+            self.window,
+            "Check GitHub for a release?",
+            "This asks GitHub if a newer BabySitter release exists. It does not download or install anything.",
+            "Check",
+            "Don't check",
+        ):
+            return
+        try:
+            speech = check_latest()
+        except UpdateError as exc:
+            speech = str(exc)
+        self.window.settings_page.hotkey_note.setText(speech)
+
+    def _download_silero(self) -> None:
+        if not ask_yes_no(
+            self.window,
+            "Download the voice detector?",
+            "This saves Silero in your BabySitter folder. It stays off until you turn the detector on in Settings.",
+            "Download",
+            "Don't download",
+        ):
+            return
+        try:
+            speech = download_silero()
+        except SileroError as exc:
+            speech = str(exc)
+        self.window.voice_page.status.setText(speech)
+
+    def _export_session(self) -> None:
+        session_id = self.window.history_page.selected_id()
+        if not session_id:
+            self.window.history_page.body.setPlainText("Choose a conversation first. Nothing was written.")
+            return
+        try:
+            path = export_text(session_id)
+        except ValueError as exc:
+            self.window.history_page.body.setPlainText(str(exc))
+            return
+        self.window.history_page.body.append(f"\nExported to {path.name} in the BabySitter folder. It was not uploaded.")
+
+    def _delete_session(self) -> None:
+        session_id = self.window.history_page.selected_id()
+        if not session_id:
+            self.window.history_page.body.setPlainText("Choose a conversation first. Nothing was deleted.")
+            return
+        if not ask_yes_no(
+            self.window,
+            "Delete this conversation?",
+            "This removes the saved conversation from this PC.",
+            "Delete it",
+            "Keep it",
+        ):
+            return
+        try:
+            delete_session(session_id)
+        except ValueError as exc:
+            self.window.history_page.body.setPlainText(str(exc))
+            return
+        self.window.history_page.refresh()
+
+    def _offer_tool(self, intent) -> None:
+        if intent.kind == "refuse":
+            self.window.home.set_reply("tool", intent.ask, "Nothing was sent.")
+            self._speak(intent.ask)
+            return
+        self._pending_tool = intent
+        self.window.home.set_reply(intent.query or "tool", intent.ask, "Nothing is sent until you say yes.")
+        self._speak(intent.ask)
+
+    def _answer_tool(self, answer: str) -> None:
+        intent = self._pending_tool
+        self._pending_tool = None
+        if intent is None or answer != "yes":
+            self._speak("Leaving it. Nothing was sent.")
+            return
+        self._tool_summary = intent.summary
+        if intent.kind == "web":
+            self._run_web(intent)
+            return
+        self._prepare_search(intent.action_id, intent.query, already_yes=True)
+
+    def _run_web(self, intent) -> None:
+        settings = self.controller.settings
+        if not settings.searx_enabled:
+            self._tool_summary = ""
+            self._speak("Web search is off. Turn on SearXNG in Settings. Nothing was sent.")
+            return
+        try:
+            detail = searx_search(settings.searx_port, intent.query)
+        except SearxError as exc:
+            self._tool_summary = ""
+            self._speak(str(exc))
+            return
+        self.window.tools_page.show_message(detail)
+        summary = self._tool_summary
+        self._tool_summary = ""
+        if summary and self.controller.state == "on":
+            self._pending_line = summary + "\n" + detail[:2000]
+            self._send_heard()
+            return
+        self._speak("The results are on the Tools tab.")
+
     def _fill_settings(self) -> None:
         page = self.window.settings_page
-        toggles = (page.autostart, page.on_top, page.auto_game, page.quit_off)
+        toggles = page.toggles()
         for toggle in toggles:
             toggle.blockSignals(True)
         page.fill(self.controller.settings, self.controller.data_folder())
@@ -869,10 +1262,22 @@ class Shell:
         save_settings(self.controller.settings)
 
     def _ptt_tick(self) -> None:
-        """Mouse button 4 (the side button). Polling does not swallow the click."""
-        if sys.platform != "win32":
+        """Mouse side buttons. Polling does not swallow the click."""
+        allowed = (
+            sys.platform == "win32"
+            and self.controller.settings.side_button
+            and self.controller.state == "on"
+        )
+        if not allowed:
+            if getattr(self, "_holding", False) and getattr(self, "_hold_from_mouse", False):
+                self._hold_from_mouse = False
+                self._hold_up()
             return
-        down = bool(ctypes.windll.user32.GetAsyncKeyState(0x05) & 0x8000)
+        from babysitter.sidebutton import SIDE_BUTTONS
+
+        down = any(
+            bool(ctypes.windll.user32.GetAsyncKeyState(button) & 0x8000) for button in SIDE_BUTTONS
+        )
         if not down:
             self._ptt_latched = False
             if getattr(self, "_holding", False) and getattr(self, "_hold_from_mouse", False):
@@ -880,8 +1285,6 @@ class Shell:
                 self._hold_up()
             return
         if getattr(self, "_ptt_latched", False) or getattr(self, "_holding", False):
-            return
-        if self.controller.state not in {"on", "off", "starting", "game"}:
             return
         self._hold_from_mouse = True
         self._hold_down()
@@ -976,6 +1379,18 @@ class Shell:
         if quick is not None and quick.kind == "undo":
             self._undo_timer()
             return
+        if self._pending_tool is not None:
+            answer = suggestion_answer(text)
+            if answer:
+                self._answer_tool(answer)
+                return
+            self._pending_tool = None
+        if self._suggestions and self._suggestion_at < len(self._suggestions):
+            answer = suggestion_answer(text)
+            if answer:
+                self._answer_suggestion(answer)
+                return
+            self._suggestions = []
         if getattr(self, "_offer_load", False) and more_answer(text) == "yes":
             self._offer_load = False
             self._return_to_game = True
@@ -1011,10 +1426,8 @@ class Shell:
                 return
             self._clear_more()
         self._pending_line = text
-        self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
-        if text.lower().startswith("remind"):
-            self._on_command(text)
-            return
+        if match_quick_command(text) is None:
+            self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
         self._send_heard()
 
     def _hear_failed(self, message: str) -> None:
@@ -1093,6 +1506,7 @@ class Shell:
     def _sync_keyword(self) -> None:
         if getattr(self, "_listener", None) is None:
             return
+        self._apply_listen_policy()
         busy = getattr(self, "_speaking", False) or getattr(self, "_holding", False)
         settings = self.controller.settings
         ready = keyword_packages_installed() and keyword_model_ready()
@@ -1111,6 +1525,10 @@ class Shell:
 
     def _keyword_status(self, status: str) -> None:
         word = self.controller.settings.keyword
+        if status == "talk_over":
+            self._cut_off()
+            self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
+            return
         if status == "capturing":
             self.orb.set_state("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
@@ -1145,6 +1563,25 @@ class Shell:
         if not text:
             self.window.home.set_reply("nothing", "Type something first.", "Nothing was sent.")
             return
+        typed_quick = match_quick_command(text)
+        if typed_quick is not None and typed_quick.kind == "undo":
+            self.window.home.typed.clear()
+            self._undo_timer()
+            return
+        if self._pending_tool is not None:
+            answer = suggestion_answer(text)
+            if answer:
+                self.window.home.typed.clear()
+                self._answer_tool(answer)
+                return
+            self._pending_tool = None
+        if self._suggestions and self._suggestion_at < len(self._suggestions):
+            answer = suggestion_answer(text)
+            if answer:
+                self.window.home.typed.clear()
+                self._answer_suggestion(answer)
+                return
+            self._suggestions = []
         if getattr(self, "_awaiting_more", False):
             answer = more_answer(text)
             if answer == "yes":
@@ -1158,21 +1595,10 @@ class Shell:
             self._clear_more()
         self.window.home.typed.clear()
         self._pending_line = text
-        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
-        if text.lower().startswith("remind"):
-            if not ask_yes_no(
-                self.window,
-                "Save this reminder?",
-                f"This stays on this PC. Nothing is sent out.\n\n{text}",
-                "Save the reminder",
-                "Don't save",
-            ):
-                self.window.home.set_reply(text, "Not saved.", "Nothing was sent.")
-                return
-            add_item("schedule.json", text=text)
-            self.window.schedule_page.refresh()
-            self.window.home.set_reply(text, "Saved on this PC.", "Nothing was sent off this computer.")
+        if typed_quick is not None:
+            self._send_heard()
             return
+        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
 
     def _send_heard(self) -> None:
         text = getattr(self, "_pending_line", "").strip()
@@ -1184,7 +1610,9 @@ class Shell:
         if self.controller.state == "game":
             self._offer_load = True
             self._close_followup()
-            self._speak("I'm in Game mode. Load the brain? It needs about 8 GB of video memory.")
+            mode = get_mode(self.controller.settings.intelligence)
+            gigabytes = max(1, round(mode.vram_mib / 1024))
+            self._speak(f"I'm in Game mode. Load the brain? It needs about {gigabytes} GB of video memory.")
             return
         if self.controller.state != "on":
             if self.controller.state in {"off", "starting"} or self.controller._busy:
@@ -1208,13 +1636,26 @@ class Shell:
         if getattr(self, "_clock", None) is None:
             self._clock = TurnClock()
         self._clock.mark("transcript")
+        self._filler_stop.clear()
         self._filler.start(1500)
+        self._begin_model_turn()
         note = getattr(self, "_interrupt_note", "")
         if note:
             text = f"{note}\n{text}"
             self._interrupt_note = ""
         alive = "2m" if getattr(self, "_return_to_game", False) else -1
-        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx, self._history, keep_alive=alive)
+        facts = self._facts_for(text)
+        job = _AskJob(
+            self.controller.ollama,
+            mode.model,
+            text,
+            mode.num_ctx,
+            self._history,
+            keep_alive=alive,
+            num_batch=mode.num_batch,
+            facts=facts,
+            personality=getattr(self, "_session_personality", ""),
+        )
         job.turn = self._turn_id
         self._ask_job = job
         job.measured.connect(lambda stats, turn=job.turn: self._on_measured(stats, turn))
@@ -1242,21 +1683,70 @@ class Shell:
             return
         self._clock.mark("first_token")
 
+    def _facts_for(self, text: str) -> list[str]:
+        items = [str(item.get("text") or "") for item in load_list("memory.json")]
+        return rank_texts(text, items, k=2)
+
+    def _begin_model_turn(self) -> None:
+        if self._model_turn_open:
+            return
+        self.turns.enter()
+        self._model_turn_open = True
+        self.controller.probe.defer_probes = True
+
+    def _end_model_turn(self) -> None:
+        if not self._model_turn_open:
+            return
+        self.turns.leave()
+        self._model_turn_open = False
+        self.controller.probe.defer_probes = False
+
     def _cue_waiting(self) -> None:
         clock = getattr(self, "_clock", None)
         if clock is None or "first_sound" in clock.marks or not self._same_turn(self._turn_id):
             return
-        line = ("One moment.", "Still working.", "Give me a second.")[self._filler_n % 3]
+        from babysitter.plugins.voice.fillers import PHRASES, library
+
+        index = self._filler_n % len(PHRASES)
+        line = PHRASES[index]
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
         self.orb.set_state("thinking", line)
-        if kokoro_ready() and not getattr(self, "_speaking", False):
-            self._speak(line, filler=True)
+        clip = library().clip(index)
+        if clip is None or getattr(self, "_speaking", False):
+            return
+        pcm, rate = clip
+        self._filler_stop.clear()
+        self._speaking = True
+        self._is_filler = True
+
+        class _Play(QThread):
+            def run(self_play) -> None:
+                from babysitter.plugins.voice.fillers import play_clip
+
+                play_clip(pcm, rate, self._filler_stop)
+
+        job = _Play()
+        self._filler_job = job
+        job.finished.connect(self._filler_done)
+        job.start()
+        if clock is not None:
+            clock.mark("first_sound")
+            self._responsiveness.add(clock.as_row())
+            self.window.voice_page.set_responsiveness(self._responsiveness.summary())
+
+    def _filler_done(self) -> None:
+        if getattr(self, "_is_filler", False):
+            self._is_filler = False
+            self._speaking = False
+            self._sync_keyword()
 
     def _cut_off(self) -> None:
         started = time.perf_counter()
         self._turn_id += 1
         self._filler.stop()
+        self._filler_stop.set()
+        self._end_model_turn()
         job = getattr(self, "_ask_job", None)
         if job is not None:
             job.cancel.set()
@@ -1281,6 +1771,8 @@ class Shell:
         if turn and not self._same_turn(turn):
             return
         self._filler.stop()
+        self._filler_stop.set()
+        self._end_model_turn()
         self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
         self._speaking = False
@@ -1310,10 +1802,32 @@ class Shell:
         self._spoken_for_history = spoken
         heard = getattr(self, "_pending_line", "")
         self._more_text = rest
-        self._awaiting_more = False
-        if getattr(self, "_listener", None) is not None:
-            self._listener.expect_yes_no(False)
-        self.window.home.set_reply(heard, spoken, reply)
+        level = int(self.controller.settings.proactivity)
+        fact = ""
+        if level >= 2:
+            matches = self._facts_for(heard)
+            fact = matches[0] if matches else ""
+        from datetime import date as _date
+
+        weekly = False
+        if level >= 3 and not self._weekly_offered:
+            from babysitter.proactivity import offer_weekly
+
+            weekly = offer_weekly(
+                level,
+                self.controller.settings.last_weekly_review,
+                _date.today(),
+                self._weekly_offered,
+            )
+            if weekly:
+                self._weekly_offered = True
+        self._awaiting_more = offer_more(level, bool(rest))
+        if self._awaiting_more and getattr(self, "_listener", None) is not None:
+            self._listener.expect_yes_no(True)
+        note = nudge(level, bool(rest), fact, weekly)
+        self._nudge = note
+        detail = reply if not note else f"{reply}\n\n{note}"
+        self.window.home.set_reply(heard, spoken, detail)
         if early:
             self._early_lead = ""
             bare = early[:-1].rstrip() if early[-1:] in ".!?" else early
@@ -1322,8 +1836,12 @@ class Shell:
                 extra = spoken[len(bare) :].lstrip(" \t,")
             if extra:
                 self._pending_offer = extra
+            if not getattr(self, "_speaking", False):
+                self._end_model_turn()
             return
         self._speak(spoken)
+        if not getattr(self, "_speaking", False):
+            self._end_model_turn()
 
     def _clear_more(self) -> None:
         self._awaiting_more = False
@@ -1389,23 +1907,25 @@ class Shell:
     def _on_page_notice(self, text: str) -> None:
         if text.startswith("CONFIRM reminder:"):
             body = text.split(":", 1)[1].strip()
-            if ask_yes_no(self.window, "Save this reminder?", body, "Save the reminder", "Don't save"):
-                add_item("schedule.json", text=body)
-                self.window.schedule_page.text.clear()
-                self.window.schedule_page.refresh()
+            self.window.schedule_page.text.clear()
+            self._save_local("schedule.json", body, "the reminder")
             return
         if text.startswith("CONFIRM memory:"):
             body = text.split(":", 1)[1].strip()
-            if ask_yes_no(
-                self.window,
-                "Remember this?",
-                f"Save this on this PC?\n\n{body}",
-                "Remember it",
-                "Don't save",
-            ):
-                add_item("memory.json", text=body)
-                self.window.memory_page.text.clear()
-                self.window.memory_page.refresh()
+            self.window.memory_page.text.clear()
+            self._save_local("memory.json", body, "that")
+            return
+        if text == "SCAN pc":
+            self._begin_scan()
+            return
+        if text == "INSTALL silero":
+            self._download_silero()
+            return
+        if text == "EXPORT session":
+            self._export_session()
+            return
+        if text == "DELETE session":
+            self._delete_session()
             return
         if text == "CONFIRM screen":
             self._look_at_screen()
@@ -1431,6 +1951,15 @@ class Shell:
         if text.startswith("FOLLOWUP "):
             self._save_followup(text)
             return
+        if text.startswith("PROACTIVITY "):
+            self._save_proactivity(text)
+            return
+        if text.startswith("RATE "):
+            self._save_rating(text.split(" ", 1)[1])
+            return
+        if text == "WEEKLY review":
+            self._speak_weekly()
+            return
         self.controller._remember(text)
         self.window.home.set_history(self.controller.history)
 
@@ -1451,30 +1980,18 @@ class Shell:
             self.controller.enter_game()
 
     def _look_at_screen(self, full: bool = False) -> None:
-        if not ask_yes_no(
-            self.window,
-            "Look at the screen?",
-            "BabySitter will take one picture in memory and ask the model that is already loaded. "
-            + (
-                "Small text is sent at full size, so this takes a few seconds. "
-                if full
-                else "The long edge is shrunk to 1280 pixels. "
-            )
-            + "The picture is not saved.",
-            "Look now",
-            "Don't look",
-        ):
-            self.window.screen_page.body.setPlainText("Nothing was captured.")
-            return
+        mode = get_mode(self.controller.settings.intelligence)
+        native = full and mode.num_ctx > 4096
+        edge = mode.image_edge if not full else 1280
         screen = QApplication.primaryScreen()
         if screen is None:
             self.window.screen_page.body.setPlainText("No screen was found. Nothing was saved.")
             return
         picture = screen.grabWindow(0)
-        if full:
+        if native:
             self.window.home.set_phase("thinking", "This takes a few seconds.")
         else:
-            width, height = scaled_size(picture.width(), picture.height())
+            width, height = fit_screenshot(picture.width(), picture.height(), edge=edge, num_ctx=mode.num_ctx)
             if (width, height) != (picture.width(), picture.height()):
                 picture = picture.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         encoded = _png_base64(picture)
@@ -1490,7 +2007,6 @@ class Shell:
         self.window.home.set_phase("thinking", "Looking at the screen.")
         self._speak("Looking at the screen.", filler=True)
         self._pending_line = "What is on the screen?"
-        mode = get_mode(self.controller.settings.intelligence)
         self._early_lead = ""
         self._pending_offer = ""
         self._finished_phrases = []
@@ -1503,6 +2019,7 @@ class Shell:
         if getattr(self, "_clock", None) is not None:
             self._clock.marks["image_tokens"] = tokens
         alive = "2m" if getattr(self, "_return_to_game", False) else -1
+        self._begin_model_turn()
         job = _AskJob(
             self.controller.ollama,
             mode.model,
@@ -1511,6 +2028,9 @@ class Shell:
             self._history,
             [encoded],
             keep_alive=alive,
+            num_batch=mode.num_batch,
+            facts=self._facts_for(text),
+            personality=getattr(self, "_session_personality", ""),
         )
         job.turn = self._turn_id
         self._ask_job = job
@@ -1523,6 +2043,9 @@ class Shell:
         job.start()
 
     def _read_health(self) -> None:
+        if self.turns.busy():
+            self.window.health_page.body.setPlainText("A reply is in progress. The PC check waits until it finishes.")
+            return
         if sys.platform != "win32":
             self.window.health_page.body.setPlainText(
                 "These checks run on your Windows PC. They are read-only. "
@@ -1610,7 +2133,8 @@ class Shell:
         speaker.stop()
         self._speaking = True
         self._pending_speech = text
-        if getattr(self, "_listener", None) is not None:
+        allow_barge = self.controller.settings.talk_over and self.controller.settings.echo_cancel
+        if getattr(self, "_listener", None) is not None and not allow_barge:
             self._listener.stop()
         prefs = self._voice_prefs()
         if filler and prefs["engine"] == "kokoro" and not kokoro_ready():
@@ -1622,6 +2146,8 @@ class Shell:
             return
         if prefs["engine"] == "windows" and sys.platform != "win32":
             self._speaking = False
+            if not filler:
+                self._end_model_turn()
             self._sync_keyword()
             return
         self._start_speech(text, prefs)
@@ -1643,6 +2169,7 @@ class Shell:
                 "Heart and Sarah is not downloaded, so nothing was spoken with that voice.",
             )
             self._sync_keyword()
+            self._end_model_turn()
             return
         job = _KokoroDownloadJob()
         self._kokoro_job = job
@@ -1657,12 +2184,15 @@ class Shell:
 
     def _kokoro_failed(self, message: str) -> None:
         self._speaking = False
+        self._end_model_turn()
         self.window.home.set_phase("on", message)
         self._sync_keyword()
 
     def _start_speech(self, text: str, prefs: dict) -> None:
         if not text:
             self._speaking = False
+            if not getattr(self, "_is_filler", False):
+                self._end_model_turn()
             self._sync_keyword()
             return
         job = _SpeakJob(text, prefs, self._turn_id)
@@ -1677,6 +2207,7 @@ class Shell:
 
     def _sound_started(self) -> None:
         self._filler.stop()
+        self._filler_stop.set()
         clock = getattr(self, "_clock", None)
         if clock is None:
             return
@@ -1693,6 +2224,7 @@ class Shell:
         self._finished_phrases.append(phrase)
 
     def _speech_failed(self, message: str) -> None:
+        self._end_model_turn()
         self.window.home.set_phase(self.controller.state, message)
 
     def _speak_done(self) -> None:
@@ -1706,7 +2238,14 @@ class Shell:
             self._speak(offer)
             return
         self._remember_exchange(getattr(self, "_pending_line", ""), getattr(self, "_spoken_for_history", ""))
+        job = getattr(self, "_ask_job", None)
+        if job is None or not job.isRunning():
+            self._end_model_turn()
         self._arm_game_return()
+        nudge_line = getattr(self, "_nudge", "")
+        if nudge_line:
+            self.window.home.set_phase("on", nudge_line)
+            self._nudge = ""
         self._open_followup()
 
     def _remember_exchange(self, user: str, assistant: str) -> None:
@@ -1720,6 +2259,13 @@ class Shell:
             self._history.append({"role": "assistant", "content": assistant})
         del self._history[:-12]
         self._logged_turn = True
+        try:
+            if not self._session_id:
+                self._session_id = begin_session()
+            append_turn(self._session_id, user, assistant)
+            self.window.history_page.refresh()
+        except ValueError:
+            return
 
     def _open_followup(self) -> None:
         settings = self.controller.settings
@@ -1761,8 +2307,14 @@ class Shell:
 
     def _run_quick(self, text: str) -> bool:
         quick = match_quick_command(text)
-        if quick is None or quick.kind == "undo":
+        if quick is not None and quick.kind == "undo":
             return False
+        if quick is None:
+            intent = match_tool(text)
+            if intent is None:
+                return False
+            self._offer_tool(intent)
+            return True
         if quick.kind == "time":
             now = datetime.now().astimezone()
             speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
@@ -1794,17 +2346,48 @@ class Shell:
             self._look_at_screen(full=True)
             return True
         if quick.kind == "why":
+            query = text
+            for item in reversed(self._history):
+                if item.get("role") == "user":
+                    query = str(item.get("content") or query)
+                    break
+            facts = self._facts_for(query)
             lines = []
             for item in self._history[-6:]:
                 role = "You" if item.get("role") == "user" else "BabySitter"
                 lines.append(f"{role}: {str(item.get('content') or '')[:240]}")
-            detail = "\n".join(lines) if lines else "Nothing from this conversation was sent with the last reply."
-            speech = "I used the recent conversation. It is on the screen. Saved facts are not sent to the model yet."
+            if facts:
+                lines.append("Saved facts that matched:")
+                lines.extend(facts)
+                speech = "I used the recent conversation and the saved facts that matched. Both are on the screen."
+            else:
+                speech = "I used the recent conversation. No saved fact matched. It is on the screen."
+            detail = "\n".join(lines) if lines else "Nothing from this conversation was kept."
             self.window.home.set_reply(text, speech, detail)
             self._speak(speech)
             return True
+        if quick.kind == "weekly":
+            self._speak_weekly()
+            return True
+        if quick.kind == "rate":
+            self._save_rating(quick.detail)
+            return True
         if quick.kind == "timer":
             self._begin_timer(quick.seconds)
+            return True
+        if quick.kind == "scan":
+            self._begin_scan()
+            return True
+        if quick.kind == "mail":
+            self._start_google("mail", speak_errors=True)
+            return True
+        if quick.kind == "calendar":
+            self._start_google("calendar", speak_errors=True)
+            return True
+        if quick.kind in {"remember", "remind"}:
+            filename = "memory.json" if quick.kind == "remember" else "schedule.json"
+            noun = "that" if quick.kind == "remember" else "the reminder"
+            self._save_local(filename, text.strip(), noun)
             return True
         return False
 
@@ -1824,14 +2407,290 @@ class Shell:
         self._speak(speech)
 
     def _undo_timer(self) -> None:
-        if time.time() > getattr(self, "_undo_until", 0) or getattr(self, "_active_timer", None) is None:
-            self._speak("Nothing to undo.")
+        now = time.time()
+        if now <= getattr(self, "_undo_until", 0) and getattr(self, "_active_timer", None) is not None:
+            self._active_timer.stop()
+            self._active_timer = None
+            self._undo_until = 0
+            self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
+            self._speak("Cancelled the timer.")
             return
-        self._active_timer.stop()
-        self._active_timer = None
-        self._undo_until = 0
-        self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
-        self._speak("Cancelled the timer.")
+        soft = getattr(self, "_soft_undo", None)
+        if soft and now <= float(soft.get("until") or 0):
+            self._undo_soft(soft)
+            return
+        self._speak("Nothing to undo.")
+
+    def _undo_soft(self, soft: dict) -> None:
+        self._soft_undo = None
+        kind = soft.get("kind")
+        if kind == "note":
+            remove_item(str(soft.get("file") or ""), str(soft.get("id") or ""))
+            self.window.schedule_page.refresh()
+            self.window.memory_page.refresh()
+            speech = "Removed that."
+        elif kind == "close":
+            speech = "I can't reopen it. It is already closed."
+        elif kind == "startup":
+            try:
+                self._startup_store.restore(str(soft.get("name") or ""), str(soft.get("command") or ""))
+                speech = "Turned it back on at startup."
+            except Exception:
+                speech = "I could not put that startup item back."
+        else:
+            speech = "Nothing to undo."
+        self.window.home.set_reply("undo", speech, "Nothing else was changed.")
+        self._speak(speech)
+
+    def _save_local(self, filename: str, text: str, noun: str) -> None:
+        item = add_item(filename, text=text)
+        self._soft_undo = {
+            "kind": "note",
+            "until": time.time() + 10,
+            "file": filename,
+            "id": item["id"],
+        }
+        if filename.startswith("schedule"):
+            self.window.schedule_page.refresh()
+        else:
+            self.window.memory_page.refresh()
+        speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
+        self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _begin_scan(self) -> None:
+        if self.turns.busy():
+            self.window.health_page.body.setPlainText("I'll scan when this reply finishes.")
+            self._speak("I'll scan when this reply finishes.")
+            return
+        result = scan(
+            collect_processes(),
+            collect_startups(),
+            games=self.controller.settings.game_processes,
+        )
+        self._suggestions = list(result.suggestions)
+        self._suggestion_at = 0
+        self._awaiting_more = False
+        self._scan_prefix = "I left games alone. " if result.left_games else ""
+        if not self._suggestions:
+            speech = self._scan_prefix + "I didn't find a heavy app or a startup item I would change."
+            self._scan_prefix = ""
+            self.window.health_page.body.setPlainText(speech)
+            self.window.home.set_reply("scan", speech, "Nothing was changed.")
+            self._speak(speech)
+            return
+        self._speak_current_suggestion()
+
+    def _speak_current_suggestion(self) -> None:
+        item = self._suggestions[self._suggestion_at]
+        speech = self._scan_prefix + item.speech
+        self._scan_prefix = ""
+        self.window.health_page.body.setPlainText(speech + "\n\nSay yes, or say no.")
+        self.window.home.set_reply("scan", speech, "Nothing changes until you say yes.")
+        self._speak(speech)
+
+    def _answer_suggestion(self, answer: str) -> None:
+        item = self._suggestions[self._suggestion_at]
+        if answer == "yes":
+            result = self._apply_suggestion(item)
+        else:
+            result = "Leaving it."
+        self._suggestion_at += 1
+        if self._suggestion_at < len(self._suggestions):
+            nxt = self._suggestions[self._suggestion_at]
+            speech = f"{result} {nxt.speech}"
+            detail = nxt.speech
+        else:
+            speech = f"{result} That's everything I would change."
+            self._suggestions = []
+            detail = "Nothing else was changed."
+        self.window.health_page.body.setPlainText(speech)
+        self.window.home.set_reply(answer, speech, detail)
+        self._speak(speech)
+
+    def _apply_suggestion(self, item) -> str:
+        if item.kind == "close_app":
+            speech = close_named(item.name, pids=pids_named, terminate=terminate_pid)
+            if speech.startswith("Closed"):
+                self._soft_undo = {"kind": "close", "until": time.time() + 10}
+            return speech
+        if item.kind == "startup":
+            speech, previous = apply_startup(item, self._startup_store)
+            if previous is not None:
+                self._soft_undo = {
+                    "kind": "startup",
+                    "until": time.time() + 10,
+                    "name": item.name,
+                    "command": previous,
+                }
+            return speech
+        return "I left it."
+
+    def _google_from_button(self, kind: str) -> None:
+        self._start_google(kind or "mail", speak_errors=True)
+
+    def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
+        self._google_speak_errors = speak_errors
+        self._google_only_new = only_new
+        if not self.controller.settings.google_enabled:
+            self._show_google(
+                "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
+                speak=speak_errors,
+            )
+            return
+        if not self.google_vault.available:
+            self._show_google("Saving a Google token needs Windows. Nothing was sent.", speak=speak_errors)
+            return
+        try:
+            token = self._token_for_google()
+        except SecretsError as exc:
+            self._show_google(str(exc), speak=speak_errors)
+            return
+        if not token:
+            self._show_google(
+                "There is no Google token saved. Paste a read-only token under Tools. Nothing was sent.",
+                speak=speak_errors,
+            )
+            return
+        running = getattr(self, "_google_job", None)
+        if running is not None and running.isRunning():
+            self._show_google("I'm already checking Google.", speak=True)
+            return
+        if only_new:
+            job = _GooglePollJob(token, self._seen_google)
+            self._google_job = job
+            job.ready.connect(self._google_poll_ready)
+        else:
+            job = _GoogleJob(token, kind)
+            self._google_job = job
+            job.ready.connect(self._google_ready)
+            self.window.tools_page.show_google("Checking Google. Only mail and calendar are read.")
+        job.start()
+
+    def _google_ready(self, speech: str) -> None:
+        failed = speech.startswith("Google did not") or speech.startswith("Google refused") or speech.startswith("Google sent")
+        speak = (self._google_speak_errors or not failed) and not self.turns.busy()
+        self._show_google(speech, speak=speak)
+
+    def _show_google(self, speech: str, *, speak: bool) -> None:
+        self.window.tools_page.show_google(speech)
+        detail = "Nothing was sent." if "Nothing was sent" in speech else "Read only. The token stays out of the log."
+        self.window.home.set_reply("google", speech, detail)
+        if speak:
+            self._speak(speech)
+
+    def _load_seen_google(self) -> None:
+        path = data_dir() / "google_seen.json"
+        if not path.is_file():
+            return
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError):
+            return
+        if isinstance(raw, list):
+            self._seen_google = {str(item) for item in raw if isinstance(item, str)}
+
+    def _save_seen_google(self) -> None:
+        path = data_dir() / "google_seen.json"
+        kept = list(self._seen_google)[-200:]
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(kept), encoding="utf-8")
+        temporary.replace(path)
+
+    def _token_for_google(self) -> str | None:
+        bundle = self.google_vault.load_bundle()
+        if not bundle:
+            return None
+        refresh = str(bundle.get("refresh_token") or "")
+        client_id = self.controller.settings.google_client_id
+        if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
+            try:
+                refreshed = refresh_access(client_id, refresh)
+            except GoogleError:
+                return str(bundle.get("access_token") or "") or None
+            self.google_vault.save_bundle(refreshed)
+            return str(refreshed.get("access_token") or "") or None
+        return str(bundle.get("access_token") or "") or None
+
+    def _google_poll_ready(self, speech: str, seen: list) -> None:
+        if speech.startswith("New from Google"):
+            self._seen_google = set(seen)
+            self._save_seen_google()
+            self._show_google(speech, speak=not self.turns.busy())
+            return
+        if self._google_speak_errors and speech:
+            self._show_google(speech, speak=not self.turns.busy())
+
+    def _google_sign_in(self, client_id: str) -> None:
+        from babysitter.plugins.tools.google_account import clean_client_id
+        from babysitter.secrets import SecretsError as _SecretsError
+
+        page = self.window.tools_page
+        try:
+            cleaned = clean_client_id(client_id)
+        except _SecretsError as exc:
+            page.show_google(str(exc))
+            return
+        self.controller.settings.google_client_id = cleaned
+        save_settings(self.controller.settings)
+        verifier, challenge = pkce_pair()
+        state = verifier[:16]
+        url = authorization_url(cleaned, state, challenge)
+        job = _SignInJob(cleaned, verifier, state, url)
+        self._sign_in_job = job
+        job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
+        job.finished_ok.connect(self._google_signed_in)
+        job.failed.connect(page.show_google)
+        job.start()
+        page.show_google("Waiting for Google in your browser. Read-only mail and calendar only.")
+
+    def _google_signed_in(self) -> None:
+        job = getattr(self, "_sign_in_job", None)
+        bundle = getattr(job, "bundle", None)
+        if job is not None:
+            job.bundle = None
+        if not bundle:
+            self.window.tools_page.show_google("Google sign-in did not return a token. Nothing was saved.")
+            return
+        try:
+            self.google_vault.save_bundle(bundle)
+        except SecretsError as exc:
+            self.window.tools_page.show_google(str(exc))
+            return
+        self.window.tools_page.set_google_saved(True, self.google_vault.available)
+        self.window.tools_page.show_google(
+            "Signed in. The token is encrypted on this PC. BabySitter can refresh it. Nothing was sent except the sign-in."
+        )
+
+    def _save_google_token(self, raw: str) -> None:
+        page = self.window.tools_page
+        try:
+            self.google_vault.save(raw)
+        except SecretsError as exc:
+            saved = self.google_vault.has_token() if self.google_vault.available else False
+            page.set_google_saved(saved, self.google_vault.available)
+            page.show_google(str(exc))
+            return
+        page.set_google_saved(True, self.google_vault.available)
+        page.show_google("The token is saved. It is not shown again, and it is not stored in settings.json.")
+
+    def _delete_google_token(self) -> None:
+        page = self.window.tools_page
+        if not ask_yes_no(
+            self.window,
+            "Delete the saved Google token?",
+            "This removes the encrypted token from this PC. Mail and calendar checks stop until you save one again.",
+            "Delete the token",
+            "Keep it",
+        ):
+            return
+        try:
+            self.google_vault.delete()
+        except SecretsError as exc:
+            page.show_google(str(exc))
+            return
+        page.set_google_saved(False, self.google_vault.available)
+        page.show_google("The token is deleted. Nothing was sent.")
 
     def _timer_finished(self, label: str) -> None:
         self._active_timer = None
@@ -1850,6 +2709,41 @@ class Shell:
         save_settings(self.controller.settings)
         self.window.voice_page.status.setText(f"Follow-up listening is {seconds} seconds. Saved on this PC.")
 
+    def _save_proactivity(self, text: str) -> None:
+        try:
+            level = int(text.split()[1])
+        except (IndexError, ValueError):
+            return
+        self.controller.settings.proactivity = max(0, min(3, level))
+        save_settings(self.controller.settings)
+        self.window.voice_page.status.setText(
+            f"Proactivity is {self.controller.settings.proactivity}. Saved on this PC."
+        )
+
+    def _save_rating(self, label: str) -> None:
+        try:
+            record_rating(label)
+        except ValueError:
+            return
+        speech = "Saved. I'll use that the next time the AI turns on."
+        self.window.voice_page.status.setText(speech)
+        self.window.home.set_reply("rating", speech, "The tone stays fixed until the next time you turn the AI on.")
+        self._speak(speech)
+
+    def _speak_weekly(self) -> None:
+        if self.turns.busy():
+            self.window.home.set_phase("on", "The weekly review waits until this reply finishes.")
+            return
+        memories = [str(item.get("text") or "") for item in load_list("memory.json")]
+        notes = [str(item.get("content") or "") for item in self._history if item.get("role") == "user"]
+        speech = weekly_review(memories, notes)
+        from datetime import date
+
+        self.controller.settings.last_weekly_review = date.today().isoformat()
+        save_settings(self.controller.settings)
+        self.window.home.set_reply("weekly review", speech, "Written on this PC. The model was not asked.")
+        self._speak(speech)
+
     def _benchmark(self) -> None:
         if self.controller.state != "on":
             self.window.models_page.body.setPlainText("Turn the AI on before the benchmark. Nothing was sent.")
@@ -1860,10 +2754,12 @@ class Shell:
             return
         mode = get_mode(self.controller.settings.intelligence)
         running_voice = getattr(self, "_ask_job", None)
-        if running_voice is not None and running_voice.isRunning():
-            self.window.models_page.body.setPlainText("A reply is in progress. The benchmark waits so it does not wipe that conversation.")
+        if self.turns.busy() or (running_voice is not None and running_voice.isRunning()):
+            self.window.models_page.body.setPlainText(
+                "A reply is in progress. The benchmark waits so it does not load the card again."
+            )
             return
-        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx)
+        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
         self._bench_job = job
         self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
         job.finished_text.connect(self._benchmark_done)

@@ -39,6 +39,7 @@ def test_voice_turns_skip_hidden_thinking():
     assert low["think"] is False
     assert medium["think"] is False
     assert "two or three plain sentences" in low["messages"][0]["content"]
+    assert "Start with the answer" in low["messages"][0]["content"]
     assert low["options"]["temperature"] == 0.7
     assert "November" not in low["messages"][0]["content"]
 
@@ -62,7 +63,7 @@ def test_the_server_baby_sitter_starts_keeps_one_model_warm():
     environment = server_environment({}, "127.0.0.1", 11434)
     assert environment["OLLAMA_HOST"] == "127.0.0.1:11434"
     assert environment["OLLAMA_KEEP_ALIVE"] == "5m"
-    assert environment["OLLAMA_KV_CACHE_TYPE"] == "q8_0"
+    assert environment["OLLAMA_KV_CACHE_TYPE"] == "q4_0"
     assert environment["OLLAMA_MAX_LOADED_MODELS"] == "1"
     assert environment["OLLAMA_FLASH_ATTENTION"] == "1"
 
@@ -154,12 +155,15 @@ def test_intelligence_uses_one_model_per_level():
     assert MODES["low"].model == MAIN_MODEL
     assert MODES["medium"].model == WRITING_MODEL
     assert MODES["high"].model == WRITING_MODEL
-    # Qwen's long context is cheap. Gemma's is not, so Medium stays smaller than High.
-    assert MODES["low"].num_ctx == 16384
+    # Low stays in a 4 to 6 GB budget, so its context is 4,096. Medium stays smaller than High.
+    assert MODES["low"].num_ctx == 4096
+    assert MODES["low"].num_batch == 128
+    assert 4096 <= MODES["low"].vram_mib <= 6144
     assert MODES["medium"].num_ctx == 8192
     assert MODES["high"].num_ctx == 16384
     assert MODES["medium"].num_ctx < MODES["high"].num_ctx
     assert WRITING_MODEL != MAIN_MODEL
-    low = chat_body(MAIN_MODEL, "hello", MODES["low"].num_ctx)
-    again = chat_body(MAIN_MODEL, "again", MODES["low"].num_ctx)
-    assert low["options"]["num_ctx"] == again["options"]["num_ctx"] == 16384
+    low = chat_body(MAIN_MODEL, "hello", MODES["low"].num_ctx, num_batch=MODES["low"].num_batch)
+    again = chat_body(MAIN_MODEL, "again", MODES["low"].num_ctx, num_batch=MODES["low"].num_batch)
+    assert low["options"]["num_ctx"] == again["options"]["num_ctx"] == 4096
+    assert low["options"]["num_batch"] == again["options"]["num_batch"] == 128
