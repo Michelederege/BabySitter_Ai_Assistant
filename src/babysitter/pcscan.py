@@ -92,10 +92,13 @@ def spoken_reading(used_bytes: int, total_bytes: int, cpu_percent: float | None)
 
 
 def host_memory() -> tuple[int, int]:
-    import psutil
+    try:
+        import psutil
 
-    memory = psutil.virtual_memory()
-    return int(memory.used), int(memory.total)
+        memory = psutil.virtual_memory()
+        return int(memory.used), int(memory.total)
+    except Exception:
+        return 0, 0
 
 
 def _stem(name: str) -> str:

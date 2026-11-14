@@ -47,8 +47,10 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "hows my pc",
         "how's my pc",
         "how is my pc",
-        "pc health",
+        "hows my computer",
+        "how's my computer",
         "how is my computer",
+        "pc health",
     }:
         return QuickCommand("health")
     if phrase in {
@@ -141,8 +143,10 @@ def _wants_pc_scan(phrase: str) -> bool:
         return True
     if "memory" in words and (words & _PRESSURE or "too much" in phrase):
         return True
+    if "clean up" in phrase and words & {"pc", "computer", "memory", "ram", "hardware"}:
+        return True
     machine = bool(words & {"pc", "computer", "hardware"})
-    return machine and bool(words & {"scan", "optimize", "slow", "cleanup"})
+    return machine and bool(words & {"scan", "optimize", "slow", "cleanup", "check", "lagging", "laggy", "freezing", "frozen"})
 
 
 def _rating(phrase: str) -> str:

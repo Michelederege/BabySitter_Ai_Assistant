@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.4 — “No” answers the scan, and a waiting scan still runs
+
+Saying “no” to “Close it?” was dropped. During a follow-up, a single word “no” is treated as silence, and the scan never turned on the yes-or-no listener. It does now, so “yes” and “no” both count without the keyword.
+
+A scan asked while a reply is still being written runs when that reply is done, including when the voice never starts. “Check my pc” and “clean up my computer” scan this PC. “How’s my computer” speaks the memory and CPU numbers.
+
 ## 0.14.3 — The scan says the memory number, then one question
 
 A spoken scan now starts with the real memory reading, such as "Memory is using 20.0 of 32.0 GB, 62 percent," and then one suggestion you can accept or deny. "Why is my ram so high," "my computer is slow," and "free up some memory" take that path. "How is my pc" speaks the memory and CPU numbers.

@@ -1394,6 +1394,7 @@ class Shell:
                 self._answer_suggestion(answer)
                 return
             self._suggestions = []
+            self._arm_yes_no(bool(getattr(self, "_awaiting_more", False)))
         if getattr(self, "_offer_load", False) and more_answer(text) == "yes":
             self._offer_load = False
             self._return_to_game = True
@@ -1585,6 +1586,7 @@ class Shell:
                 self._answer_suggestion(answer)
                 return
             self._suggestions = []
+            self._arm_yes_no(bool(getattr(self, "_awaiting_more", False)))
         if getattr(self, "_awaiting_more", False):
             answer = more_answer(text)
             if answer == "yes":
@@ -1610,6 +1612,7 @@ class Shell:
             return
         if self._run_quick(text):
             return
+        self._scan_when_free = False
         if self.controller.state == "game":
             self._offer_load = True
             self._close_followup()
@@ -1743,6 +1746,7 @@ class Shell:
             self._is_filler = False
             self._speaking = False
             self._sync_keyword()
+            self._release_waiting_scan()
 
     def _cut_off(self) -> None:
         started = time.perf_counter()
@@ -1780,6 +1784,7 @@ class Shell:
         self.window.home.set_reply(heard, "The model did not answer.", message)
         self._speaking = False
         self._sync_keyword()
+        self._release_waiting_scan()
 
     def _lead_ready(self, lead: str, turn: int = 0) -> None:
         """Speak the first sentence while the rest is still being written."""
@@ -1843,10 +1848,12 @@ class Shell:
                 self._pending_offer = extra
             if not getattr(self, "_speaking", False):
                 self._end_model_turn()
+                self._release_waiting_scan()
             return
         self._speak(spoken)
         if not getattr(self, "_speaking", False):
             self._end_model_turn()
+            self._release_waiting_scan()
 
     def _clear_more(self) -> None:
         self._awaiting_more = False
@@ -2156,6 +2163,7 @@ class Shell:
             self._speaking = False
             if not filler:
                 self._end_model_turn()
+                self._release_waiting_scan()
             self._sync_keyword()
             return
         self._start_speech(text, prefs)
@@ -2178,6 +2186,7 @@ class Shell:
             )
             self._sync_keyword()
             self._end_model_turn()
+            self._release_waiting_scan()
             return
         job = _KokoroDownloadJob()
         self._kokoro_job = job
@@ -2195,12 +2204,14 @@ class Shell:
         self._end_model_turn()
         self.window.home.set_phase("on", message)
         self._sync_keyword()
+        self._release_waiting_scan()
 
     def _start_speech(self, text: str, prefs: dict) -> None:
         if not text:
             self._speaking = False
             if not getattr(self, "_is_filler", False):
                 self._end_model_turn()
+                self._release_waiting_scan()
             self._sync_keyword()
             return
         job = _SpeakJob(text, prefs, self._turn_id)
@@ -2239,6 +2250,7 @@ class Shell:
         self._speaking = False
         if getattr(self, "_is_filler", False):
             self._is_filler = False
+            self._release_waiting_scan()
             return
         if getattr(self, "_pending_offer", ""):
             offer = self._pending_offer
@@ -2254,10 +2266,7 @@ class Shell:
         if nudge_line:
             self.window.home.set_phase("on", nudge_line)
             self._nudge = ""
-        if getattr(self, "_scan_when_free", False) and not self._scan_blocked():
-            self._scan_when_free = False
-            self._close_followup()
-            self._begin_scan()
+        if self._release_waiting_scan():
             return
         self._open_followup()
 
@@ -2474,23 +2483,69 @@ class Shell:
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
         self._speak(speech)
 
-    def _scan_blocked(self) -> bool:
+    def _model_still_running(self) -> bool:
         job = getattr(self, "_ask_job", None)
-        if job is not None and job.isRunning() and not job.cancel.is_set():
+        return job is not None and job.isRunning() and not job.cancel.is_set()
+
+    def _scan_blocked(self) -> bool:
+        if getattr(self, "_speaking", False):
+            return True
+        if self._model_still_running():
             return True
         return bool(self.turns.busy())
 
+    def _defer_scan(self) -> None:
+        """Hold the scan until the reply in progress has finished speaking."""
+        self._scan_when_free = True
+        self.window.home.set_phase(self.controller.state, "I'll scan as soon as this reply finishes.")
+        job = getattr(self, "_ask_job", None)
+        finished = getattr(job, "finished", None)
+        connect = getattr(finished, "connect", None)
+        if not callable(connect) or getattr(job, "_scan_hooked", False):
+            return
+        try:
+            connect(self._release_waiting_scan)
+        except TypeError:
+            return
+        job._scan_hooked = True
+
+    def _release_waiting_scan(self) -> bool:
+        """Run a scan that waited out a reply. False means it is still waiting."""
+        if not getattr(self, "_scan_when_free", False):
+            return False
+        if getattr(self, "_speaking", False) or self._model_still_running():
+            return False
+        self._end_model_turn()
+        if self.turns.busy():
+            return False
+        self._scan_when_free = False
+        self._close_followup()
+        self._begin_scan()
+        return True
+
+    def _arm_yes_no(self, on: bool) -> None:
+        listener = getattr(self, "_listener", None)
+        if listener is not None:
+            listener.expect_yes_no(bool(on))
+
     def _begin_scan(self) -> None:
         if self._scan_blocked():
-            self._scan_when_free = True
-            self.window.home.set_phase(self.controller.state, "I'll scan as soon as this reply finishes.")
+            self._defer_scan()
             return
         self._scan_when_free = False
-        result = scan(
-            collect_processes(),
-            collect_startups(),
-            games=self.controller.settings.game_processes,
-        )
+        self._pending_offer = ""
+        try:
+            result = scan(
+                collect_processes(),
+                collect_startups(),
+                games=self.controller.settings.game_processes,
+            )
+        except Exception as exc:
+            speech = "I couldn't read this PC just now. I did not change anything."
+            self.window.health_page.body.setPlainText(speech)
+            self.window.home.set_reply("scan", speech, str(exc)[:500])
+            self._speak(speech)
+            return
         self._suggestions = list(result.suggestions)
         self._suggestion_at = 0
         self._awaiting_more = False
@@ -2507,6 +2562,7 @@ class Shell:
             if not result.summary:
                 speech = (speech + " I didn't find a heavy app or a startup item I would change.").strip()
             self._scan_prefix = ""
+            self._arm_yes_no(False)
             self.window.health_page.body.setPlainText(speech)
             self.window.home.set_reply("scan", speech, "Nothing was changed.")
             self._speak(speech)
@@ -2519,6 +2575,7 @@ class Shell:
         self._scan_prefix = ""
         self.window.health_page.body.setPlainText(speech + "\n\nSay yes, or say no.")
         self.window.home.set_reply("scan", speech, "Nothing changes until you say yes.")
+        self._arm_yes_no(True)
         self._speak(speech)
 
     def _answer_suggestion(self, answer: str) -> None:
@@ -2532,10 +2589,12 @@ class Shell:
             nxt = self._suggestions[self._suggestion_at]
             speech = f"{result} {nxt.speech}"
             detail = nxt.speech
+            self._arm_yes_no(True)
         else:
             speech = f"{result} That's everything I would change."
             self._suggestions = []
             detail = "Nothing else was changed."
+            self._arm_yes_no(bool(getattr(self, "_awaiting_more", False)))
         self.window.health_page.body.setPlainText(speech)
         self.window.home.set_reply(answer, speech, detail)
         self._speak(speech)
