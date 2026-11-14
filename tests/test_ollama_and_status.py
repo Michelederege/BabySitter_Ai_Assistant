@@ -34,17 +34,24 @@ def test_voice_turns_skip_hidden_thinking():
     medium = chat_body("gemma4:12b", "what time is it", 8192)
     assert low["think"] is False
     assert medium["think"] is False
-    assert "no more than 12 words" in low["messages"][0]["content"]
+    assert "two or three plain sentences" in low["messages"][0]["content"]
+    assert low["options"]["temperature"] == 0.7
     assert "November" not in low["messages"][0]["content"]
 
 
 def test_the_clock_stays_on_the_newest_message():
-    messages = chat_messages("what time is it", now=datetime(2026, 11, 13, 17, 46))
-    assert "what time is it" in messages[1]["content"]
-    assert "Current local time" in messages[1]["content"]
-    assert "November 13, 2026" in messages[1]["content"]
-    assert "05:46 PM" in messages[1]["content"]
-    assert "Current local time" not in messages[0]["content"]
+    history = [
+        {"role": "user", "content": "What is the capital of Germany?"},
+        {"role": "assistant", "content": "Berlin."},
+    ]
+    messages = chat_messages("And France?", history, now=datetime(2026, 11, 13, 17, 46))
+    assert messages[1]["content"] == "What is the capital of Germany?"
+    assert "Current local time" not in messages[1]["content"]
+    assert "And France?" in messages[-1]["content"]
+    assert "November 13, 2026" in messages[-1]["content"]
+    assert "05:46 PM" in messages[-1]["content"]
+    again = chat_messages("Something else", history, now=datetime(2026, 11, 13, 18, 1))
+    assert messages[0]["content"] == again[0]["content"]
 
 
 def test_the_server_baby_sitter_starts_keeps_one_model_warm():
