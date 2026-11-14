@@ -88,6 +88,31 @@ def test_nvml_reading_is_used_and_a_voice_turn_skips_the_next_probe():
     assert second.gpu is not None and second.gpu.used_mib == 3200
 
 
+def test_the_snapshot_names_a_game_running_from_a_game_folder(monkeypatch):
+    class Row:
+        def __init__(self, name: str, exe: str) -> None:
+            self.info = {"name": name, "exe": exe}
+
+    rows = [
+        Row("chrome.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+        Row("bg3.exe", r"D:\SteamLibrary\steamapps\common\Baldurs Gate 3\bin\bg3.exe"),
+    ]
+    monkeypatch.setattr("babysitter.status.psutil.process_iter", lambda attrs: rows)
+
+    class QuietOllama:
+        def port_open(self):
+            return False
+
+    collector = StatusCollector(QuietOllama())
+    collector.nvml_reader = lambda: [(1000, 12282)]
+    snap = collector.snapshot()
+    assert snap.detected_game == "bg3.exe"
+    assert "chrome.exe" in snap.process_names
+    rows.pop()
+    again = collector.snapshot()
+    assert again.detected_game is None
+
+
 def test_a_heavy_low_load_is_reported_and_a_fitting_one_is_named():
     over = low_load_note("qwen3.5:9b", 7 * 1024 * 1024 * 1024, 4096)
     assert over is not None and "above the 6 GB goal" in over

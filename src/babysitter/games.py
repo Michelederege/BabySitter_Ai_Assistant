@@ -1,10 +1,64 @@
-"""Decides when a chosen game is running.
+"""Decides when a game is running.
 
-This looks only at the program's file name (for example bg3.exe).
+A game is noticed two ways: a name you typed (for example bg3.exe), or a
+program running from a folder where game stores install (Steam's
+steamapps, Epic Games, GOG, the Xbox app, Riot, or a folder simply named
+Games). Only the program's file name and the folder it sits in are read.
 It never reads a game's memory and never draws anything inside the game.
 """
 
 from __future__ import annotations
+
+
+# Folder names that game stores install into. The match is one whole
+# folder in the path, not a part of a word.
+STORE_FOLDERS = {
+    "steamapps",
+    "xboxgames",
+    "gog games",
+    "epic games",
+    "riot games",
+    "games",
+}
+
+# Programs that live inside those folders but are not the game itself.
+NOT_THE_GAME = (
+    "launcher",
+    "riot client",
+    "battle.net",
+    "crashhandler",
+    "crash handler",
+    "crashreport",
+    "easyanticheat",
+    "anticheat",
+    "vanguard",
+    "redistributable",
+    "vcredist",
+    "directx",
+    "dotnet",
+    "unins",
+    "setup",
+    "installer",
+)
+
+
+def looks_like_game_path(path: str) -> bool:
+    """True when this program file sits where game stores install games."""
+    lowered = (path or "").replace("\\", "/").lower()
+    if not lowered.endswith(".exe"):
+        return False
+    folders = [part.strip() for part in lowered.split("/")[:-1] if part.strip()]
+    if not any(folder in STORE_FOLDERS for folder in folders):
+        return False
+    return not any(word in lowered for word in NOT_THE_GAME)
+
+
+def detect_game(paths_by_name: dict[str, str]) -> str | None:
+    """The first running program installed where games live, by name."""
+    for name in sorted(paths_by_name):
+        if looks_like_game_path(paths_by_name.get(name) or ""):
+            return name
+    return None
 
 
 class GameWatch:

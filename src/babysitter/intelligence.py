@@ -19,10 +19,11 @@ MAIN_MODEL = "qwen3.5:9b"
 WRITING_MODEL = "gemma4:12b"
 VISION_MODEL = "qwen3-vl:8b"
 
-# Lowest Ollama release that includes the fix for CVE-2026-7482.
-MIN_OLLAMA_VERSION = (0, 17, 1)
-# First release with the 2026 NVIDIA speed work. Older than this still runs.
-SPEED_OLLAMA_VERSION = (0, 34, 2)
+# Lowest Ollama release past the 2026 security fixes. 0.35.0 closes
+# CVE-2026-103663, where a request to the local port can write a file
+# outside the model folder and run it. Older than 0.17.1 also has
+# CVE-2026-7482, which leaks memory. Both get the same warning.
+MIN_OLLAMA_VERSION = (0, 35, 0)
 
 
 @dataclass(frozen=True)
