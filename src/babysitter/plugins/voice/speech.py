@@ -147,6 +147,32 @@ def sentences(text: str) -> list[str]:
     return found
 
 
+def unread_detail(spoken: str, reply: str) -> str:
+    """The part of a reply that was not already shown as the spoken line.
+
+    The window has one line for what was said and another for the rest.
+    The rest must not start by repeating that spoken line.
+    """
+    raw = strip_thinking(reply or "").strip()
+    lead = plain_speech(spoken)
+    if not raw or not lead:
+        return raw
+    body, fences = _split_fences(raw)
+    body_plain = plain_speech(body)
+    if body_plain.startswith(lead):
+        body_rest = body_plain[len(lead) :].strip()
+    else:
+        body_rest = remainder_after(lead, body)
+    parts = [part for part in (body_rest, *fences) if part]
+    return "\n\n".join(parts).strip()
+
+
+def _split_fences(text: str) -> tuple[str, list[str]]:
+    fences = re.findall(r"```.*?```", text or "", flags=re.DOTALL)
+    body = re.sub(r"```.*?```", " ", text or "", flags=re.DOTALL)
+    return body, [fence.strip() for fence in fences if fence.strip()]
+
+
 def voice_and_rest(text: str) -> tuple[str, str]:
     """Two or three sentences to say, and the rest for the screen.
 

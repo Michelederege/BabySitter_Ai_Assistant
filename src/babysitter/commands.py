@@ -65,13 +65,7 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "read the small text on the screen",
     }:
         return QuickCommand("screen_text")
-    if phrase in {
-        "scan my pc",
-        "scan my computer",
-        "optimize my pc",
-        "optimize my computer",
-        "how can i optimize",
-    } or phrase.startswith("scan my pc") or phrase.startswith("optimize my pc"):
+    if _wants_pc_scan(phrase):
         return QuickCommand("scan")
     if phrase in {
         "check my email",
@@ -104,6 +98,71 @@ def match_quick_command(text: str) -> QuickCommand | None:
     if timer:
         return QuickCommand("timer", seconds=timer)
     return None
+
+
+_SCAN_PHRASES = (
+    "scan my pc",
+    "scan my computer",
+    "scan this pc",
+    "scan this computer",
+    "scan the pc",
+    "scan the computer",
+    "scan my hardware",
+    "scan my ram",
+    "scan my memory",
+    "hardware scan",
+    "optimize my pc",
+    "optimize my computer",
+    "optimize this pc",
+    "optimize this computer",
+    "how can i optimize",
+)
+
+
+def _wants_pc_scan(phrase: str) -> bool:
+    """True when the sentence is asking for this PC's own scan.
+
+    Exact lines such as "scan my pc" still match. So does a normal spoken
+    request like "I'd like you to scan my computer, my RAM usage is very high."
+    A search, a reminder, and a saved memory do not.
+    """
+    if phrase.startswith(("search ", "remember ", "remind me")):
+        return False
+    if any(part in phrase for part in _SCAN_PHRASES):
+        return True
+    words = set(phrase.split())
+    if "ram" in words:
+        return any(
+            part in phrase
+            for part in (
+                "usage",
+                "using",
+                "scan",
+                "check",
+                "heavy",
+                "too much",
+                "eating",
+                "ram is high",
+                "ram is very high",
+                "high ram",
+            )
+        )
+    if "memory" not in words:
+        return False
+    return any(
+        part in phrase
+        for part in (
+            "memory usage",
+            "using memory",
+            "using my memory",
+            "too much memory",
+            "check my memory",
+            "check the memory",
+            "memory is high",
+            "high memory",
+            "eating my memory",
+        )
+    )
 
 
 def _rating(phrase: str) -> str:

@@ -63,6 +63,7 @@ from babysitter.plugins.voice.speech import (
     is_resume,
     lead_and_rest,
     more_answer,
+    unread_detail,
     remainder_after,
     sapi_rate,
     speech_chunks,
@@ -1826,7 +1827,9 @@ class Shell:
             self._listener.expect_yes_no(True)
         note = nudge(level, bool(rest), fact, weekly)
         self._nudge = note
-        detail = reply if not note else f"{reply}\n\n{note}"
+        detail = unread_detail(spoken, reply)
+        if note:
+            detail = f"{detail}\n\n{note}".strip() if detail else note
         self.window.home.set_reply(heard, spoken, detail)
         if early:
             self._early_lead = ""
@@ -1877,7 +1880,10 @@ class Shell:
         self.window.home.set_reply(title, "Pinned.", "The card stays on this PC.")
 
     def _copy_reply(self) -> None:
-        QApplication.clipboard().setText(self.window.home.reply_detail.text())
+        spoken = self.window.home.spoken.text().strip()
+        detail = self.window.home.reply_detail.text().strip()
+        text = "\n\n".join(part for part in (spoken, detail) if part)
+        QApplication.clipboard().setText(text)
         self.controller._remember("Copied the reply.")
         self.window.home.set_history(self.controller.history)
 
@@ -2472,8 +2478,12 @@ class Shell:
         self._suggestion_at = 0
         self._awaiting_more = False
         self._scan_prefix = "I left games alone. " if result.left_games else ""
+        if result.summary:
+            self._scan_prefix += result.summary + " "
         if not self._suggestions:
-            speech = self._scan_prefix + "I didn't find a heavy app or a startup item I would change."
+            speech = self._scan_prefix.strip()
+            if not result.summary:
+                speech = (speech + " I didn't find a heavy app or a startup item I would change.").strip()
             self._scan_prefix = ""
             self.window.health_page.body.setPlainText(speech)
             self.window.home.set_reply("scan", speech, "Nothing was changed.")

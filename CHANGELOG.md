@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.2 — A spoken scan checks this PC
+
+“I'd like you to scan my computer, my RAM usage is very high” now runs the scan on this PC. It no longer asks the model, which was answering that it could not see the hardware and pasting a shell command. The same is true for “scan this computer”, “check my RAM”, and “what's using my memory”.
+
+If nothing is heavy enough to close, the scan still names the heaviest program it can see. The spoken line is not repeated again in the text under it.
+
 ## 0.14.0 — Saved chats, spoken tools, and a few switches that were waiting
 
 Conversations are saved on this PC when a reply finishes. History can search them, export one as a text file, delete one, or wipe them after you type WIPE.
