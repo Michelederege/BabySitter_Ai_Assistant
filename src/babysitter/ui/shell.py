@@ -37,7 +37,14 @@ from babysitter.plugins.voice.hearing import (
 from babysitter.plugins.voice.kokoro_voice import KokoroError, download as download_kokoro
 from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
-from babysitter.plugins.voice.speech import closed_lead, lead_and_rest, more_answer, sapi_rate, speech_chunks
+from babysitter.plugins.voice.speech import (
+    closed_lead,
+    lead_and_rest,
+    more_answer,
+    remainder_after,
+    sapi_rate,
+    speech_chunks,
+)
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
     PreparedSearch,
@@ -77,6 +84,16 @@ class _KeywordDownloadJob(QThread):
             self.failed.emit(str(exc))
         except Exception as exc:
             self.failed.emit(str(exc))
+
+
+class _WarmVoiceJob(QThread):
+    def run(self) -> None:
+        try:
+            from babysitter.plugins.voice.kokoro_voice import warm
+
+            warm()
+        except Exception:
+            return
 
 
 class _AskJob(QThread):
@@ -442,10 +459,19 @@ class Shell:
         word = STATE_WORDS.get(state, "Needs you")
         self.tray.set_tooltip(f"BabySitter: {word}. {message}")
         self._sync_keyword()
+        if state == "on":
+            self._warm_voice()
         self.window.home.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
         )
+
+    def _warm_voice(self) -> None:
+        if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
+            return
+        job = _WarmVoiceJob()
+        self._warm_job = job
+        job.start()
 
     def _on_status(self, snap) -> None:
         self.window.home.set_status(snap)
@@ -983,9 +1009,11 @@ class Shell:
         self._speak(lead)
 
     def _asked(self, reply: str) -> None:
-        lead, rest = lead_and_rest(reply)
-        spoken = lead or "I don't have an answer for that."
-        self._last_reply = (spoken[:80] or "Reply", reply)
+        early = getattr(self, "_early_lead", "")
+        lead, _full_rest = lead_and_rest(reply)
+        rest = remainder_after(early, reply) if early else _full_rest
+        spoken = early or lead or "I don't have an answer for that."
+        self._last_reply = ((lead or spoken)[:80] or "Reply", reply)
         self._full_reply = reply
         heard = getattr(self, "_pending_line", "")
         self._more_text = rest

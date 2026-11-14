@@ -68,6 +68,17 @@ def command_after_keyword(text: str, keyword: str) -> str | None:
     return None
 
 
+def _recognizer(model):
+    from vosk import KaldiRecognizer
+
+    recognizer = KaldiRecognizer(model, 16000)
+    tune = getattr(recognizer, "SetEndpointerDelays", None)
+    if callable(tune):
+        # 0.35s of quiet ends the question, instead of waiting a full second.
+        tune(5.0, 0.35, 15.0)
+    return recognizer
+
+
 def _yes_or_no(text: str) -> bool:
     from babysitter.plugins.voice.speech import more_answer
 
@@ -178,7 +189,7 @@ class KeywordListener:
     def _run(self, keyword: str, on_phrase, on_status, on_error) -> None:
         try:
             import sounddevice as sd
-            from vosk import KaldiRecognizer, Model
+            from vosk import Model
 
             model = Model(str(model_dir()))
             audio: queue.Queue[bytes] = queue.Queue()
@@ -190,12 +201,12 @@ class KeywordListener:
 
             with sd.RawInputStream(
                 samplerate=16000,
-                blocksize=4000,
+                blocksize=800,
                 dtype="int16",
                 channels=1,
                 callback=on_audio,
             ):
-                recognizer = KaldiRecognizer(model, 16000)
+                recognizer = _recognizer(model)
                 on_status("armed")
                 while not self._stop.is_set():
                     try:
@@ -209,7 +220,7 @@ class KeywordListener:
                     if command is None:
                         if self._yes_no and _yes_or_no(heard):
                             on_phrase(heard)
-                            recognizer = KaldiRecognizer(model, 16000)
+                            recognizer = _recognizer(model)
                             if not self._stop.is_set():
                                 on_status("armed")
                         continue
@@ -218,7 +229,7 @@ class KeywordListener:
                         command = self._capture_question(model, audio)
                     if command and not self._stop.is_set():
                         on_phrase(command)
-                    recognizer = KaldiRecognizer(model, 16000)
+                    recognizer = _recognizer(model)
                     if not self._stop.is_set():
                         on_status("armed")
         except Exception as exc:
@@ -227,9 +238,7 @@ class KeywordListener:
             self._thread = None
 
     def _capture_question(self, model, audio: queue.Queue[bytes]) -> str:
-        from vosk import KaldiRecognizer
-
-        recognizer = KaldiRecognizer(model, 16000)
+        recognizer = _recognizer(model)
         deadline = time.time() + 8
         while time.time() < deadline and not self._stop.is_set():
             try:

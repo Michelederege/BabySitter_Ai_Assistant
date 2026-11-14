@@ -99,7 +99,15 @@ def _fetch(url: str, dest) -> None:
 
 
 _engine = None
+_styles: dict = {}
 _lock = threading.Lock()
+
+
+def warm() -> None:
+    """Load Heart and Sarah before the first question, so that reply is not waiting on it."""
+    if not ready():
+        return
+    _style("Heart & Sarah blend")
 
 
 def stop() -> None:
@@ -119,15 +127,11 @@ def speak(text: str, voice_name: str, speed_percent: int, pitch: int) -> None:
         raise KokoroError("Heart and Sarah is not downloaded yet.")
     style = _style(voice_name)
     speed = max(0.5, min(2.0, int(speed_percent) / 100))
-    from kokoro_onnx import Kokoro
     import sounddevice as sd
 
-    global _engine
+    engine = _loaded_engine()
     with _lock:
-        if _engine is None:
-            folder = voice_dir()
-            _engine = Kokoro(str(folder / "kokoro-v1.0.onnx"), str(folder / "voices-v1.0.bin"))
-        samples, sample_rate = _engine.create(spoken, voice=style, speed=speed, lang="en-us")
+        samples, sample_rate = engine.create(spoken, voice=style, speed=speed, lang="en-us")
     # A lower playback rate drops the pitch. -1 is one semitone down.
     shifted = int(sample_rate * (2 ** (int(pitch) / 12)))
     shifted = max(8000, min(48000, shifted))
@@ -135,21 +139,30 @@ def speak(text: str, voice_name: str, speed_percent: int, pitch: int) -> None:
     sd.wait()
 
 
-def _style(voice_name: str):
-    folder_ready = ready()
-    if not folder_ready:
-        raise KokoroError("Heart and Sarah is not downloaded yet.")
-    from kokoro_onnx import Kokoro
-
+def _loaded_engine():
     global _engine
     with _lock:
         if _engine is None:
+            if not ready():
+                raise KokoroError("Heart and Sarah is not downloaded yet.")
+            from kokoro_onnx import Kokoro
+
             folder = voice_dir()
             _engine = Kokoro(str(folder / "kokoro-v1.0.onnx"), str(folder / "voices-v1.0.bin"))
-        engine = _engine
+        return _engine
+
+
+def _style(voice_name: str):
     name = voice_name or "Heart & Sarah blend"
+    cached = _styles.get(name)
+    if cached is not None:
+        return cached
     single = NAMED.get(name)
     if single:
+        _styles[name] = single
         return single
+    engine = _loaded_engine()
     heart, sarah, heart_share, sarah_share = BLEND
-    return engine.get_voice_style(heart) * heart_share + engine.get_voice_style(sarah) * sarah_share
+    blended = engine.get_voice_style(heart) * heart_share + engine.get_voice_style(sarah) * sarah_share
+    _styles[name] = blended
+    return blended

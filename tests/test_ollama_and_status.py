@@ -7,6 +7,7 @@ from babysitter.ollama import (
     OllamaClient,
     chat_messages,
     classify_ollama_process,
+    chat_body,
     content_from_stream_line,
     gpu_placement_label,
     models_from_ps,
@@ -25,6 +26,14 @@ def test_a_streamed_line_is_only_the_new_words():
     piece, done = content_from_stream_line('{"message":{"content":". More."},"done":true}')
     assert piece == ". More."
     assert done is True
+
+
+def test_qwen_skips_hidden_thinking():
+    low = chat_body("qwen3.5:9b", "what time is it", 4096)
+    medium = chat_body("gemma4:12b", "what time is it", 8192)
+    assert low["think"] is False
+    assert "think" not in medium
+    assert "no more than 12 words" in low["messages"][0]["content"]
 
 
 def test_every_question_includes_the_local_clock():

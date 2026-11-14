@@ -228,13 +228,7 @@ class OllamaClient:
 
     def iter_reply(self, model: str, prompt: str, num_ctx: int):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
-        body = {
-            "model": model,
-            "messages": chat_messages(prompt),
-            "stream": True,
-            "keep_alive": -1,
-            "options": {"num_ctx": int(num_ctx)},
-        }
+        body = chat_body(model, prompt, num_ctx)
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
                 while True:
@@ -273,6 +267,8 @@ class OllamaClient:
             "keep_alive": -1,
             "options": {"num_ctx": int(num_ctx), "num_predict": 8, "temperature": 0},
         }
+        if "qwen" in model.lower():
+            body["think"] = False
         self._request("POST", "/api/chat", body, timeout=240)
 
     def unload_all(self) -> list[str]:
@@ -389,6 +385,20 @@ class OllamaClient:
         return closed
 
 
+def chat_body(model: str, prompt: str, num_ctx: int) -> dict:
+    """The local chat request. Qwen skips its hidden thinking so the first words arrive sooner."""
+    body = {
+        "model": model,
+        "messages": chat_messages(prompt),
+        "stream": True,
+        "keep_alive": -1,
+        "options": {"num_ctx": int(num_ctx)},
+    }
+    if "qwen" in model.lower():
+        body["think"] = False
+    return body
+
+
 def content_from_stream_line(line: str) -> tuple[str, bool]:
     """One streamed line: the new words, and whether the reply is finished."""
     text = (line or "").strip()
@@ -423,7 +433,8 @@ def chat_messages(prompt: str, now=None) -> list[dict]:
             "content": (
                 f"Current local time: {clock} ({zone}). "
                 "Use this when asked the time or the date. "
-                "Reply in plain spoken sentences."
+                "Start with one sentence of no more than 12 words. "
+                "Put any extra detail after that sentence."
             ),
         },
         {"role": "user", "content": prompt},

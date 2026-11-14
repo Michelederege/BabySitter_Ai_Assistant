@@ -1,5 +1,13 @@
 from babysitter.plugins.voice.keyword import command_after_keyword
-from babysitter.plugins.voice.speech import closed_lead, first_sentence, for_speech, lead_and_rest, more_answer, sapi_rate
+from babysitter.plugins.voice.speech import (
+    closed_lead,
+    first_sentence,
+    for_speech,
+    lead_and_rest,
+    more_answer,
+    remainder_after,
+    sapi_rate,
+)
 from babysitter.plugins.voice.windows_voice import speak_command
 
 
@@ -20,6 +28,13 @@ def test_first_sentence_is_short():
 def test_the_first_sentence_can_be_spoken_before_the_rest_arrives():
     assert closed_lead("Dancing has no single inventor") is None
     assert closed_lead("Dancing has no single inventor. It grew later.") == "Dancing has no single inventor."
+    early = closed_lead(
+        "People in many different places started dancing on their own, long before history was written"
+    )
+    assert early == "People in many different places started dancing on their own."
+    assert remainder_after(early, early[:-1] + ", long before history was written.") == (
+        "long before history was written."
+    )
 
 
 def test_a_longer_answer_keeps_the_rest_for_later():

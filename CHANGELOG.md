@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.7.2 — Shorter wait before the first word
+
+The question is sent after a shorter pause. The first words are spoken once about a dozen words are ready, instead of waiting for a long sentence. On Low, the hidden thinking step is skipped. Heart and Sarah loads when the AI turns on, so the first answer is not also waiting for the voice.
+
 ## 0.7.1 — Start speaking sooner
 
 The first sentence is spoken as soon as it is written. BabySitter no longer waits for the whole answer before it starts talking. The rest still follows only if you say yes.
