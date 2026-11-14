@@ -362,7 +362,20 @@ class HomePage(QWidget):
         layout.addWidget(self.privacy)
         return card
 
-    def set_privacy(self, social_search_on: bool) -> None:
+    def set_privacy(self, social_search_on: bool, google_on: bool = False) -> None:
+        if social_search_on and google_on:
+            self.privacy.setText(
+                "Social search and Google mail and calendar are on. "
+                "A search leaves only after you confirm. Mail and calendar are read with your token. "
+                "BabySitter does not send usage data."
+            )
+            return
+        if google_on:
+            self.privacy.setText(
+                "Google mail and calendar are on. BabySitter reads them with the token you saved. "
+                "It does not send mail. BabySitter does not send usage data."
+            )
+            return
         if social_search_on:
             self.privacy.setText(
                 "Social search is on. Only the words you confirm on the Tools tab can leave this PC. "

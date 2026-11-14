@@ -39,6 +39,7 @@ def test_voice_turns_skip_hidden_thinking():
     assert low["think"] is False
     assert medium["think"] is False
     assert "two or three plain sentences" in low["messages"][0]["content"]
+    assert "Start with the answer" in low["messages"][0]["content"]
     assert low["options"]["temperature"] == 0.7
     assert "November" not in low["messages"][0]["content"]
 

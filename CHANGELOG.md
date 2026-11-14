@@ -2,6 +2,16 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.13.0 — A conversation, your Google account, and one suggestion at a time
+
+Low stays on `qwen3.5:9b`. A 3B or 4B model would be smaller and would miss tools, mail, and calendar. `gemma4:12b` stays for longer writing when the card is free. Only one model is loaded. Cutting the context from 4,096 to 2,048 saves about 80 MB and clips a screenshot and a tool reply, so Low stays at 4,096. That is a calculation for this 12 GB card, not a live measurement.
+
+The standing instructions now start with the answer and do not ask you to confirm a chat. A yes or a no is for one change on this PC, or for something that leaves it. Looking at the screen no longer asks a second time after you already asked. A reminder or a remembered fact is saved, and you can say undo within 10 seconds.
+
+Google mail and calendar are off until you turn them on under Tools and paste a read-only token from your own account. The token is encrypted on Windows, in its own file, and is not stored in settings.json. BabySitter only reads. It does not send mail and does not delete mail. When the AI turns on, it can speak unread mail and the next events once.
+
+Say scan my PC, or press Suggest changes. BabySitter names one heavy app or one startup item. Say yes to do that one, or no to leave it. Games, Windows, and security tools are not closed. A startup item can be put back with undo within 10 seconds. Closing an app cannot be undone.
+
 ## 0.12.0 — Low fits in 4 to 6 GB, and the remaining local features
 
 The code from 0.11.0 is tagged `checkpoint-0.11.0`. Check that tag out if this build misbehaves.

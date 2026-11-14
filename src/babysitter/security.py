@@ -1,7 +1,9 @@
 """Small rules about who BabySitter is allowed to talk to.
 
 Ollama stays on this computer (127.0.0.1). Social search, if you turn it
-on, may also talk to api.scrapecreators.com. Nothing else.
+on, may also talk to api.scrapecreators.com. Google mail and calendar, if
+you turn them on, may talk to gmail.googleapis.com and www.googleapis.com.
+Nothing else.
 """
 
 from __future__ import annotations
@@ -49,6 +51,22 @@ def require_keyword_model_url(url: str) -> None:
     """The keyword model has one allowed address, and only after you confirm."""
     if url != KEYWORD_MODEL_URL:
         raise ValueError("That model download is not allowed.")
+
+
+def require_google_url(url: str) -> None:
+    """Read-only Gmail and Calendar. No other Google host, and no http."""
+    parsed = urllib.parse.urlsplit(url)
+    host = (parsed.hostname or "").lower()
+    path = parsed.path or ""
+    if parsed.scheme != "https" or parsed.username or parsed.password:
+        raise ValueError("That Google address is not allowed.")
+    if host == "gmail.googleapis.com" and path.startswith("/gmail/v1/"):
+        return
+    if host == "www.googleapis.com" and path.startswith("/calendar/v3/"):
+        return
+    raise ValueError(
+        "Google mail and calendar only use the read-only Gmail and Calendar addresses."
+    )
 
 
 def require_scrapecreators_url(url: str) -> None:
