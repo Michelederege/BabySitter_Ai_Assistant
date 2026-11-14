@@ -302,7 +302,7 @@ class Controller(QObject):
 
     def quit_after_stopping(self) -> None:
         self._quit_after_off = True
-        self.turn_off(emergency=False, tray_choice="ask")
+        self.turn_off(emergency=False, tray_choice="close")
 
     def set_intelligence(self, mode_id: str) -> None:
         if mode_id not in {"low", "medium", "high"}:

@@ -1,7 +1,8 @@
 """The BabySitter window.
 
 A top bar holds the state, the name, the tabs, and privacy. A slim pin
-rail stays under it. Closing the window hides it; Quit is in the tray.
+rail stays under it. Closing the window hides it and turns the AI off.
+Quit is in the tray.
 """
 
 from __future__ import annotations
@@ -21,8 +22,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from babysitter.paths import data_dir
-from babysitter.ui.dialogs import show_copyable
 from babysitter.ui.pages.desk import (
     HealthPage,
     HistoryPage,
@@ -42,6 +41,7 @@ from babysitter.version import __version__
 class MainWindow(QMainWindow):
     pin_open = Signal(str)
     expanded_changed = Signal(bool)
+    hidden_to_tray = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -194,19 +194,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         event.ignore()
         self.hide()
-        marker = data_dir() / "saw-hide-hint"
-        if not marker.exists():
-            try:
-                marker.write_text("shown\n", encoding="utf-8")
-            except OSError:
-                return
-            show_copyable(
-                self,
-                "BabySitter is still running",
-                "Closing the window hides it in the tray. "
-                "Quit is on the tray icon or the orb's right-click menu. "
-                "The AI stays in the state you left it until you turn it off.",
-            )
+        self.hidden_to_tray.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
         if event.key() == Qt.Key_Escape:

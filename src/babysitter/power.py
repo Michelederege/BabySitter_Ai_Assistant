@@ -75,7 +75,7 @@ class PowerService:
             if cancel.is_set():
                 return self._cancelled()
             if not self.ollama.port_open():
-                self.ollama.start_server()
+                self.ollama.start_server(num_ctx)
                 progress("Waiting for Ollama to answer on this computer…")
                 up = self.ollama.wait_until_up(180, cancel, progress)
                 if cancel.is_set():
