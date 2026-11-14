@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.1 — The double-click starter shows the window
+
+`Run BabySitter.vbs` was starting the program hidden. A double-click could look like nothing happened, and a crash inside pythonw had no window to read. The starter now opens the window normally. If the Python folder is missing, it says so. `Run BabySitter.bat` does the same and leaves the error on screen. A failed import is also written to `startup-error.txt` in the BabySitter log folder.
+
 ## 0.14.0 — Saved chats, spoken tools, and a few switches that were waiting
 
 Conversations are saved on this PC when a reply finishes. History can search them, export one as a text file, delete one, or wipe them after you type WIPE.
