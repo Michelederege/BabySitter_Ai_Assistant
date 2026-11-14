@@ -34,11 +34,11 @@ The second line can take a few minutes. It downloads the window toolkit. The ver
 
 Then, every time you want to open BabySitter:
 
-- Double-click **`Run BabySitter.vbs`**.
+- Double-click **`Run BabySitter.bat`**.
 
-A black command window should not stay open. You should see a dark window titled BabySitter, and a small circle (the orb) near the bottom-right of the screen.
+A command window appears for a moment while it checks that the program can start, then it closes. You should see a dark window titled BabySitter, and a small circle (the orb) near the bottom-right of the screen. **`Run BabySitter.vbs`** does the same thing with no command window.
 
-If nothing appears, double-click **`Show errors.bat`**. A window will stay open. Copy **all** of the text and send it to me.
+If the command window stays open, the text in it is the reason. Copy all of it. If nothing appears at all, double-click **`Show errors.bat`**. That window stays open. Copy **all** of the text and send it to me. The same text is also saved as `startup-error.txt` in `%LOCALAPPDATA%\BabySitter\logs\`.
 
 ![Home, with the AI off](docs/phase1-home.png)
 
