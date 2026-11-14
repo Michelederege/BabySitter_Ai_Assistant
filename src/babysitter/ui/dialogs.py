@@ -49,35 +49,6 @@ def ask_yes_no(parent, title: str, body: str, yes: str, no: str) -> bool:
     return dialog.exec() == QDialog.Accepted
 
 
-def ask_three(parent, title: str, body: str) -> str:
-    """Return 'stop', 'leave', or 'cancel'."""
-    dialog = _box(parent, title)
-    layout = QVBoxLayout(dialog)
-    label = QLabel(body)
-    label.setWordWrap(True)
-    layout.addWidget(label)
-    choice = {"value": "cancel"}
-
-    def pick(value: str) -> None:
-        choice["value"] = value
-        dialog.accept()
-
-    stop = QPushButton("Stop Ollama and quit")
-    stop.setObjectName("primary")
-    stop.setToolTip("Unload models, stop Ollama, then close BabySitter.")
-    leave = QPushButton("Quit and leave Ollama running")
-    leave.setToolTip("Close BabySitter only. Ollama keeps running.")
-    cancel = QPushButton("Don't quit")
-    cancel.setToolTip("Stay in BabySitter.")
-    stop.clicked.connect(lambda: pick("stop"))
-    leave.clicked.connect(lambda: pick("leave"))
-    cancel.clicked.connect(lambda: pick("cancel"))
-    for button in (stop, leave, cancel):
-        layout.addWidget(button)
-    dialog.exec()
-    return choice["value"]
-
-
 def show_copyable(parent, title: str, body: str) -> None:
     dialog = _box(parent, title)
     layout = QVBoxLayout(dialog)

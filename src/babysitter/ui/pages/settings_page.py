@@ -133,9 +133,11 @@ class SettingsPage(QWidget):
         )
         root.addWidget(self.off_game_cores)
 
-        self.quit_off = QCheckBox("Turn the AI off when quitting")
+        self.quit_off = QCheckBox("The AI turns off when you quit or close the window")
+        self.quit_off.setEnabled(False)
         self.quit_off.setToolTip(
-            "On by default. Quit still asks first and tells you Ollama will be stopped."
+            "This stays on. Quit and the X button unload the model, stop Ollama, "
+            "and close the microphone. A model is not left running."
         )
         root.addWidget(self.quit_off)
 
@@ -211,7 +213,7 @@ class SettingsPage(QWidget):
         self.side_button.setChecked(settings.side_button)
         self.searx_enabled.setChecked(settings.searx_enabled)
         self.searx_port.setText(str(settings.searx_port))
-        self.quit_off.setChecked(settings.quit_turns_ai_off)
+        self.quit_off.setChecked(True)
         self.vad_enabled.setChecked(settings.vad_enabled)
         self.smart_turn.setChecked(settings.smart_turn)
         self.echo_cancel.setChecked(settings.echo_cancel)
