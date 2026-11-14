@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.7.1 — Start speaking sooner
+
+The first sentence is spoken as soon as it is written. BabySitter no longer waits for the whole answer before it starts talking. The rest still follows only if you say yes.
+
 ## 0.7.0 — Ask before reading the rest
 
 A reply is spoken as one sentence. If there is more, BabySitter asks “Do you want to know more?” Say yes and it reads the rest. Say no and it stops. The full answer stays on screen either way.

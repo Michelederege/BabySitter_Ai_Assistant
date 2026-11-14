@@ -48,6 +48,14 @@ def first_sentence(text: str) -> str:
     return spoken
 
 
+def closed_lead(text: str) -> str | None:
+    """The first sentence once another sentence has started. None while it is unfinished."""
+    lead, rest = lead_and_rest(text)
+    if lead and rest:
+        return lead
+    return None
+
+
 def lead_and_rest(text: str) -> tuple[str, str]:
     """The first sentence, then everything else that can be read later."""
     spoken = plain_speech(text)
