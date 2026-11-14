@@ -105,6 +105,12 @@ class VoicePage(QWidget):
         )
         download.clicked.connect(lambda: self.notice.emit("INSTALL hearing"))
         layout.addWidget(download)
+        silero = QPushButton("Download the sharper voice detector")
+        silero.setToolTip(
+            "Downloads Silero onto this PC after you confirm. It stays off until you turn the detector on in Settings."
+        )
+        silero.clicked.connect(lambda: self.notice.emit("INSTALL silero"))
+        layout.addWidget(silero)
 
         note = QLabel(
             "Kokoro, Windows voices, and an optional Azure voice are engines behind one slot. "

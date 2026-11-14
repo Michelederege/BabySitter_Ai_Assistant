@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.0 — Saved chats, spoken tools, and a few switches that were waiting
+
+Conversations are saved on this PC when a reply finishes. History can search them, export one as a text file, delete one, or wipe them after you type WIPE.
+
+Say “search the web for …” to use a SearXNG you run on this computer. Say “search reddit for …” (or TikTok, YouTube, Instagram, Threads, Pinterest) and BabySitter asks once, then can summarize the public results. Ad libraries are refused. There is no ad-library source here.
+
+Google sign-in uses your own OAuth client id and a page on 127.0.0.1. The token can be refreshed. Mail and calendar stay read-only. While the AI is on, new mail and events can be spoken about every 15 minutes. A pasted token still works.
+
+Quiet hours, hiding the orb while a watched game is in front, and a side mouse button for talk are in Settings and off. The side button does nothing while the AI is off or in Game mode. The intelligence slider snaps to Low, Medium, and High. Check for an update asks GitHub and does not download or install. Silero can be downloaded after a confirm, and stays off until the detector setting is on.
+
+Speech-to-speech, a cloud realtime voice, voice cloning, and signing the installer are not in this build. Signing needs your certificate.
+
 ## 0.13.0 — A conversation, your Google account, and one suggestion at a time
 
 Low stays on `qwen3.5:9b`. A 3B or 4B model would be smaller and would miss tools, mail, and calendar. `gemma4:12b` stays for longer writing when the card is free. Only one model is loaded. Cutting the context from 4,096 to 2,048 saves about 80 MB and clips a screenshot and a tool reply, so Low stays at 4,096. That is a calculation for this 12 GB card, not a live measurement.

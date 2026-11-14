@@ -160,6 +160,43 @@ class GoogleReader:
         payload = self._fetch(calendar_request_url(self._now), self._token)
         return calendar_speech(event_lines(payload))
 
+    def mail_index(self) -> tuple[list[str], list[str]]:
+        listing = self._fetch(GMAIL_LIST_URL, self._token)
+        messages = listing.get("messages") if isinstance(listing, dict) else None
+        ids: list[str] = []
+        subjects: list[str] = []
+        for item in (messages or [])[:5]:
+            if not isinstance(item, dict):
+                continue
+            message_id = str(item.get("id") or "")
+            if not _safe_id(message_id):
+                continue
+            detail = self._fetch(
+                GMAIL_GET_PREFIX + message_id + "?format=metadata&metadataHeaders=Subject",
+                self._token,
+            )
+            ids.append(message_id)
+            subjects.append(subject_of(detail))
+        return ids, subjects
+
+    def event_index(self) -> tuple[list[str], list[str]]:
+        payload = self._fetch(calendar_request_url(self._now), self._token)
+        items = payload.get("items") if isinstance(payload, dict) else None
+        ids: list[str] = []
+        titles: list[str] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("summary") or "Busy")[:80]
+            item_id = str(item.get("id") or title)
+            if not item_id or any(character.isspace() for character in item_id):
+                continue
+            ids.append(item_id[:200])
+            titles.append(title)
+            if len(ids) == 5:
+                break
+        return ids, titles
+
 
 class MemoryGoogleVault:
     """In-memory stand-in used by tests. It does not touch the disk."""
@@ -178,7 +215,18 @@ class MemoryGoogleVault:
         self._token = normalize_google_token(raw)
 
     def load(self) -> str | None:
-        return self._token
+        bundle = self.load_bundle()
+        if bundle is None:
+            return None
+        return bundle.get("access_token") or None
+
+    def load_bundle(self) -> dict | None:
+        if not self._token:
+            return None
+        return bundle_from_saved(self._token)
+
+    def save_bundle(self, bundle: dict) -> None:
+        self._token = bundle_text(bundle)
 
     def delete(self) -> None:
         self._token = None
@@ -211,6 +259,12 @@ class DpapiGoogleVault:
         temporary.replace(self.path)
 
     def load(self) -> str | None:
+        bundle = self.load_bundle()
+        if bundle is None:
+            return None
+        return bundle.get("access_token") or None
+
+    def load_bundle(self) -> dict | None:
         if not self.has_token():
             return None
         if not self.available:
@@ -222,11 +276,24 @@ class DpapiGoogleVault:
                 "Windows could not read the saved token. Delete it and save it again."
             ) from exc
         try:
-            return normalize_google_token(raw.decode("utf-8"))
-        except (UnicodeError, SecretsError) as exc:
+            return bundle_from_saved(raw.decode("utf-8"))
+        except (UnicodeError, SecretsError, json.JSONDecodeError) as exc:
             raise SecretsError(
                 "The saved token was unreadable. Delete it and save it again."
             ) from exc
+
+    def save_bundle(self, bundle: dict) -> None:
+        text = bundle_text(bundle)
+        if not self.available:
+            raise SecretsError(
+                "Saving the Google token needs Windows. On your PC it is encrypted "
+                "for your Windows user only, with DPAPI."
+            )
+        blob = protect_blob(text.encode("utf-8"), _TOKEN_DESCRIPTION)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_suffix(".dpapi.tmp")
+        temporary.write_bytes(blob)
+        temporary.replace(self.path)
 
     def delete(self) -> None:
         try:
@@ -237,3 +304,213 @@ class DpapiGoogleVault:
 
 def default_google_vault() -> DpapiGoogleVault:
     return DpapiGoogleVault()
+
+
+AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
+REDIRECT_URI = "http://127.0.0.1:8765/babysitter"
+READONLY_SCOPES = (
+    "https://www.googleapis.com/auth/gmail.readonly "
+    "https://www.googleapis.com/auth/calendar.readonly"
+)
+
+
+def clean_client_id(value: str) -> str:
+    text = (value or "").strip()
+    if not text or any(character.isspace() for character in text) or len(text) < 10 or len(text) > 200:
+        raise SecretsError("Paste the OAuth client id from your own Google Cloud desktop client.")
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+    if any(character not in allowed for character in text):
+        raise SecretsError("That does not look like a Google OAuth client id.")
+    return text
+
+
+def bundle_text(bundle: dict) -> str:
+    access = normalize_google_token(str(bundle.get("access_token") or ""))
+    refresh = str(bundle.get("refresh_token") or "")
+    if refresh:
+        refresh = normalize_google_token(refresh)
+    payload = {
+        "access_token": access,
+        "refresh_token": refresh,
+        "expires_at": int(bundle.get("expires_at") or 0),
+    }
+    return json.dumps(payload, separators=(",", ":"))
+
+
+def bundle_from_saved(text: str) -> dict:
+    raw = (text or "").strip()
+    if raw.startswith("{"):
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise SecretsError("The saved token was unreadable.")
+        return {
+            "access_token": normalize_google_token(str(payload.get("access_token") or "")),
+            "refresh_token": normalize_google_token(str(payload["refresh_token"])) if payload.get("refresh_token") else "",
+            "expires_at": int(payload.get("expires_at") or 0),
+        }
+    return {"access_token": normalize_google_token(raw), "refresh_token": "", "expires_at": 0}
+
+
+def pkce_pair() -> tuple[str, str]:
+    import base64
+    import hashlib
+    import secrets as secret_source
+
+    verifier = secret_source.token_urlsafe(48)
+    digest = hashlib.sha256(verifier.encode("ascii")).digest()
+    challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    return verifier, challenge
+
+
+def authorization_url(client_id: str, state: str, challenge: str) -> str:
+    from babysitter.security import require_google_oauth_url
+
+    require_google_oauth_url(AUTH_ENDPOINT)
+    query = urllib.parse.urlencode(
+        {
+            "client_id": clean_client_id(client_id),
+            "redirect_uri": REDIRECT_URI,
+            "response_type": "code",
+            "scope": READONLY_SCOPES,
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "access_type": "offline",
+            "prompt": "consent",
+        }
+    )
+    return AUTH_ENDPOINT + "?" + query
+
+
+def code_from_redirect(path: str, expected_state: str) -> str:
+    parsed = urllib.parse.urlsplit(path if "://" in path else "http://127.0.0.1" + path)
+    query = urllib.parse.parse_qs(parsed.query)
+    if (query.get("state") or [""])[0] != expected_state:
+        raise GoogleError("Google sign-in did not match. Nothing was saved.")
+    if query.get("error"):
+        raise GoogleError("Google sign-in was cancelled. Nothing was saved.")
+    code = (query.get("code") or [""])[0]
+    if not code or len(code) > 512 or any(character.isspace() for character in code):
+        raise GoogleError("Google did not return a sign-in code. Nothing was saved.")
+    return code
+
+
+def parse_token_payload(payload: dict, now: float | None = None) -> dict:
+    import time
+
+    if not isinstance(payload, dict) or payload.get("error"):
+        raise GoogleError("Google refused the sign-in. Nothing was saved.")
+    moment = time.time() if now is None else now
+    access = normalize_google_token(str(payload.get("access_token") or ""))
+    refresh = str(payload.get("refresh_token") or "")
+    if refresh:
+        refresh = normalize_google_token(refresh)
+    try:
+        expires = int(payload.get("expires_in") or 3600)
+    except (TypeError, ValueError):
+        expires = 3600
+    return {"access_token": access, "refresh_token": refresh, "expires_at": int(moment) + max(60, expires)}
+
+
+def _post_token(body: bytes, opener=None) -> dict:
+    from babysitter.security import require_google_oauth_url
+
+    require_google_oauth_url(TOKEN_ENDPOINT)
+    request = urllib.request.Request(TOKEN_ENDPOINT, data=body, method="POST")
+    request.add_header("Content-Type", "application/x-www-form-urlencoded")
+    request.add_header("Accept", "application/json")
+    open_url = opener or urllib.request.urlopen
+    try:
+        with open_url(request, timeout=8) as response:
+            raw = response.read(100_000)
+    except Exception as exc:
+        raise GoogleError("Google did not finish sign-in. Nothing was saved.") from exc
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise GoogleError("Google sent something BabySitter could not read. Nothing was saved.") from exc
+    return parse_token_payload(payload)
+
+
+def exchange_code(client_id: str, code: str, verifier: str, opener=None) -> dict:
+    body = urllib.parse.urlencode(
+        {
+            "client_id": clean_client_id(client_id),
+            "code": code,
+            "code_verifier": verifier,
+            "grant_type": "authorization_code",
+            "redirect_uri": REDIRECT_URI,
+        }
+    ).encode("utf-8")
+    return _post_token(body, opener)
+
+
+def refresh_access(client_id: str, refresh_token: str, opener=None) -> dict:
+    kept = normalize_google_token(refresh_token)
+    body = urllib.parse.urlencode(
+        {
+            "client_id": clean_client_id(client_id),
+            "refresh_token": kept,
+            "grant_type": "refresh_token",
+        }
+    ).encode("utf-8")
+    parsed = _post_token(body, opener)
+    if not parsed.get("refresh_token"):
+        parsed["refresh_token"] = kept
+    return parsed
+
+
+def fresh_lines(ids: list[str], titles: list[str], seen: set[str]) -> tuple[str, set[str]]:
+    """Speech for items that were not announced yet, plus the updated set."""
+    newcomers: list[str] = []
+    updated = set(seen)
+    for item_id, title in zip(ids, titles):
+        if not item_id or item_id in updated:
+            continue
+        newcomers.append(title)
+        updated.add(item_id)
+    if not newcomers:
+        return "", updated
+    return "New from Google: " + "; ".join(newcomers[:3]) + ".", updated
+
+
+def listen_for_code(expected_state: str, timeout: float = 180, on_ready=None) -> str:
+    """One local page on 127.0.0.1:8765. The code is not written to the log."""
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    box: dict[str, str] = {}
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            try:
+                box["code"] = code_from_redirect(self.path, expected_state)
+                body = b"You can close this window and go back to BabySitter."
+            except GoogleError as exc:
+                box["error"] = str(exc)
+                body = b"BabySitter could not finish sign-in. You can close this window."
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format, *_args) -> None:
+            return
+
+    try:
+        server = HTTPServer(("127.0.0.1", 8765), _Handler)
+    except OSError as exc:
+        raise GoogleError("Sign-in could not listen on this PC. Nothing was saved.") from exc
+    server.timeout = timeout
+    if on_ready is not None:
+        on_ready()
+    try:
+        server.handle_request()
+    finally:
+        server.server_close()
+    if box.get("error"):
+        raise GoogleError(box["error"])
+    if "code" not in box:
+        raise GoogleError("Sign-in timed out. Nothing was saved.")
+    return box["code"]

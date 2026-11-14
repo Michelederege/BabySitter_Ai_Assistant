@@ -182,9 +182,19 @@ Results list the public text and the link when ScrapeCreators returns one. Each 
 
 This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. The bigger research recipes in that GitHub project (comparing creators, reading ad libraries, and so on) need the talking assistant, which is not built yet. General web search through your own SearXNG is also still later.
 
+## History, web search, and updates
+
+Finished replies are saved under History. Search them, export one, delete one, or type WIPE and press Wipe. They stay on this PC.
+
+Web search uses a SearXNG you run on this computer. Turn it on in Settings and say “search the web for …”. BabySitter only talks to `127.0.0.1`, and it still asks before the query is sent. Public social searches can be spoken the same way, one yes, then a short summary.
+
+**Check for an update** asks GitHub if a newer release exists. It does not download, install, or sign anything. Signing needs a certificate you keep.
+
+Quiet hours, hiding the orb while a watched game is in front, and a mouse side button for talk are in Settings and off. The side button works only while the AI is on, not in Game mode. The intelligence slider snaps to Low, Medium, and High.
+
 ## Not in this phase
 
-Voice, captions of speech, memory, the pinboard, reminders, screen capture, history, and the updater. The tabs are there so you can see the map. The microphone is closed.
+The updater does not install a release by itself. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
 
 ## Ideas I have not built
 

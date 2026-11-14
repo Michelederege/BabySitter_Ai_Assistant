@@ -7,10 +7,13 @@ yet. Nothing here sends data off this PC.
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -125,12 +128,72 @@ class HistoryPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "History",
-            "Past sessions will be listed here as readable transcripts. Nothing is saved until the voice loop is keeping sessions. Home is not the transcript.",
+            "Conversations are saved on this PC when a reply finishes. "
+            "Search them, export one as a text file, or delete them. Nothing here is uploaded.",
         )
-        self.body.setPlainText(
-            "No sessions yet. When a conversation is saved, you will be able to search it, export it, or delete it. "
-            "Wipe will ask you to type WIPE."
-        )
+        search_row = QHBoxLayout()
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("Search saved conversations")
+        self.search.returnPressed.connect(self.refresh)
+        find = QPushButton("Search")
+        find.clicked.connect(self.refresh)
+        search_row.addWidget(self.search, 1)
+        search_row.addWidget(find)
+        self.root.insertLayout(2, search_row)
+        self.sessions = QListWidget()
+        self.root.insertWidget(3, self.sessions)
+        buttons = QHBoxLayout()
+        export = QPushButton("Export")
+        export.setToolTip("Writes a text file in your BabySitter folder. It is not uploaded.")
+        export.clicked.connect(lambda: self.notice.emit("EXPORT session"))
+        delete = QPushButton("Delete")
+        delete.clicked.connect(lambda: self.notice.emit("DELETE session"))
+        buttons.addWidget(export)
+        buttons.addWidget(delete)
+        self.root.insertLayout(4, buttons)
+        wipe_row = QHBoxLayout()
+        self.wipe_box = QLineEdit()
+        self.wipe_box.setPlaceholderText("Type WIPE to delete every saved conversation")
+        wipe = QPushButton("Wipe")
+        wipe.clicked.connect(self._wipe)
+        wipe_row.addWidget(self.wipe_box, 1)
+        wipe_row.addWidget(wipe)
+        self.root.insertLayout(5, wipe_row)
+        self.refresh()
+
+    def selected_id(self) -> str:
+        item = self.sessions.currentItem()
+        if item is None:
+            return ""
+        return str(item.data(Qt.ItemDataRole.UserRole) or "")
+
+    def refresh(self) -> None:
+        from babysitter.sessions import search_sessions
+
+        self.sessions.clear()
+        rows = search_sessions(self.search.text())
+        if not rows:
+            self.body.setPlainText("No saved conversations match.")
+            return
+        lines = []
+        for row in rows:
+            label = f"{row['started']}  {row['preview']}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, row["id"])
+            self.sessions.addItem(item)
+            lines.append(f"{row['started']} ({row['turns']} turns) {row['preview']}")
+        self.body.setPlainText("\n".join(lines))
+
+    def _wipe(self) -> None:
+        from babysitter.sessions import wipe_sessions
+
+        if self.wipe_box.text().strip() != "WIPE":
+            self.body.setPlainText("Type WIPE to delete every saved conversation. Nothing was deleted.")
+            return
+        count = wipe_sessions()
+        self.wipe_box.clear()
+        self.refresh()
+        self.body.append(f"\nDeleted {count} saved file(s). They stayed on this PC until then.")
 
 
 class ScreenPage(_Page):
