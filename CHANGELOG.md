@@ -2,6 +2,24 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.4 — “No” answers the scan, and a waiting scan still runs
+
+Saying “no” to “Close it?” was dropped. During a follow-up, a single word “no” is treated as silence, and the scan never turned on the yes-or-no listener. It does now, so “yes” and “no” both count without the keyword.
+
+A scan asked while a reply is still being written runs when that reply is done, including when the voice never starts. “Check my pc” and “clean up my computer” scan this PC. “How’s my computer” speaks the memory and CPU numbers.
+
+## 0.14.3 — The scan says the memory number, then one question
+
+A spoken scan now starts with the real memory reading, such as "Memory is using 20.0 of 32.0 GB, 62 percent," and then one suggestion you can accept or deny. "Why is my ram so high," "my computer is slow," and "free up some memory" take that path. "How is my pc" speaks the memory and CPU numbers.
+
+If a reply is still being spoken, the scan waits and runs when that reply finishes. It no longer says it will scan and then drops the request. The model is told not to invent a scan and not to paste a shell command.
+
+## 0.14.2 — A spoken scan checks this PC
+
+“I'd like you to scan my computer, my RAM usage is very high” now runs the scan on this PC. It no longer asks the model, which was answering that it could not see the hardware and pasting a shell command. The same is true for “scan this computer”, “check my RAM”, and “what's using my memory”.
+
+If nothing is heavy enough to close, the scan still names the heaviest program it can see. The spoken line is not repeated again in the text under it.
+
 ## 0.14.1 — The double-click starter shows the window
 
 `Run BabySitter.vbs` was starting the program hidden. A double-click could look like nothing happened, and a crash inside pythonw had no window to read. The starter now opens the window normally. If the Python folder is missing, it says so. `Run BabySitter.bat` does the same and leaves the error on screen. A failed import is also written to `startup-error.txt` in the BabySitter log folder.

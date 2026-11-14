@@ -47,8 +47,10 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "hows my pc",
         "how's my pc",
         "how is my pc",
-        "pc health",
+        "hows my computer",
+        "how's my computer",
         "how is my computer",
+        "pc health",
     }:
         return QuickCommand("health")
     if phrase in {
@@ -65,13 +67,7 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "read the small text on the screen",
     }:
         return QuickCommand("screen_text")
-    if phrase in {
-        "scan my pc",
-        "scan my computer",
-        "optimize my pc",
-        "optimize my computer",
-        "how can i optimize",
-    } or phrase.startswith("scan my pc") or phrase.startswith("optimize my pc"):
+    if _wants_pc_scan(phrase):
         return QuickCommand("scan")
     if phrase in {
         "check my email",
@@ -104,6 +100,53 @@ def match_quick_command(text: str) -> QuickCommand | None:
     if timer:
         return QuickCommand("timer", seconds=timer)
     return None
+
+
+_SCAN_PHRASES = (
+    "scan my pc",
+    "scan my computer",
+    "scan this pc",
+    "scan this computer",
+    "scan the pc",
+    "scan the computer",
+    "scan my hardware",
+    "scan my ram",
+    "scan my memory",
+    "hardware scan",
+    "optimize my pc",
+    "optimize my computer",
+    "optimize this pc",
+    "optimize this computer",
+    "how can i optimize",
+)
+
+
+_PRESSURE = {"high", "usage", "using", "used", "slow", "full", "check", "scan", "heavy", "eating", "hogging", "free"}
+
+
+def _wants_pc_scan(phrase: str) -> bool:
+    """True when the sentence is asking this PC to look at itself.
+
+    The heard line from a real session was "i'd like you to scan my computer
+    my ram usage is very high." That has to scan here. So does "why is my ram
+    so high" and "my computer is slow." A web search, a reminder, and a story
+    about a memory do not.
+    """
+    if phrase.startswith(("search ", "remember ", "remind me")):
+        return False
+    if "ram is in the" in phrase or "memory of" in phrase or "memory from" in phrase:
+        return False
+    if any(part in phrase for part in _SCAN_PHRASES):
+        return True
+    words = set(phrase.split())
+    if "ram" in words and (words & _PRESSURE or "too much" in phrase):
+        return True
+    if "memory" in words and (words & _PRESSURE or "too much" in phrase):
+        return True
+    if "clean up" in phrase and words & {"pc", "computer", "memory", "ram", "hardware"}:
+        return True
+    machine = bool(words & {"pc", "computer", "hardware"})
+    return machine and bool(words & {"scan", "optimize", "slow", "cleanup", "check", "lagging", "laggy", "freezing", "frozen"})
 
 
 def _rating(phrase: str) -> str:
