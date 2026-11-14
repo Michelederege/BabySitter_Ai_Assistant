@@ -2,6 +2,7 @@ from babysitter.plugins.voice.keyword import command_after_keyword
 from babysitter.plugins.voice.speech import (
     closed_lead,
     first_sentence,
+    followup_phrase,
     for_speech,
     interrupt_note,
     is_resume,
@@ -10,8 +11,19 @@ from babysitter.plugins.voice.speech import (
     remainder_after,
     sapi_rate,
     strip_thinking,
+    voice_and_rest,
 )
 from babysitter.plugins.voice.windows_voice import speak_command
+
+
+def test_a_reply_speaks_two_or_three_sentences():
+    spoken, rest = voice_and_rest("One. Two. Three. Four is the extra part.")
+    assert spoken == "One. Two. Three."
+    assert rest == "Four is the extra part."
+    assert followup_phrase("what about france") == "what about france"
+    assert followup_phrase("yes") == "yes"
+    assert followup_phrase("thanks that's all") == ""
+    assert followup_phrase("hi") is None
 
 
 def test_thinking_is_not_spoken():

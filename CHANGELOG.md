@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.9.0 — A conversation, not a new question every time
+
+BabySitter keeps the last few things you said and answers in two or three sentences. The rest stays on screen. Say tell me more to hear it. After an answer, if keyword listening is on, you can keep talking for 10 seconds without saying baby sitter. Say that's all to stop. The tone is warmer, and it is allowed to disagree.
+
 ## 0.8.0 — Measure the wait, and stop cleanly
 
 Voice turns record timings only, on the Voice tab under Responsiveness and in Export diagnostics. The clock stays on the newest message so the standing instructions can be reused. Hidden thinking is removed before anything is spoken. Holding the talk button while BabySitter is speaking stops the voice and the answer. Say “carry on” to hear the rest of what was cut off. If a second and a half passes with no sound, the screen says it is still working.

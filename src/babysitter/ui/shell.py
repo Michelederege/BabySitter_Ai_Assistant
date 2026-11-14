@@ -41,6 +41,7 @@ from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
 from babysitter.plugins.voice.speech import (
     closed_lead,
+    followup_phrase,
     interrupt_note,
     is_resume,
     lead_and_rest,
@@ -49,6 +50,7 @@ from babysitter.plugins.voice.speech import (
     sapi_rate,
     speech_chunks,
     strip_thinking,
+    voice_and_rest,
 )
 from babysitter.responsiveness import ResponsivenessLog, TurnClock
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
@@ -108,12 +110,13 @@ class _AskJob(QThread):
     succeeded = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, ollama, model: str, prompt: str, num_ctx: int) -> None:
+    def __init__(self, ollama, model: str, prompt: str, num_ctx: int, history=None) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._prompt = prompt
         self._num_ctx = num_ctx
+        self._history = list(history or [])
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -124,7 +127,9 @@ class _AskJob(QThread):
         sent_lead = False
         sent_token = False
         try:
-            for piece in self._ollama.iter_reply(self._model, prompt, self._num_ctx, self.cancel):
+            for piece in self._ollama.iter_reply(
+                self._model, prompt, self._num_ctx, self.cancel, self._history
+            ):
                 if self.cancel.is_set():
                     return
                 parts.append(piece)
@@ -286,6 +291,12 @@ class Shell:
         self._finished_phrases: list[str] = []
         self._unheard = ""
         self._interrupt_note = ""
+        self._history: list[dict] = []
+        self._followup_left = 0
+        self._logged_turn = False
+        self._follow_timer = QTimer(self.window)
+        self._follow_timer.setInterval(1000)
+        self._follow_timer.timeout.connect(self._follow_tick)
         self._filler = QTimer(self.window)
         self._filler.setSingleShot(True)
         self._filler.timeout.connect(self._cue_waiting)
@@ -850,12 +861,24 @@ class Shell:
         if clock is None or "first_sound" in clock.marks or "interrupt" in clock.marks:
             self._clock = TurnClock()
         self._clock.mark("transcript")
-        if is_resume(text) and getattr(self, "_unheard", ""):
-            rest = self._unheard
+        if self._followup_left > 0 and followup_phrase(text) == "":
+            self._close_followup()
+            self.window.home.set_phase("on", "Okay. I'm here when you need me.")
+            return
+        if (is_resume(text) or more_answer(text) == "yes" or followup_phrase(text) in {"tell me more", "read the rest"}) and (
+            getattr(self, "_unheard", "") or getattr(self, "_more_text", "")
+        ):
+            rest = getattr(self, "_unheard", "") or getattr(self, "_more_text", "")
             self._unheard = ""
-            self.window.home.set_reply(text, rest, rest)
+            self._more_text = ""
+            self._close_followup()
+            if self._history and self._history[-1].get("role") == "assistant":
+                self._history[-1]["content"] = (self._history[-1]["content"] + " " + rest).strip()
+            self.window.home.set_reply(text, rest, getattr(self, "_full_reply", rest))
             self._speak(rest)
             return
+        if self._followup_left > 0:
+            self._close_followup()
         if getattr(self, "_awaiting_more", False):
             answer = more_answer(text)
             if answer == "yes":
@@ -970,6 +993,9 @@ class Shell:
             self.orb.set_state("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
             return
+        if getattr(self, "_followup_left", 0) > 0:
+            self._show_followup()
+            return
         if getattr(self, "_awaiting_more", False):
             self.orb.set_state("on", "Say yes or no")
             self.window.home.set_phase(
@@ -1042,6 +1068,7 @@ class Shell:
         self._early_lead = ""
         self._pending_offer = ""
         self._finished_phrases = []
+        self._logged_turn = False
         self._turn_id += 1
         if getattr(self, "_clock", None) is None:
             self._clock = TurnClock()
@@ -1051,7 +1078,7 @@ class Shell:
         if note:
             text = f"{note}\n{text}"
             self._interrupt_note = ""
-        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx)
+        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx, self._history)
         job.turn = self._turn_id
         self._ask_job = job
         job.first_token.connect(lambda turn=job.turn: self._on_first_token(turn))
@@ -1089,9 +1116,10 @@ class Shell:
         stop_kokoro()
         speaker.stop()
         heard = " ".join(getattr(self, "_finished_phrases", []))
-        full = getattr(self, "_full_reply", "") or getattr(self, "_early_lead", "")
+        full = getattr(self, "_spoken_for_history", "") or getattr(self, "_full_reply", "") or getattr(self, "_early_lead", "")
         self._unheard = remainder_after(heard, full) if heard else full
         self._interrupt_note = interrupt_note(heard)
+        self._remember_exchange(getattr(self, "_pending_line", ""), heard)
         self.controller._remember(heard or "Interrupted before a full phrase.")
         clock = getattr(self, "_clock", None)
         if clock is not None:
@@ -1128,35 +1156,27 @@ class Shell:
         if turn and not self._same_turn(turn):
             return
         early = getattr(self, "_early_lead", "")
-        lead, _full_rest = lead_and_rest(reply)
-        rest = remainder_after(early, reply) if early else _full_rest
-        spoken = early or lead or "I don't have an answer for that."
-        self._last_reply = ((lead or spoken)[:80] or "Reply", reply)
+        spoken, rest = voice_and_rest(reply)
+        spoken = spoken or early or "I don't have an answer for that."
+        self._last_reply = (spoken[:80] or "Reply", reply)
         self._full_reply = reply
+        self._spoken_for_history = spoken
         heard = getattr(self, "_pending_line", "")
         self._more_text = rest
-        self._awaiting_more = bool(rest)
+        self._awaiting_more = False
         if getattr(self, "_listener", None) is not None:
-            self._listener.expect_yes_no(bool(rest))
+            self._listener.expect_yes_no(False)
         self.window.home.set_reply(heard, spoken, reply)
-        if getattr(self, "_early_lead", ""):
+        if early:
             self._early_lead = ""
-            if rest:
-                self._offer_more()
+            bare = early[:-1].rstrip() if early[-1:] in ".!?" else early
+            extra = ""
+            if bare and spoken.startswith(bare):
+                extra = spoken[len(bare) :].lstrip(" \t,")
+            if extra:
+                self._pending_offer = extra
             return
-        if rest:
-            spoken = f"{spoken} Do you want to know more?"
-            self.window.home.set_reply(heard, spoken, reply)
         self._speak(spoken)
-
-    def _offer_more(self) -> None:
-        if getattr(self, "_speaking", False):
-            self._pending_offer = "Do you want to know more?"
-            return
-        self._pending_offer = ""
-        heard = getattr(self, "_pending_line", "")
-        self.window.home.set_reply(heard, "Do you want to know more?", getattr(self, "_full_reply", ""))
-        self._speak("Do you want to know more?")
 
     def _clear_more(self) -> None:
         self._awaiting_more = False
@@ -1453,11 +1473,56 @@ class Shell:
             self._pending_offer = ""
             self._speak(offer)
             return
-        if getattr(self, "_awaiting_more", False):
-            self.orb.set_state("on", "Say yes or no")
-            self._sync_keyword()
-            self.window.home.set_phase("on", "Say yes to hear the rest, or no to stop there.")
+        self._remember_exchange(getattr(self, "_pending_line", ""), getattr(self, "_spoken_for_history", ""))
+        self._open_followup()
+
+    def _remember_exchange(self, user: str, assistant: str) -> None:
+        if getattr(self, "_logged_turn", False):
             return
+        if not (user or assistant):
+            return
+        if user:
+            self._history.append({"role": "user", "content": user})
+        if assistant:
+            self._history.append({"role": "assistant", "content": assistant})
+        del self._history[:-12]
+        self._logged_turn = True
+
+    def _open_followup(self) -> None:
+        settings = self.controller.settings
+        listening = settings.keyword_listening and self.controller.state == "on"
+        ready = keyword_packages_installed() and keyword_model_ready()
+        if not listening or not ready or getattr(self, "_listener", None) is None:
+            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._sync_keyword()
+            return
+        self._listener.expect_followup(True)
+        self._followup_left = 10
+        self._follow_timer.start()
+        self._sync_keyword()
+        self._show_followup()
+
+    def _follow_tick(self) -> None:
+        self._followup_left -= 1
+        if self._followup_left <= 0:
+            self._close_followup()
+            return
+        self._show_followup()
+
+    def _show_followup(self) -> None:
+        left = self._followup_left
+        self.orb.set_state("on", f"Follow-up {left}")
+        self.window.home.set_phase(
+            "on",
+            f"Listening for a follow-up. {left} seconds. You do not need to say baby sitter. "
+            "Say that's all to stop.",
+        )
+
+    def _close_followup(self) -> None:
+        self._follow_timer.stop()
+        self._followup_left = 0
+        if getattr(self, "_listener", None) is not None:
+            self._listener.expect_followup(False)
         self.orb.set_state(self.controller.state, "Say the keyword")
         self._sync_keyword()
 

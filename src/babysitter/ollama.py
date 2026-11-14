@@ -226,9 +226,9 @@ class OllamaClient:
             raise OllamaError("The model returned an empty reply.")
         return reply
 
-    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None):
+    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None, history=None):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
-        body = chat_body(model, prompt, num_ctx)
+        body = chat_body(model, prompt, num_ctx, history)
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
                 while True:
@@ -396,17 +396,34 @@ def server_environment(base, host: str, port: int) -> dict:
     return environment
 
 
-def chat_body(model: str, prompt: str, num_ctx: int) -> dict:
+STABLE_SYSTEM = (
+    "Role: You are BabySitter, a voice assistant on this one PC. "
+    "Personality: Warm and brief. A little humor is fine, never at the user's expense. "
+    "Drop the humor after a mistake or when something has failed. "
+    "Disagree when the user is wrong. Do not praise ideas by default. "
+    "Do not repeat the same phrase twice. "
+    "Speech: Answer in two or three plain sentences, like a person in the room. "
+    "Put lists, code, and long detail after those sentences. "
+    "Rules: Use the conversation so far. Do not invent a memory you were not given."
+)
+
+
+def chat_body(model: str, prompt: str, num_ctx: int, history=None) -> dict:
     """The local chat request. Voice turns do not use hidden thinking."""
-    body = {
+    return {
         "model": model,
-        "messages": chat_messages(prompt),
+        "messages": chat_messages(prompt, history),
         "stream": True,
         "keep_alive": -1,
         "think": False,
-        "options": {"num_ctx": int(num_ctx)},
+        "options": {
+            "num_ctx": int(num_ctx),
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "top_k": 20,
+            "presence_penalty": 1.5,
+        },
     }
-    return body
 
 
 def content_from_stream_line(line: str) -> tuple[str, bool]:
@@ -430,25 +447,23 @@ def content_from_stream_line(line: str) -> tuple[str, bool]:
     return piece, bool(payload.get("done"))
 
 
-def chat_messages(prompt: str, now=None) -> list[dict]:
-    """Tell the local model the clock. The model has no clock of its own."""
+def chat_messages(prompt: str, history=None, now=None) -> list[dict]:
+    """The standing instructions stay fixed. The clock is only on the newest line."""
     from datetime import datetime
 
     moment = now or datetime.now().astimezone()
     clock = moment.strftime("%A, %B %d, %Y, %I:%M %p")
     zone = moment.tzname() or "local time"
-    return [
-        {
-            "role": "system",
-            "content": (
-                "You are BabySitter, a local voice assistant on this PC. "
-                "Reply in plain spoken sentences. "
-                "Start with one sentence of no more than 12 words. "
-                "Put any extra detail after that sentence."
-            ),
-        },
-        {"role": "user", "content": f"Current local time: {clock} ({zone}). {prompt}"},
-    ]
+    messages = [{"role": "system", "content": STABLE_SYSTEM}]
+    for item in history or []:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": f"Current local time: {clock} ({zone}). {prompt}"})
+    return messages
 
 
 def models_from_ps(payload: dict) -> list[LoadedModel]:

@@ -129,6 +129,47 @@ def more_answer(text: str) -> str | None:
     return None
 
 
+def sentences(text: str) -> list[str]:
+    spoken = plain_speech(text)
+    if not spoken:
+        return []
+    found: list[str] = []
+    start = 0
+    for index, char in enumerate(spoken):
+        if char in ".!?" and (index + 1 == len(spoken) or spoken[index + 1] == " "):
+            piece = spoken[start : index + 1].strip()
+            if piece:
+                found.append(piece)
+            start = index + 1
+    tail = spoken[start:].strip()
+    if tail:
+        found.append(tail)
+    return found
+
+
+def voice_and_rest(text: str) -> tuple[str, str]:
+    """Two or three sentences to say, and the rest for the screen."""
+    parts = sentences(text)
+    if not parts:
+        return "", ""
+    return " ".join(parts[:3]), " ".join(parts[3:]).strip()
+
+
+def followup_phrase(text: str) -> str | None:
+    """A hands-free follow-up. Empty means they are done. None means ignore it."""
+    words = re.findall(r"[a-z']+", (text or "").lower())
+    if not words:
+        return None
+    phrase = " ".join(words)
+    if phrase in {"thanks thats all", "thanks that's all", "thats all", "that's all", "never mind", "nevermind"}:
+        return ""
+    if phrase in {"tell me more", "read the rest"} or is_resume(text) or more_answer(text) == "yes":
+        return phrase
+    if len(words) < 2:
+        return None
+    return phrase
+
+
 def speech_chunks(text: str, limit: int = 400) -> list[str]:
     """Break a long reading into sentence-sized pieces the voice can say."""
     spoken = plain_speech(text)
