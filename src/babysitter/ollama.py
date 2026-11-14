@@ -226,11 +226,15 @@ class OllamaClient:
             raise OllamaError("The model returned an empty reply.")
         return reply
 
-    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None, history=None):
+    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None, history=None, images=None):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
         body = chat_body(model, prompt, num_ctx, history)
+        if images:
+            body["messages"][-1]["images"] = list(images)
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
+                if cancel is not None:
+                    threading.Thread(target=_close_when_cancelled, args=(cancel, response), daemon=True).start()
                 while True:
                     if cancel is not None and cancel.is_set():
                         break
@@ -381,6 +385,14 @@ class OllamaClient:
             _terminate_psutil(process)
             closed.append(name)
         return closed
+
+
+def _close_when_cancelled(cancel, response) -> None:
+    cancel.wait()
+    try:
+        response.close()
+    except Exception:
+        return
 
 
 def server_environment(base, host: str, port: int) -> dict:

@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.10.0 — Faster everyday answers, still on this PC
+
+Short requests such as the time, video memory, a timer, and “why did you say that” are answered without the language model. A timer starts immediately and can be cancelled by saying undo within 10 seconds. In Game mode those short requests still work. Anything else asks before loading the model. If a reply takes more than a second and a half, and Heart and Sarah is already downloaded, BabySitter says “One moment” while it keeps working. Stopping an answer also stops the request to Ollama. A screenshot is shrunk and shown to the model that is already loaded. It is not saved. Long lists and code stay on the screen. The follow-up window can be 5 to 20 seconds. A benchmark on the Models tab times a fixed prompt three times and keeps only the times.
+
 ## 0.9.0 — A conversation, not a new question every time
 
 BabySitter keeps the last few things you said and answers in two or three sentences. The rest stays on screen. Say tell me more to hear it. After an answer, if keyword listening is on, you can keep talking for 10 seconds without saying baby sitter. Say that's all to stop. The tone is warmer, and it is allowed to disagree.

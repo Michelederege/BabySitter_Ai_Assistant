@@ -16,16 +16,30 @@ Items marked "do not build now" stay unbuilt.
 - If 1.5 seconds pass with no sound, the screen shows a short waiting line
 - When BabySitter itself starts Ollama, it sets the private host, one model, flash attention, q8 cache, and a 5-minute keep-alive for when BabySitter is not running. While the AI is on, requests still use keep-alive forever.
 
+## Added in 0.10.0
+
+- Time, video memory, PC health, screen look, “why did you say that”, and timers run without the model
+- A timer starts immediately. Say undo within 10 seconds to cancel it
+- Game mode answers those short requests. Anything else asks before loading the model
+- A short spoken “One moment” when Heart and Sarah is already on this PC
+- Stopping an answer closes the Ollama request
+- A screenshot is shrunk to a 1280 long edge and sent to the model already loaded. It is not saved
+- Lists longer than three items, and code, stay on the screen. KB numbers and hex codes are spelled out
+- Follow-up listening is a setting from 5 to 20 seconds
+- The model is not loaded when the card does not have room. If the free amount cannot be read, the load is allowed
+- The Models tab can time a fixed prompt three times
+- Hearing uses four processor threads. BabySitter starts with a small thread limit
+
 ## Still to do, in this order
 
-Priority 1 remaining: pre-made filler clips, a hard cancel of generation inside one audio block, spoken replies held to 2–3 sentences with long lists on a card, and background jobs that never run during a voice turn.
+Priority 1 remaining: pre-made filler clips instead of speaking the line live, cancel inside one audio block, and background jobs that never run during a voice turn.
 
-Priority 2: the follow-up window, Silero and Smart Turn, echo cancellation, and optional talk-over. Off by default.
+Priority 2: Silero and Smart Turn, echo cancellation, and optional talk-over. Off by default. The follow-up window itself is in.
 
-Priority 3: personality, quick confirm with undo, memory explanations, the proactivity ladder, and the weekly review.
+Priority 3 remaining: personality ratings, the proactivity ladder, and the weekly review. Quick confirm with undo is in for timers only. “Why did you say that” shows the recent conversation, not saved facts.
 
 Priority 4 and E9: do not build now. No speech-to-speech model and no cloud realtime voice.
 
-E1 remaining: every request using the same 16384 context waits for the video-memory guard, so a 12 GB card is not forced over the edge first.
+E1 remaining: gemma stays at its current context sizes until a 12 GB card has room. qwen on Low stays smaller than Medium.
 
-E2 through E8: video-memory guard, faster game-mode unload, quick commands, screenshot sizing, thread limits, and the benchmark button.
+E2 through E8 remaining: faster game-mode unload, NVML instead of nvidia-smi, and keeping BabySitter off the game's CPU cores. That last one stays off until the core layout is known.
