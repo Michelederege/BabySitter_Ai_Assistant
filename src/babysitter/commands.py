@@ -14,15 +14,37 @@ class QuickCommand:
     seconds: int = 0
 
 
+_LEAD = re.compile(
+    r"^(?:baby\s*sitter|please|can you|could you|would you)\b[\s,]*",
+    re.IGNORECASE,
+)
+_TRAIL = re.compile(r"[\s,]*(?:please|thanks|thank you)\s*$", re.IGNORECASE)
+
+
+def strip_lead(text: str) -> str:
+    """Drop a leading keyword or 'please', and a trailing 'please'.
+
+    The words that were asked for stay, including their capital letters.
+    """
+    raw = (text or "").strip()
+    previous = None
+    while raw and previous != raw:
+        previous = raw
+        raw = _LEAD.sub("", raw, count=1).strip()
+    return _TRAIL.sub("", raw).strip()
+
+
+def _tail(original: str, label: str) -> str:
+    match = re.search(rf"\b{re.escape(label)}\b\s*(.*)$", original, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).strip(" .,")
+
+
 def match_quick_command(text: str) -> QuickCommand | None:
-    words = re.findall(r"[a-z0-9']+", (text or "").lower())
+    original = strip_lead(text)
+    words = re.findall(r"[a-z0-9']+", original.lower())
     phrase = " ".join(words)
-    if phrase.startswith("babysitter "):
-        phrase = phrase[len("babysitter ") :].strip()
-        words = phrase.split()
-    elif phrase.startswith("baby sitter "):
-        phrase = phrase[len("baby sitter ") :].strip()
-        words = phrase.split()
     if not phrase:
         return None
     if phrase in {"undo", "cancel that", "cancel the timer"}:
@@ -39,6 +61,7 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "whats the time",
         "what is the time",
         "what's the time",
+        "tell me the time",
     }:
         return QuickCommand("time")
     if phrase in {
@@ -56,6 +79,12 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "hows my computer",
         "how's my computer",
         "how is my computer",
+        "how is my computer doing",
+        "hows my computer doing",
+        "how's my computer doing",
+        "how is the computer",
+        "hows the computer",
+        "how's the computer",
         "pc health",
     }:
         return QuickCommand("health")
@@ -65,6 +94,9 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "whats on my screen",
         "what's on my screen",
         "what is on my screen",
+        "whats on the screen",
+        "what's on the screen",
+        "what is on the screen",
     }:
         return QuickCommand("screen")
     if phrase in {
@@ -95,11 +127,11 @@ def match_quick_command(text: str) -> QuickCommand | None:
     }:
         return QuickCommand("calendar")
     if phrase.startswith("remember "):
-        detail = phrase[len("remember ") :].strip()
+        detail = _tail(original, "remember")
         if detail:
             return QuickCommand("remember", detail=detail)
     if phrase.startswith("remind me"):
-        detail = phrase[len("remind me") :].strip()
+        detail = _tail(original, "remind me")
         if detail:
             return QuickCommand("remind", detail=detail)
     timer = _timer_seconds(phrase)
