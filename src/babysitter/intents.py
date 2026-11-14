@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from babysitter.commands import strip_lead
+
 
 @dataclass(frozen=True)
 class ToolIntent:
@@ -30,7 +32,7 @@ _SITES = {
 
 
 def match_tool(text: str) -> ToolIntent | None:
-    raw = (text or "").strip()
+    raw = strip_lead(text)
     if not raw:
         return None
     lowered = raw.lower()
