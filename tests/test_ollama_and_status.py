@@ -7,6 +7,7 @@ from babysitter.ollama import (
     OllamaClient,
     chat_messages,
     classify_ollama_process,
+    content_from_stream_line,
     gpu_placement_label,
     models_from_ps,
     parse_ollama_version,
@@ -15,6 +16,15 @@ from babysitter.ollama import (
 from babysitter.security import bind_is_private, bind_is_public, require_local_host
 from babysitter.startupcheck import version_message
 from babysitter.status import parse_compute_apps_csv, parse_gpu_memory_csv
+
+
+def test_a_streamed_line_is_only_the_new_words():
+    piece, done = content_from_stream_line('{"message":{"content":"Hello"},"done":false}')
+    assert piece == "Hello"
+    assert done is False
+    piece, done = content_from_stream_line('{"message":{"content":". More."},"done":true}')
+    assert piece == ". More."
+    assert done is True
 
 
 def test_every_question_includes_the_local_clock():

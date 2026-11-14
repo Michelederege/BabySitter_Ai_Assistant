@@ -37,7 +37,7 @@ from babysitter.plugins.voice.hearing import (
 from babysitter.plugins.voice.kokoro_voice import KokoroError, download as download_kokoro
 from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
-from babysitter.plugins.voice.speech import lead_and_rest, more_answer, sapi_rate, speech_chunks
+from babysitter.plugins.voice.speech import closed_lead, lead_and_rest, more_answer, sapi_rate, speech_chunks
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
     PreparedSearch,
@@ -80,6 +80,7 @@ class _KeywordDownloadJob(QThread):
 
 
 class _AskJob(QThread):
+    lead_ready = Signal(str)
     succeeded = Signal(str)
     failed = Signal(str)
 
@@ -93,8 +94,22 @@ class _AskJob(QThread):
     def run(self) -> None:
         prompt = self._prompt
         self._prompt = ""
+        parts: list[str] = []
+        sent_lead = False
         try:
-            self.succeeded.emit(self._ollama.ask(self._model, prompt, self._num_ctx))
+            for piece in self._ollama.iter_reply(self._model, prompt, self._num_ctx):
+                parts.append(piece)
+                if sent_lead:
+                    continue
+                lead = closed_lead("".join(parts))
+                if lead:
+                    self.lead_ready.emit(lead)
+                    sent_lead = True
+            reply = "".join(parts).strip()
+            if not reply:
+                self.failed.emit("The model returned an empty reply.")
+                return
+            self.succeeded.emit(reply)
         except OllamaError as exc:
             self.failed.emit(str(exc))
         except Exception:
@@ -941,8 +956,11 @@ class Shell:
             self.window.home.set_reply(text, "Still thinking.", "Wait for this reply to finish.")
             return
         mode = get_mode(self.controller.settings.intelligence)
+        self._early_lead = ""
+        self._pending_offer = ""
         job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx)
         self._ask_job = job
+        job.lead_ready.connect(self._lead_ready)
         job.succeeded.connect(self._asked)
         job.failed.connect(lambda message, heard=text: self._ask_failed(heard, message))
         self.orb.set_state("thinking", "Thinking.")
@@ -950,9 +968,19 @@ class Shell:
         job.start()
 
     def _ask_failed(self, heard: str, message: str) -> None:
+        self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
         self._speaking = False
         self._sync_keyword()
+
+    def _lead_ready(self, lead: str) -> None:
+        """Speak the first sentence while the rest is still being written."""
+        if getattr(self, "_early_lead", ""):
+            return
+        self._early_lead = lead
+        heard = getattr(self, "_pending_line", "")
+        self.window.home.set_reply(heard, lead, "Still writing the rest on this PC.")
+        self._speak(lead)
 
     def _asked(self, reply: str) -> None:
         lead, rest = lead_and_rest(reply)
@@ -964,10 +992,25 @@ class Shell:
         self._awaiting_more = bool(rest)
         if getattr(self, "_listener", None) is not None:
             self._listener.expect_yes_no(bool(rest))
+        self.window.home.set_reply(heard, spoken, reply)
+        if getattr(self, "_early_lead", ""):
+            self._early_lead = ""
+            if rest:
+                self._offer_more()
+            return
         if rest:
             spoken = f"{spoken} Do you want to know more?"
-        self.window.home.set_reply(heard, spoken, reply)
+            self.window.home.set_reply(heard, spoken, reply)
         self._speak(spoken)
+
+    def _offer_more(self) -> None:
+        if getattr(self, "_speaking", False):
+            self._pending_offer = "Do you want to know more?"
+            return
+        self._pending_offer = ""
+        heard = getattr(self, "_pending_line", "")
+        self.window.home.set_reply(heard, "Do you want to know more?", getattr(self, "_full_reply", ""))
+        self._speak("Do you want to know more?")
 
     def _clear_more(self) -> None:
         self._awaiting_more = False
@@ -1239,6 +1282,11 @@ class Shell:
 
     def _speak_done(self) -> None:
         self._speaking = False
+        if getattr(self, "_pending_offer", ""):
+            offer = self._pending_offer
+            self._pending_offer = ""
+            self._speak(offer)
+            return
         if getattr(self, "_awaiting_more", False):
             self.orb.set_state("on", "Say yes or no")
             self._sync_keyword()

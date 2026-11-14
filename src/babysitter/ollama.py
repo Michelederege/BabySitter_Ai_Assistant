@@ -189,7 +189,7 @@ class OllamaClient:
         text = (completed.stdout or "") + (completed.stderr or "")
         return text.strip(), None
 
-    def _request(self, method: str, path: str, body: dict | None = None, timeout: float = 30):
+    def _open(self, method: str, path: str, body: dict | None, timeout: float):
         if not path.startswith("/"):
             raise OllamaError("Bad Ollama path.")
         url = self.base_url + path
@@ -197,11 +197,14 @@ class OllamaClient:
         request = urllib.request.Request(url, data=data, method=method)
         if body is not None:
             request.add_header("Content-Type", "application/json")
-        # Log the path and model only. Never log a prompt or a reply.
         model = "" if not body else str(body.get("model", ""))
         log.info("%s %s model=%s", method, path, model)
+        return urllib.request.urlopen(request, timeout=timeout)
+
+    def _request(self, method: str, path: str, body: dict | None = None, timeout: float = 30):
+        model = "" if not body else str(body.get("model", ""))
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with self._open(method, path, body, timeout) as response:
                 raw = response.read()
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
@@ -217,19 +220,37 @@ class OllamaClient:
 
     def ask(self, model: str, prompt: str, num_ctx: int) -> str:
         """One local reply. The prompt and the reply are not written to the log."""
+        parts = list(self.iter_reply(model, prompt, num_ctx))
+        reply = "".join(parts).strip()
+        if not reply:
+            raise OllamaError("The model returned an empty reply.")
+        return reply
+
+    def iter_reply(self, model: str, prompt: str, num_ctx: int):
+        """Yield each new piece as Ollama writes it. Nothing is logged."""
         body = {
             "model": model,
             "messages": chat_messages(prompt),
-            "stream": False,
+            "stream": True,
             "keep_alive": -1,
             "options": {"num_ctx": int(num_ctx)},
         }
-        payload = self._request("POST", "/api/chat", body, timeout=180)
-        message = payload.get("message") if isinstance(payload, dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(content, str) or not content.strip():
-            raise OllamaError("The model returned an empty reply.")
-        return content.strip()
+        try:
+            with self._open("POST", "/api/chat", body, timeout=180) as response:
+                while True:
+                    raw = response.readline()
+                    if not raw:
+                        break
+                    piece, done = content_from_stream_line(raw.decode("utf-8", "replace"))
+                    if piece:
+                        yield piece
+                    if done:
+                        break
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:500]
+            raise OllamaError(_friendly_http(exc.code, detail, model)) from None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise OllamaError(_friendly_network(exc)) from None
 
     def installed_models(self) -> list[str]:
         payload = self._request("GET", "/api/tags", timeout=8)
@@ -366,6 +387,27 @@ class OllamaClient:
             _terminate_psutil(process)
             closed.append(name)
         return closed
+
+
+def content_from_stream_line(line: str) -> tuple[str, bool]:
+    """One streamed line: the new words, and whether the reply is finished."""
+    text = (line or "").strip()
+    if not text:
+        return "", False
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise OllamaError("Ollama answered with something that was not JSON.") from exc
+    if not isinstance(payload, dict):
+        return "", False
+    error = payload.get("error")
+    if isinstance(error, str) and error.strip():
+        raise OllamaError(error.strip())
+    message = payload.get("message")
+    piece = ""
+    if isinstance(message, dict) and isinstance(message.get("content"), str):
+        piece = message["content"]
+    return piece, bool(payload.get("done"))
 
 
 def chat_messages(prompt: str, now=None) -> list[dict]:

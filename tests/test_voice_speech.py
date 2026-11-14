@@ -1,5 +1,5 @@
 from babysitter.plugins.voice.keyword import command_after_keyword
-from babysitter.plugins.voice.speech import first_sentence, for_speech, lead_and_rest, more_answer, sapi_rate
+from babysitter.plugins.voice.speech import closed_lead, first_sentence, for_speech, lead_and_rest, more_answer, sapi_rate
 from babysitter.plugins.voice.windows_voice import speak_command
 
 
@@ -15,6 +15,11 @@ def test_speech_drops_markdown_and_code():
 
 def test_first_sentence_is_short():
     assert first_sentence("Berlin is the capital. The rest stays on screen.") == "Berlin is the capital."
+
+
+def test_the_first_sentence_can_be_spoken_before_the_rest_arrives():
+    assert closed_lead("Dancing has no single inventor") is None
+    assert closed_lead("Dancing has no single inventor. It grew later.") == "Dancing has no single inventor."
 
 
 def test_a_longer_answer_keeps_the_rest_for_later():
