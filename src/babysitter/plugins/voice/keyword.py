@@ -18,7 +18,7 @@ from urllib import request as urlrequest
 
 from babysitter.paths import data_dir
 from babysitter.platform import run_hidden
-from babysitter.security import require_keyword_model_url
+from babysitter.security import require_keyword_model_url, require_matching_file
 
 
 MODEL_URL = "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip"
@@ -136,6 +136,10 @@ def download_model() -> str:
     archive = destination.parent / (MODEL_NAME + ".zip")
     try:
         urlrequest.urlretrieve(MODEL_URL, archive)  # noqa: S310  checked above
+        try:
+            require_matching_file(MODEL_URL, archive)
+        except ValueError as exc:
+            raise KeywordError(str(exc)) from None
         _safe_extract(archive, destination.parent)
     finally:
         if archive.exists():

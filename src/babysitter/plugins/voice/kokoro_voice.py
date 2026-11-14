@@ -89,6 +89,8 @@ def _fetch(url: str, dest) -> None:
         return
     from urllib import request as urlrequest
 
+    from babysitter.security import require_matching_file
+
     temporary = dest.with_suffix(dest.suffix + ".part")
     with urlrequest.urlopen(url, timeout=180) as response, temporary.open("wb") as handle:
         while True:
@@ -96,6 +98,11 @@ def _fetch(url: str, dest) -> None:
             if not chunk:
                 break
             handle.write(chunk)
+    try:
+        require_matching_file(url, temporary)
+    except ValueError as exc:
+        temporary.unlink(missing_ok=True)
+        raise KokoroError(str(exc)) from None
     temporary.replace(dest)
 
 

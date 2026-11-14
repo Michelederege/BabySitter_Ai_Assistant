@@ -321,17 +321,21 @@ class OllamaClient:
         return models_from_ps(payload)
 
     def preload(self, model: str, num_ctx: int, num_batch: int | None = None) -> None:
-        """Load a model and leave it in memory. The one-word reply is discarded."""
-        options = {"num_ctx": int(num_ctx), "num_predict": 8, "temperature": 0}
+        """Load a model and leave it in memory.
+
+        An empty message list makes Ollama load the model and answer at
+        once, without generating a single token. That is a second or two
+        faster than asking for a word and throwing it away.
+        """
+        options = {"num_ctx": int(num_ctx)}
         if num_batch:
             options["num_batch"] = int(num_batch)
         body = {
             "model": model,
-            "messages": [{"role": "user", "content": "Reply with only the word ready."}],
+            "messages": [],
             "stream": False,
             "keep_alive": IDLE_KEEP_ALIVE,
             "options": options,
-            "think": False,
         }
         self._request("POST", "/api/chat", body, timeout=240)
 
@@ -474,6 +478,10 @@ def server_environment(base, host: str, port: int, num_ctx: int = 4096) -> dict:
     environment["OLLAMA_NUM_PARALLEL"] = "1"
     environment["OLLAMA_MAX_LOADED_MODELS"] = "1"
     environment["OLLAMA_KEEP_ALIVE"] = "5m"
+    # A signed-in Ollama also serves its cloud models through this same
+    # local port. BabySitter promises that a reply never leaves this PC,
+    # so cloud models are off for the Ollama that BabySitter starts.
+    environment["OLLAMA_NO_CLOUD"] = "1"
     return environment
 
 

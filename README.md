@@ -42,7 +42,7 @@ If the command window stays open, the text in it is the reason. Copy all of it. 
 
 ![Home, with the AI off](docs/phase1-home.png)
 
-The picture above was taken on a computer that does not have Ollama or an NVIDIA card, so it shows those two warnings. On your PC the red line names your Ollama version (or stays hidden if it is 0.17.1 or newer), and the video-memory card shows the RTX 4070.
+The picture above was taken on a computer that does not have Ollama or an NVIDIA card, so it shows those two warnings. On your PC the red line names your Ollama version (or stays hidden if it is 0.35.0 or newer), and the video-memory card shows the RTX 4070.
 
 ![The orb, off](docs/phase1-orb.png)
 
@@ -216,6 +216,8 @@ If you turn Google on, a mail or calendar check goes to `gmail.googleapis.com` a
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 
-Ollama older than **0.17.1** has a critical flaw, CVE-2026-7482: a malicious model file can make Ollama leak what it has in memory. BabySitter warns you and asks before turning on.
+Ollama older than **0.35.0** has a critical flaw, CVE-2026-103663: a program that can reach Ollama's local port can make it write a file outside its model folder, and that file runs the next time Ollama starts. Older than 0.17.1 also has CVE-2026-7482, which leaks what Ollama has in memory. BabySitter warns you and asks before turning on. Update Ollama itself from the download page; `ollama pull` only refreshes models, not the engine.
+
+When BabySitter starts Ollama, that process also has Ollama's own cloud models turned off. Even if you sign in to Ollama for another app, a BabySitter request cannot be answered from the internet.
 
 There is no voice cloning in this project, and there will not be.

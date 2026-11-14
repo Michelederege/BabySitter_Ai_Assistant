@@ -67,6 +67,8 @@ def test_the_server_baby_sitter_starts_keeps_one_model_warm():
     assert environment["OLLAMA_KV_CACHE_TYPE"] == "q4_0"
     assert environment["OLLAMA_MAX_LOADED_MODELS"] == "1"
     assert environment["OLLAMA_FLASH_ATTENTION"] == "1"
+    # A signed-in Ollama would otherwise serve cloud models on this port.
+    assert environment["OLLAMA_NO_CLOUD"] == "1"
 
 
 def test_only_this_computer():
@@ -84,17 +86,20 @@ def test_public_bind_is_not_private():
 
 
 def test_version_parsing_and_the_security_cutoff():
-    assert parse_ollama_version("ollama version is 0.17.1\n") == (0, 17, 1)
+    assert parse_ollama_version("ollama version is 0.35.0\n") == (0, 35, 0)
     assert parse_ollama_version("ollama version is 0.17.0") == (0, 17, 0)
-    assert version_is_older((0, 17, 0), (0, 17, 1))
-    assert not version_is_older((0, 17, 1), (0, 17, 1))
-    assert not version_is_older((0, 18, 0), (0, 17, 1))
-    _found, older, message = version_message((0, 20, 0), "", None)
+    assert version_is_older((0, 34, 9), (0, 35, 0))
+    assert not version_is_older((0, 35, 0), (0, 35, 0))
+    assert not version_is_older((0, 36, 0), (0, 35, 0))
+    _found, older, message = version_message((0, 35, 0), "", None)
     assert not older
-    assert "0.34.2" in message
-    _found, older, message = version_message((0, 6, 2), "", None)
+    assert "new enough" in message
+    # 0.34.2 was the old speed recommendation. It sits inside the range
+    # CVE-2026-103663 affects, so it now gets the security warning.
+    _found, older, message = version_message((0, 34, 2), "", None)
     assert older
-    assert "CVE-2026-7482" in message
+    assert "CVE-2026-103663" in message
+    assert "0.35.0" in message
     found, older, message = version_message(None, "", "Ollama is not installed, or it is not on the PATH.")
     assert not found
     assert not older
@@ -158,7 +163,7 @@ def test_intelligence_uses_one_model_per_level():
     assert MODES["high"].model == WRITING_MODEL
     # Low stays in a 4 to 6 GB budget, so its context is 4,096. Medium stays smaller than High.
     assert MODES["low"].num_ctx == 4096
-    assert MODES["low"].num_batch == 128
+    assert MODES["low"].num_batch == 256
     assert 4096 <= MODES["low"].vram_mib <= 6144
     assert MODES["medium"].num_ctx == 8192
     assert MODES["high"].num_ctx == 16384
@@ -167,4 +172,4 @@ def test_intelligence_uses_one_model_per_level():
     low = chat_body(MAIN_MODEL, "hello", MODES["low"].num_ctx, num_batch=MODES["low"].num_batch)
     again = chat_body(MAIN_MODEL, "again", MODES["low"].num_ctx, num_batch=MODES["low"].num_batch)
     assert low["options"]["num_ctx"] == again["options"]["num_ctx"] == 4096
-    assert low["options"]["num_batch"] == again["options"]["num_batch"] == 128
+    assert low["options"]["num_batch"] == again["options"]["num_batch"] == 256
