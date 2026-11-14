@@ -97,7 +97,21 @@ class VoicePage(QWidget):
         windows.setWordWrap(True)
         windows.setObjectName("hint")
         layout.addWidget(windows)
+        speed_title = QLabel("Responsiveness")
+        speed_title.setObjectName("section")
+        layout.addWidget(speed_title)
+        self.responsiveness = QLabel("No voice turns measured yet. Only timings are kept. No words are stored.")
+        self.responsiveness.setWordWrap(True)
+        self.responsiveness.setObjectName("hint")
+        layout.addWidget(self.responsiveness)
+        export = QPushButton("Export diagnostics")
+        export.setToolTip("Saves the timings on this PC. It does not include what you said.")
+        export.clicked.connect(lambda: self.notice.emit("EXPORT timings"))
+        layout.addWidget(export)
         layout.addStretch(1)
+
+    def set_responsiveness(self, text: str) -> None:
+        self.responsiveness.setText(text)
 
     def _slider(self, label: str, low: int, high: int, value: int):
         host = QWidget()

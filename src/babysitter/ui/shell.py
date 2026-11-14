@@ -5,6 +5,8 @@ from __future__ import annotations
 import ctypes
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QRect, QThread, QTimer, QUrl, Signal
@@ -39,12 +41,16 @@ from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
 from babysitter.plugins.voice.speech import (
     closed_lead,
+    interrupt_note,
+    is_resume,
     lead_and_rest,
     more_answer,
     remainder_after,
     sapi_rate,
     speech_chunks,
+    strip_thinking,
 )
+from babysitter.responsiveness import ResponsivenessLog, TurnClock
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.plugins.tools.social import (
     PreparedSearch,
@@ -97,6 +103,7 @@ class _WarmVoiceJob(QThread):
 
 
 class _AskJob(QThread):
+    first_token = Signal()
     lead_ready = Signal(str)
     succeeded = Signal(str)
     failed = Signal(str)
@@ -107,22 +114,32 @@ class _AskJob(QThread):
         self._model = model
         self._prompt = prompt
         self._num_ctx = num_ctx
+        self.cancel = threading.Event()
+        self.turn = 0
 
     def run(self) -> None:
         prompt = self._prompt
         self._prompt = ""
         parts: list[str] = []
         sent_lead = False
+        sent_token = False
         try:
-            for piece in self._ollama.iter_reply(self._model, prompt, self._num_ctx):
+            for piece in self._ollama.iter_reply(self._model, prompt, self._num_ctx, self.cancel):
+                if self.cancel.is_set():
+                    return
                 parts.append(piece)
+                if not sent_token:
+                    self.first_token.emit()
+                    sent_token = True
                 if sent_lead:
                     continue
-                lead = closed_lead("".join(parts))
+                lead = closed_lead(strip_thinking("".join(parts)))
                 if lead:
                     self.lead_ready.emit(lead)
                     sent_lead = True
-            reply = "".join(parts).strip()
+            if self.cancel.is_set():
+                return
+            reply = strip_thinking("".join(parts)).strip()
             if not reply:
                 self.failed.emit("The model returned an empty reply.")
                 return
@@ -149,12 +166,15 @@ class _KokoroDownloadJob(QThread):
 
 
 class _SpeakJob(QThread):
+    started = Signal()
+    phrase_done = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, text: str, prefs: dict) -> None:
+    def __init__(self, text: str, prefs: dict, turn: int) -> None:
         super().__init__()
         self._text = text
         self._prefs = prefs
+        self.turn = turn
 
     def run(self) -> None:
         text = self._text
@@ -162,13 +182,25 @@ class _SpeakJob(QThread):
         prefs = self._prefs
         try:
             pieces = speech_chunks(text)
-            for piece in pieces:
-                if prefs.get("engine") == "windows":
+            if prefs.get("engine") == "windows":
+                announced = False
+                for piece in pieces:
+                    if not announced:
+                        self.started.emit()
+                        announced = True
                     speaker.speak(piece, voice=prefs.get("windows_voice", ""), rate=prefs.get("rate", 0))
-                else:
-                    from babysitter.plugins.voice.kokoro_voice import speak as speak_kokoro
+                    self.phrase_done.emit(piece)
+            else:
+                from babysitter.plugins.voice.kokoro_voice import speak_sequence
 
-                    speak_kokoro(piece, prefs.get("name", ""), prefs.get("speed", 105), prefs.get("pitch", -1))
+                speak_sequence(
+                    pieces,
+                    prefs.get("name", ""),
+                    prefs.get("speed", 105),
+                    prefs.get("pitch", -1),
+                    on_start=self.started.emit,
+                    on_piece=self.phrase_done.emit,
+                )
         except (WindowsVoiceError, KokoroError) as exc:
             self.failed.emit(str(exc))
         except Exception as exc:
@@ -248,6 +280,15 @@ class Shell:
         self.vault = default_vault()
         self._search_job: _SearchJob | None = None
         self._power_ready = False
+        self._turn_id = 0
+        self._responsiveness = ResponsivenessLog()
+        self._filler_n = 0
+        self._finished_phrases: list[str] = []
+        self._unheard = ""
+        self._interrupt_note = ""
+        self._filler = QTimer(self.window)
+        self._filler.setSingleShot(True)
+        self._filler.timeout.connect(self._cue_waiting)
         self._connect()
         self._fill_settings()
         self._apply_hotkeys(
@@ -730,6 +771,10 @@ class Shell:
     def _hold_down(self) -> None:
         if getattr(self, "_holding", False):
             return
+        if getattr(self, "_speaking", False) or (
+            getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning()
+        ):
+            self._cut_off()
         speaker.stop()
         stop_kokoro()
         if getattr(self, "_listener", None) is not None:
@@ -764,6 +809,7 @@ class Shell:
         if not getattr(self, "_holding", False):
             return
         self._holding = False
+        self._clock = TurnClock()
         wav = b""
         if getattr(self, "_recording", False):
             self._recording = False
@@ -799,6 +845,16 @@ class Shell:
             self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
             self.orb.set_state(self.controller.state, "Say the keyword")
             self._sync_keyword()
+            return
+        clock = getattr(self, "_clock", None)
+        if clock is None or "first_sound" in clock.marks or "interrupt" in clock.marks:
+            self._clock = TurnClock()
+        self._clock.mark("transcript")
+        if is_resume(text) and getattr(self, "_unheard", ""):
+            rest = self._unheard
+            self._unheard = ""
+            self.window.home.set_reply(text, rest, rest)
+            self._speak(rest)
             return
         if getattr(self, "_awaiting_more", False):
             answer = more_answer(text)
@@ -978,29 +1034,89 @@ class Shell:
         if self.controller.state != "on":
             self.window.home.set_reply(text, "The AI is off.", "Turn it on first. Nothing was sent.")
             return
-        if getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning():
+        running = getattr(self, "_ask_job", None)
+        if running is not None and running.isRunning() and not running.cancel.is_set():
             self.window.home.set_reply(text, "Still thinking.", "Wait for this reply to finish.")
             return
         mode = get_mode(self.controller.settings.intelligence)
         self._early_lead = ""
         self._pending_offer = ""
+        self._finished_phrases = []
+        self._turn_id += 1
+        if getattr(self, "_clock", None) is None:
+            self._clock = TurnClock()
+        self._clock.mark("transcript")
+        self._filler.start(1500)
+        note = getattr(self, "_interrupt_note", "")
+        if note:
+            text = f"{note}\n{text}"
+            self._interrupt_note = ""
         job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx)
+        job.turn = self._turn_id
         self._ask_job = job
-        job.lead_ready.connect(self._lead_ready)
-        job.succeeded.connect(self._asked)
-        job.failed.connect(lambda message, heard=text: self._ask_failed(heard, message))
+        job.first_token.connect(lambda turn=job.turn: self._on_first_token(turn))
+        job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
+        job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
+        job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
         self.orb.set_state("thinking", "Thinking.")
         self.window.home.set_phase("thinking", "Asking the model on this PC.")
         job.start()
 
-    def _ask_failed(self, heard: str, message: str) -> None:
+    def _same_turn(self, turn: int) -> bool:
+        return turn == getattr(self, "_turn_id", 0)
+
+    def _on_first_token(self, turn: int) -> None:
+        if not self._same_turn(turn) or getattr(self, "_clock", None) is None:
+            return
+        self._clock.mark("first_token")
+
+    def _cue_waiting(self) -> None:
+        clock = getattr(self, "_clock", None)
+        if clock is None or "first_sound" in clock.marks or not self._same_turn(self._turn_id):
+            return
+        line = ("One moment.", "Still working.", "Give me a second.")[self._filler_n % 3]
+        self._filler_n += 1
+        self.window.home.set_phase("thinking", line)
+        self.orb.set_state("thinking", line)
+
+    def _cut_off(self) -> None:
+        started = time.perf_counter()
+        self._turn_id += 1
+        self._filler.stop()
+        job = getattr(self, "_ask_job", None)
+        if job is not None:
+            job.cancel.set()
+        stop_kokoro()
+        speaker.stop()
+        heard = " ".join(getattr(self, "_finished_phrases", []))
+        full = getattr(self, "_full_reply", "") or getattr(self, "_early_lead", "")
+        self._unheard = remainder_after(heard, full) if heard else full
+        self._interrupt_note = interrupt_note(heard)
+        self.controller._remember(heard or "Interrupted before a full phrase.")
+        clock = getattr(self, "_clock", None)
+        if clock is not None:
+            clock.marks["interrupt"] = max(0, int((time.perf_counter() - started) * 1000))
+            self._responsiveness.add(clock.as_row())
+            self.window.voice_page.set_responsiveness(self._responsiveness.summary())
+        self._speaking = False
+        self._finished_phrases = []
+        self.window.home.set_phase("on", "Stopped. Say carry on to hear the rest.")
+
+    def _ask_failed(self, heard: str, message: str, turn: int = 0) -> None:
+        if turn and not self._same_turn(turn):
+            return
+        self._filler.stop()
         self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
         self._speaking = False
         self._sync_keyword()
 
-    def _lead_ready(self, lead: str) -> None:
+    def _lead_ready(self, lead: str, turn: int = 0) -> None:
         """Speak the first sentence while the rest is still being written."""
+        if turn and not self._same_turn(turn):
+            return
+        if getattr(self, "_clock", None) is not None:
+            self._clock.mark("first_phrase")
         if getattr(self, "_early_lead", ""):
             return
         self._early_lead = lead
@@ -1008,7 +1124,9 @@ class Shell:
         self.window.home.set_reply(heard, lead, "Still writing the rest on this PC.")
         self._speak(lead)
 
-    def _asked(self, reply: str) -> None:
+    def _asked(self, reply: str, turn: int = 0) -> None:
+        if turn and not self._same_turn(turn):
+            return
         early = getattr(self, "_early_lead", "")
         lead, _full_rest = lead_and_rest(reply)
         rest = remainder_after(early, reply) if early else _full_rest
@@ -1136,6 +1254,9 @@ class Shell:
             return
         if text == "PREVIEW voice":
             self._preview_voice()
+            return
+        if text == "EXPORT timings":
+            self._export_timings()
             return
         self.controller._remember(text)
         self.window.home.set_history(self.controller.history)
@@ -1297,13 +1418,30 @@ class Shell:
             self._speaking = False
             self._sync_keyword()
             return
-        job = _SpeakJob(text, prefs)
+        job = _SpeakJob(text, prefs, self._turn_id)
         self._speak_job = job
         self.orb.set_state("speaking", text)
         self.window.home.set_phase("speaking", f"Speaking with {prefs['label']}.")
+        job.started.connect(self._sound_started)
+        job.phrase_done.connect(self._phrase_finished)
         job.failed.connect(self._speech_failed)
         job.finished.connect(self._speak_done)
         job.start()
+
+    def _sound_started(self) -> None:
+        self._filler.stop()
+        clock = getattr(self, "_clock", None)
+        if clock is None:
+            return
+        clock.mark("first_sound")
+        self._responsiveness.add(clock.as_row())
+        self.window.voice_page.set_responsiveness(self._responsiveness.summary())
+
+    def _phrase_finished(self, phrase: str) -> None:
+        job = getattr(self, "_speak_job", None)
+        if job is not None and job.turn != self._turn_id:
+            return
+        self._finished_phrases.append(phrase)
 
     def _speech_failed(self, message: str) -> None:
         self.window.home.set_phase(self.controller.state, message)
@@ -1322,6 +1460,12 @@ class Shell:
             return
         self.orb.set_state(self.controller.state, "Say the keyword")
         self._sync_keyword()
+
+    def _export_timings(self) -> None:
+        path = data_dir() / "diagnostics.txt"
+        path.write_text(self._responsiveness.export_text(), encoding="utf-8")
+        self.window.voice_page.set_responsiveness(self._responsiveness.summary())
+        self.window.voice_page.status.setText(f"Saved timings on this PC: {path}")
 
     def _preview_voice(self) -> None:
         if sys.platform != "win32":

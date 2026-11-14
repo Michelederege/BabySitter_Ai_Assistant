@@ -9,8 +9,16 @@ from __future__ import annotations
 import re
 
 
+def strip_thinking(text: str) -> str:
+    """Drop hidden thinking before anything is spoken or shown."""
+    cleaned = re.sub(r"<think>.*?</think>", " ", text or "", flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<think>.*", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    return cleaned
+
+
 def plain_speech(text: str) -> str:
-    """Drop markdown and code fences. The words stay."""
+    """Drop markdown, code fences, and thinking. The words stay."""
+    text = strip_thinking(text)
     kept: list[str] = []
     skipping_code = False
     for line in (text or "").splitlines():
@@ -89,6 +97,23 @@ def remainder_after(spoken_lead: str, reply: str) -> str:
         if bare and plain.startswith(bare):
             return plain[len(bare) :].lstrip(" \t.,!?;:").strip()
     return lead_and_rest(reply)[1]
+
+
+_RESUME = {"carry on", "what were you saying", "keep going", "continue", "go on"}
+
+
+def is_resume(text: str) -> bool:
+    """True when the user wants the cut-off answer to continue."""
+    words = re.findall(r"[a-z']+", (text or "").lower())
+    return " ".join(words) in _RESUME
+
+
+def interrupt_note(heard: str) -> str:
+    """What the model is told after a cut-off. Only the words already spoken."""
+    spoken = (heard or "").strip()
+    if not spoken:
+        return "you were interrupted before you spoke."
+    return f"you were interrupted after: {spoken}"
 
 
 def more_answer(text: str) -> str | None:
