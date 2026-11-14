@@ -93,6 +93,8 @@ class StatusCollector:
     def __init__(self, ollama) -> None:
         self.ollama = ollama
         self._cpu_primed = False
+        self.charts_paused = False
+        self._last_gpu: tuple[GpuInfo | None, str | None] = (None, None)
 
     def snapshot(self) -> StatusSnapshot:
         cpu = self._cpu()
@@ -105,7 +107,11 @@ class StatusCollector:
                 models = self.ollama.running_models()
             except OllamaError as exc:
                 models_error = str(exc)
-        gpu, gpu_error = self._gpu()
+        if self.charts_paused:
+            gpu, gpu_error = self._last_gpu
+        else:
+            gpu, gpu_error = self._gpu()
+            self._last_gpu = (gpu, gpu_error)
         return StatusSnapshot(
             cpu_percent=cpu,
             ram_used_bytes=int(memory.used),

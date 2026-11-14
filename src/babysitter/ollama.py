@@ -44,10 +44,35 @@ class LoadedModel:
     name: str
     size_bytes: int
     vram_bytes: int
+    context_length: int = 0
 
     @property
     def gpu_label(self) -> str:
         return gpu_placement_label(self.size_bytes, self.vram_bytes)
+
+
+def spill_problem(model: LoadedModel) -> str | None:
+    """Ollama's own size split. More than 0.5 GB outside video memory is a spill."""
+    if model.size_bytes <= 0:
+        return None
+    outside = model.size_bytes - model.vram_bytes
+    if outside > 512 * 1024 * 1024:
+        return (
+            "Needs you: the model spilled out of video memory and will be slow. "
+            "In NVIDIA Control Panel, set CUDA Sysmem Fallback Policy to "
+            "Prefer No Sysmem Fallback for ollama.exe, then quit Ollama from its tray and start it again."
+        )
+    return None
+
+
+def context_problem(model: LoadedModel, wanted_ctx: int) -> str | None:
+    """None when the loaded context is unknown or already large enough."""
+    if model.context_length <= 0 or model.context_length >= int(wanted_ctx):
+        return None
+    return (
+        f"Needs you: Ollama loaded {model.context_length:,} of context, not {wanted_ctx:,}. "
+        "Quit Ollama from its tray icon and start it again so the context setting applies."
+    )
 
 
 def gpu_placement_label(size_bytes: int, vram_bytes: int) -> str:
@@ -145,6 +170,7 @@ class OllamaClient:
         self._log_handle = None
         self._lock = threading.Lock()
         self.we_started_server = False
+        self.last_turn_stats: dict[str, int] = {}
 
     @property
     def base_url(self) -> str:
@@ -226,11 +252,21 @@ class OllamaClient:
             raise OllamaError("The model returned an empty reply.")
         return reply
 
-    def iter_reply(self, model: str, prompt: str, num_ctx: int, cancel=None, history=None, images=None):
+    def iter_reply(
+        self,
+        model: str,
+        prompt: str,
+        num_ctx: int,
+        cancel=None,
+        history=None,
+        images=None,
+        keep_alive=-1,
+    ):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
-        body = chat_body(model, prompt, num_ctx, history)
+        body = chat_body(model, prompt, num_ctx, history, keep_alive=keep_alive)
         if images:
             body["messages"][-1]["images"] = list(images)
+        self.last_turn_stats = {}
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
                 if cancel is not None:
@@ -241,7 +277,11 @@ class OllamaClient:
                     raw = response.readline()
                     if not raw:
                         break
-                    piece, done = content_from_stream_line(raw.decode("utf-8", "replace"))
+                    line = raw.decode("utf-8", "replace")
+                    stats = stats_from_stream_line(line)
+                    if stats:
+                        self.last_turn_stats = stats
+                    piece, done = content_from_stream_line(line)
                     if piece:
                         yield piece
                     if done:
@@ -329,9 +369,10 @@ class OllamaClient:
             self.we_started_server = True
         log.info("Started Ollama hidden (pid %s).", proc.pid)
 
-    def wait_until_up(self, timeout: float, cancel: threading.Event) -> bool:
+    def wait_until_up(self, timeout: float, cancel: threading.Event, progress=None) -> bool:
         deadline = timeout
         waited = 0.0
+        told_upgrade = False
         while waited < deadline:
             if cancel.is_set():
                 return False
@@ -342,6 +383,12 @@ class OllamaClient:
                 raise OllamaError(
                     "Ollama quit as soon as it started. "
                     + (f"It said: {tail}" if tail else "The log was empty.")
+                )
+            if progress is not None and waited >= 12 and not told_upgrade:
+                told_upgrade = True
+                progress(
+                    "Working: Ollama is upgrading its model storage. "
+                    "The first launch after an update can sit for a few minutes."
                 )
             cancel.wait(0.4)
             waited += 0.4
@@ -420,13 +467,17 @@ STABLE_SYSTEM = (
 )
 
 
-def chat_body(model: str, prompt: str, num_ctx: int, history=None) -> dict:
-    """The local chat request. Voice turns do not use hidden thinking."""
+def chat_body(model: str, prompt: str, num_ctx: int, history=None, keep_alive=-1) -> dict:
+    """The local chat request. Voice turns do not use hidden thinking.
+
+    num_ctx stays the same for every request at one intelligence level.
+    Changing it makes Ollama drop the loaded model and read it again.
+    """
     return {
         "model": model,
         "messages": chat_messages(prompt, history),
         "stream": True,
-        "keep_alive": -1,
+        "keep_alive": keep_alive,
         "think": False,
         "options": {
             "num_ctx": int(num_ctx),
@@ -459,6 +510,43 @@ def content_from_stream_line(line: str) -> tuple[str, bool]:
     return piece, bool(payload.get("done"))
 
 
+def stats_from_stream_line(line: str) -> dict[str, int]:
+    """Counts and speeds from a finished Ollama line. No words."""
+    text = (line or "").strip()
+    if not text:
+        return {}
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict) or not payload.get("done"):
+        return {}
+    stats: dict[str, int] = {}
+    for source, dest in (
+        ("prompt_eval_count", "prompt_tokens"),
+        ("eval_count", "gen_tokens"),
+    ):
+        value = payload.get(source)
+        if isinstance(value, int) and not isinstance(value, bool):
+            stats[dest] = value
+    prompt_ns = payload.get("prompt_eval_duration")
+    gen_ns = payload.get("eval_duration")
+    load_ns = payload.get("load_duration")
+    if isinstance(load_ns, int) and not isinstance(load_ns, bool):
+        stats["load_ms"] = int(load_ns / 1_000_000)
+    if isinstance(prompt_ns, int) and not isinstance(prompt_ns, bool) and prompt_ns > 0:
+        stats["prompt_ms"] = max(1, int(prompt_ns / 1_000_000))
+        tokens = stats.get("prompt_tokens", 0)
+        if tokens:
+            stats["prompt_tps"] = int(tokens / (prompt_ns / 1_000_000_000))
+    if isinstance(gen_ns, int) and not isinstance(gen_ns, bool) and gen_ns > 0:
+        stats["gen_ms"] = max(1, int(gen_ns / 1_000_000))
+        tokens = stats.get("gen_tokens", 0)
+        if tokens:
+            stats["gen_tps"] = int(tokens / (gen_ns / 1_000_000_000))
+    return stats
+
+
 def chat_messages(prompt: str, history=None, now=None) -> list[dict]:
     """The standing instructions stay fixed. The clock is only on the newest line."""
     from datetime import datetime
@@ -486,11 +574,17 @@ def models_from_ps(payload: dict) -> list[LoadedModel]:
         name = item.get("name") or item.get("model") or ""
         if not name:
             continue
+        context = item.get("context_length") or 0
+        try:
+            context = int(context)
+        except (TypeError, ValueError):
+            context = 0
         models.append(
             LoadedModel(
                 name=str(name),
                 size_bytes=int(item.get("size") or 0),
                 vram_bytes=int(item.get("size_vram") or 0),
+                context_length=context,
             )
         )
     return models
@@ -498,6 +592,11 @@ def models_from_ps(payload: dict) -> list[LoadedModel]:
 
 def _friendly_http(code: int, detail: str, model: str) -> str:
     lowered = detail.lower()
+    if "out of memory" in lowered or ("memory" in lowered and "cuda" in lowered):
+        return (
+            "Needs you: not enough video memory. "
+            "A game or another app may be using the card. Nothing was changed."
+        )
     if code == 404 or "not found" in lowered:
         shown = model or "that model"
         return (

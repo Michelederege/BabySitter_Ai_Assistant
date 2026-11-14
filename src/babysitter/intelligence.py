@@ -19,6 +19,8 @@ VISION_MODEL = "qwen3-vl:8b"
 
 # Lowest Ollama release that includes the fix for CVE-2026-7482.
 MIN_OLLAMA_VERSION = (0, 17, 1)
+# First release with the 2026 NVIDIA speed work. Older than this still runs.
+SPEED_OLLAMA_VERSION = (0, 34, 2)
 
 
 @dataclass(frozen=True)
@@ -34,9 +36,9 @@ MODES: dict[str, IntelligenceMode] = {
     "low": IntelligenceMode(
         id="low",
         label="Low",
-        summary="Brief replies. Fastest. Uses qwen3.5:9b, which can also look at pictures.",
+        summary="Brief replies. Fastest. Uses qwen3.5:9b for voice, tools, and pictures.",
         model=MAIN_MODEL,
-        num_ctx=4096,
+        num_ctx=16384,
     ),
     "medium": IntelligenceMode(
         id="medium",
@@ -49,7 +51,7 @@ MODES: dict[str, IntelligenceMode] = {
         id="high",
         label="High",
         summary=(
-            "The writing model with a longer memory. Uses more video memory. "
+            "The writing model with a longer memory. It loads only when the card has room. "
             "A cloud brain is not used unless you turn it on, and it still asks first."
         ),
         model=WRITING_MODEL,

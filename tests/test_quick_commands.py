@@ -1,5 +1,5 @@
 from babysitter.commands import match_quick_command, timer_label
-from babysitter.pictures import format_benchmark, room_for_model, scaled_size
+from babysitter.pictures import benchmark_warning, format_benchmark, image_tokens, room_for_model, scaled_size
 from babysitter.plugins.voice.speech import spell_codes, voice_and_rest
 
 
@@ -7,6 +7,7 @@ def test_short_requests_do_not_need_the_model():
     assert match_quick_command("what time is it").kind == "time"
     assert match_quick_command("what's my vram").kind == "vram"
     assert match_quick_command("look at my screen").kind == "screen"
+    assert match_quick_command("read the small text").kind == "screen_text"
     assert match_quick_command("why did you say that").kind == "why"
     assert match_quick_command("how is my pc").kind == "health"
     assert match_quick_command("undo").kind == "undo"
@@ -38,3 +39,9 @@ def test_benchmark_keeps_times_only():
     text = format_benchmark([900, 1100, 1000])
     assert "900 ms" in text
     assert "ready" not in text.lower()
+    detailed = format_benchmark([{"load_ms": 0, "prompt_tps": 2100, "gen_tps": 62}])
+    assert "62" in detailed
+    assert "ready" not in detailed.lower()
+    assert benchmark_warning(40, 70)
+    assert benchmark_warning(68, 70) is None
+    assert image_tokens(1280, 720) == 900

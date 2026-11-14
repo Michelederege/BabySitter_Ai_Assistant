@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import sys
+import threading
 import wave
 
 from babysitter.paths import data_dir
@@ -60,20 +61,40 @@ def install_packages() -> str:
     return output[-1500:]
 
 
+_hearing_model = None
+_hearing_lock = threading.Lock()
+
+
+def load_model():
+    """Load the speech model once and keep it until the AI turns off."""
+    global _hearing_model
+    with _hearing_lock:
+        if _hearing_model is None:
+            from faster_whisper import WhisperModel
+
+            _hearing_model = WhisperModel(
+                "small",
+                device="cpu",
+                compute_type="int8",
+                download_root=str(whisper_dir()),
+                cpu_threads=4,
+                num_workers=1,
+            )
+        return _hearing_model
+
+
+def release_model() -> None:
+    """Drop the speech model. The files stay on disk."""
+    global _hearing_model
+    with _hearing_lock:
+        _hearing_model = None
+
+
 def download_model() -> str:
     """Download the small speech model onto this PC. It is not sent anywhere."""
     if not packages_installed():
         raise HearingError("Install the hearing programs first.")
-    from faster_whisper import WhisperModel
-
-    WhisperModel(
-        "small",
-        device="cpu",
-        compute_type="int8",
-        download_root=str(whisper_dir()),
-        cpu_threads=4,
-        num_workers=1,
-    )
+    load_model()
     if not model_ready():
         raise HearingError("The download finished, but the speech model was not found on this PC.")
     return "Speech recognition is ready. Hold Talk to use it. It runs on the processor, not the graphics card."
@@ -149,19 +170,11 @@ def transcribe(wav_bytes: bytes) -> str:
             "The speech model is not downloaded yet. Open Voice and click Download speech recognition."
         )
     import numpy as np
-    from faster_whisper import WhisperModel
 
     with wave.open(io.BytesIO(wav_bytes), "rb") as handle:
         frames = handle.readframes(handle.getnframes())
     audio = np.frombuffer(frames, dtype=np.int16).astype("float32") / 32768.0
-    model = WhisperModel(
-        "small",
-        device="cpu",
-        compute_type="int8",
-        download_root=str(whisper_dir()),
-        cpu_threads=4,
-        num_workers=1,
-    )
+    model = load_model()
     segments, _info = model.transcribe(audio, language="en", beam_size=1, vad_filter=True)
     text = " ".join(segment.text.strip() for segment in segments).strip()
     return text

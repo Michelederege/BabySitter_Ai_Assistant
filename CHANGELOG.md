@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.11.0 — Keep the model on the graphics card
+
+Low now gives qwen3.5:9b a 16,384-token conversation. That extra room is small on this model. Medium stays at 8,192 because the writing model already fills a 12 GB card. High still asks for 16,384 and loads only when the card has room. If the model spills into system memory, BabySitter unloads it and says so. A short context is reported instead of being ignored. Holding talk while the AI is off starts the load while you are still speaking. In Game mode, saying yes loads the model and unloads it again two minutes after the answer. Speech recognition stays loaded while the AI is on, on four processor threads. Heart and Sarah is capped the same way and stops spinning while it waits. The benchmark records speeds, not words, and warns if a later run is much slower.
+
 ## 0.10.0 — Faster everyday answers, still on this PC
 
 Short requests such as the time, video memory, a timer, and “why did you say that” are answered without the language model. A timer starts immediately and can be cancelled by saying undo within 10 seconds. In Game mode those short requests still work. Anything else asks before loading the model. If a reply takes more than a second and a half, and Heart and Sarah is already downloaded, BabySitter says “One moment” while it keeps working. Stopping an answer also stops the request to Ollama. A screenshot is shrunk and shown to the model that is already loaded. It is not saved. Long lists and code stay on the screen. The follow-up window can be 5 to 20 seconds. A benchmark on the Models tab times a fixed prompt three times and keeps only the times.

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from babysitter.intelligence import MIN_OLLAMA_VERSION
+from babysitter.intelligence import MIN_OLLAMA_VERSION, SPEED_OLLAMA_VERSION
 from babysitter.ollama import OllamaClient, parse_ollama_version, version_is_older
 
 
@@ -42,7 +42,14 @@ def version_message(found: tuple[int, int, int] | None, raw: str, missing: str |
             "Update Ollama before you turn the AI on. "
             "The download page is https://ollama.com/download"
         )
-    return True, False, f"Ollama {dotted} is new enough."
+    message = f"Ollama {dotted} is new enough."
+    if version_is_older(found, SPEED_OLLAMA_VERSION):
+        fast = ".".join(str(part) for part in SPEED_OLLAMA_VERSION)
+        message += (
+            f" Version {fast} or newer is faster. Update Ollama itself from "
+            "https://ollama.com/download. ollama pull only refreshes models, not the engine."
+        )
+    return True, False, message
 
 
 def check_ollama(ollama: OllamaClient) -> VersionReport:

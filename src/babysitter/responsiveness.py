@@ -23,7 +23,19 @@ class TurnClock:
 class ResponsivenessLog:
     """The last voice turns, as milliseconds only."""
 
-    KEYS = ("transcript", "first_token", "first_phrase", "first_sound", "interrupt")
+    KEYS = (
+        "transcript",
+        "first_token",
+        "first_phrase",
+        "first_sound",
+        "interrupt",
+        "prompt_tokens",
+        "gen_tokens",
+        "prompt_tps",
+        "gen_tps",
+        "load_ms",
+        "image_tokens",
+    )
 
     def __init__(self) -> None:
         self.rows: list[dict[str, int]] = []
@@ -46,10 +58,14 @@ class ResponsivenessLog:
         ordered = sorted(sounds)
         typical = ordered[(len(ordered) - 1) // 2]
         worst = ordered[-1]
-        return (
+        line = (
             f"Typical time to first sound: {typical} ms. Worst: {worst} ms. "
             f"{len(sounds)} turns. Only timings are kept. No words are stored."
         )
+        prompts = [row["prompt_tokens"] for row in self.rows if "prompt_tokens" in row]
+        if prompts:
+            line += f" Last reply read {prompts[-1]} prompt tokens."
+        return line
 
     def export_text(self) -> str:
         lines = [
