@@ -86,9 +86,13 @@ class MemoryPage(_Page):
         add.clicked.connect(self._add)
         forget = QPushButton("Delete the last fact")
         forget.clicked.connect(self._forget)
+        review = QPushButton("Weekly review")
+        review.setToolTip("A summary from this PC. It does not load a model.")
+        review.clicked.connect(lambda: self.notice.emit("WEEKLY review"))
         row.addWidget(self.text, 1)
         row.addWidget(add)
         row.addWidget(forget)
+        row.addWidget(review)
         self.root.insertLayout(2, row)
         self.refresh()
 
@@ -163,8 +167,8 @@ class ModelsPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Models",
-            "Only one model is loaded at a time. qwen3.5:9b answers and can look at the screen. "
-            "gemma4:12b is for longer writing. qwen3-vl:8b is optional. "
+            "Only one model is loaded at a time. Low keeps qwen3.5:9b near 6 GB. "
+            "It answers and can look at the screen. gemma4:12b is for longer writing. qwen3-vl:8b is optional. "
             "Removing a model asks first. An uninstall does not remove Ollama's models.",
         )
         ask = QPushButton("Ask Ollama which models are installed")

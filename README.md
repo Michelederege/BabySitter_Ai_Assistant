@@ -82,11 +82,11 @@ Start with Windows is **off** unless you check it in Settings. Even if you turn 
 
 Only one model is loaded at a time. Switching levels unloads the one that is in memory first.
 
-- **Low** is `qwen3.5:9b`. Brief replies, and it can look at pictures later.
-- **Medium** is `gemma4:12b`. This is the everyday default.
-- **High** is the same writing model with a longer memory. A cloud brain is not used unless you turn it on, and it still asks first.
+- **Low** is `qwen3.5:9b` with 4,096 tokens of context. Brief replies, tools, and pictures stay. It aims for 4 to 6 GB of video memory. On this 12 GB card the Q4 weights themselves are about 5.4 GB, so a normal Low load is about 6 GB. BabySitter does not push layers into system memory to chase a smaller number.
+- **Medium** is `gemma4:12b` with 8,192 tokens. This is the everyday default.
+- **High** is the same writing model with 16,384 tokens. It loads only when the card has room. A cloud brain is not used unless you turn it on, and it still asks first.
 
-If the AI is already on when you change this, click **Reload the model with this setting**. The model card tells you if the model is 100% on the GPU. If it is not, drop from High to Medium.
+If the AI is already on when you change this, click **Reload the model with this setting**. The model card tells you if the model is 100% on the GPU. If Low reports more than 6 GB, the model file is larger than the goal and the context is already as small as the pictures allow. If you start Ollama yourself, quit it from the tray so BabySitter can start it with the smaller q4 cache.
 
 `qwen3-vl:8b` is for screenshots later. It is not loaded until you ask BabySitter to look at the screen and confirm that picture.
 

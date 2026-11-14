@@ -36,7 +36,7 @@ class FakeOllama:
     def endpoint_is_private(self):
         return self.private
 
-    def preload(self, model: str, num_ctx: int) -> None:
+    def preload(self, model: str, num_ctx: int, num_batch: int | None = None) -> None:
         if self.fail_preload:
             raise OllamaError(self.fail_preload)
         self.preloaded.append((model, num_ctx))

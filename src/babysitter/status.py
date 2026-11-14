@@ -6,7 +6,9 @@ does not change anything on the computer.
 
 from __future__ import annotations
 
+import ctypes
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 
@@ -76,6 +78,68 @@ def parse_compute_apps_csv(text: str) -> int:
     return total
 
 
+def probes_paused(charts_paused: bool, defer_probes: bool) -> bool:
+    """Skip the video-memory read while the window is hidden or a voice turn is open."""
+    return bool(charts_paused or defer_probes)
+
+
+def gpu_from_pairs(devices: list[tuple[int, int]]) -> tuple[GpuInfo | None, str | None]:
+    """Pick the largest card from (used_mib, total_mib) pairs."""
+    rows = [(int(used), int(total)) for used, total in devices if int(total) > 0]
+    if not rows:
+        return None, "The NVIDIA driver did not report video memory."
+    used, total = max(rows, key=lambda row: row[1])
+    note = ""
+    if len(rows) > 1:
+        note = f"{len(rows)} GPUs found. Showing the largest."
+    return GpuInfo(used_mib=used, total_mib=total, ollama_mib=0, index_note=note), None
+
+
+class _NvmlMemory(ctypes.Structure):
+    _fields_ = (
+        ("total", ctypes.c_ulonglong),
+        ("free", ctypes.c_ulonglong),
+        ("used", ctypes.c_ulonglong),
+    )
+
+
+def read_nvml_devices() -> list[tuple[int, int]] | None:
+    """Used and total MiB from NVML. None when the driver library is missing."""
+    try:
+        if sys.platform == "win32":
+            library = ctypes.WinDLL("nvml.dll")
+        else:
+            library = ctypes.CDLL("libnvidia-ml.so.1")
+        library.nvmlInit_v2.restype = ctypes.c_int
+        if library.nvmlInit_v2() != 0:
+            return None
+        count = ctypes.c_uint()
+        library.nvmlDeviceGetCount_v2.argtypes = [ctypes.POINTER(ctypes.c_uint)]
+        library.nvmlDeviceGetCount_v2.restype = ctypes.c_int
+        if library.nvmlDeviceGetCount_v2(ctypes.byref(count)) != 0:
+            return None
+        devices: list[tuple[int, int]] = []
+        for index in range(int(count.value)):
+            handle = ctypes.c_void_p()
+            library.nvmlDeviceGetHandleByIndex_v2.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)]
+            library.nvmlDeviceGetHandleByIndex_v2.restype = ctypes.c_int
+            if library.nvmlDeviceGetHandleByIndex_v2(index, ctypes.byref(handle)) != 0:
+                continue
+            memory = _NvmlMemory()
+            library.nvmlDeviceGetMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_NvmlMemory)]
+            library.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+            if library.nvmlDeviceGetMemoryInfo(handle, ctypes.byref(memory)) != 0:
+                continue
+            devices.append((int(memory.used // (1024 * 1024)), int(memory.total // (1024 * 1024))))
+        try:
+            library.nvmlShutdown()
+        except Exception:
+            pass
+        return devices or None
+    except (OSError, AttributeError):
+        return None
+
+
 def format_mib(mib: int) -> str:
     if mib >= 10240:
         return f"{mib / 1024:.1f} GB"
@@ -94,6 +158,8 @@ class StatusCollector:
         self.ollama = ollama
         self._cpu_primed = False
         self.charts_paused = False
+        self.defer_probes = False
+        self.nvml_reader = read_nvml_devices
         self._last_gpu: tuple[GpuInfo | None, str | None] = (None, None)
 
     def snapshot(self) -> StatusSnapshot:
@@ -107,7 +173,7 @@ class StatusCollector:
                 models = self.ollama.running_models()
             except OllamaError as exc:
                 models_error = str(exc)
-        if self.charts_paused:
+        if probes_paused(self.charts_paused, self.defer_probes):
             gpu, gpu_error = self._last_gpu
         else:
             gpu, gpu_error = self._gpu()
@@ -137,7 +203,25 @@ class StatusCollector:
         return names
 
     def read_gpu(self) -> tuple[GpuInfo | None, str | None]:
-        return self._gpu()
+        return self._gpu(processes=True)
+
+    def _gpu(self, processes: bool = False) -> tuple[GpuInfo | None, str | None]:
+        gpu = self._gpu_nvml()
+        if gpu is not None:
+            if processes:
+                self._fill_ollama_mib(gpu)
+            return gpu, None
+        return self._gpu_smi()
+
+    def _gpu_nvml(self) -> GpuInfo | None:
+        try:
+            devices = self.nvml_reader()
+        except Exception:
+            return None
+        if not devices:
+            return None
+        gpu, _error = gpu_from_pairs(devices)
+        return gpu
 
     def _cpu(self) -> float:
         if not self._cpu_primed:
@@ -145,7 +229,22 @@ class StatusCollector:
             self._cpu_primed = True
         return float(psutil.cpu_percent(interval=None))
 
-    def _gpu(self) -> tuple[GpuInfo | None, str | None]:
+    def _fill_ollama_mib(self, gpu: GpuInfo) -> None:
+        try:
+            apps = run_hidden(
+                [
+                    "nvidia-smi",
+                    "--query-compute-apps=pid,process_name,used_memory",
+                    "--format=csv,noheader,nounits",
+                ],
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        if apps.returncode == 0:
+            gpu.ollama_mib = parse_compute_apps_csv(apps.stdout or "")
+
+    def _gpu_smi(self) -> tuple[GpuInfo | None, str | None]:
         try:
             memory = run_hidden(
                 [

@@ -95,6 +95,26 @@ class SettingsPage(QWidget):
             "On by default. Quit still asks first and tells you Ollama will be stopped."
         )
         root.addWidget(self.quit_off)
+
+        root.addWidget(self._label("Listening extras"))
+        hint = QLabel(
+            "These stay off until you turn them on. Silero is used only when its file is already "
+            "in your BabySitter folder. Otherwise a quiet-versus-loud check on the processor is used. "
+            "None of this uses the graphics card."
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName("hint")
+        root.addWidget(hint)
+        self.vad_enabled = QCheckBox("Use Silero, or the processor check, to notice speech")
+        self.vad_enabled.setToolTip("Off by default. Put silero_vad.onnx in models/silero to use Silero.")
+        self.smart_turn = QCheckBox("Smart Turn: end the question sooner after a longer sentence")
+        self.smart_turn.setToolTip("Off by default. A short question still waits a little longer.")
+        self.echo_cancel = QCheckBox("Subtract BabySitter's own voice from the microphone")
+        self.echo_cancel.setToolTip("Off by default. This is a simple subtract, not a studio canceller.")
+        self.talk_over = QCheckBox("Let me talk over a reply")
+        self.talk_over.setToolTip("Off by default. It only works while echo cancellation is also on.")
+        for box in (self.vad_enabled, self.smart_turn, self.echo_cancel, self.talk_over):
+            root.addWidget(box)
         self.games = QListWidget()
         self.games.setToolTip("Program names that count as games, such as bg3.exe.")
         root.addWidget(self.games)
@@ -142,6 +162,23 @@ class SettingsPage(QWidget):
         self.auto_game.setChecked(settings.auto_game_mode)
         self.off_game_cores.setChecked(settings.keep_off_game_cores)
         self.quit_off.setChecked(settings.quit_turns_ai_off)
+        self.vad_enabled.setChecked(settings.vad_enabled)
+        self.smart_turn.setChecked(settings.smart_turn)
+        self.echo_cancel.setChecked(settings.echo_cancel)
+        self.talk_over.setChecked(settings.talk_over)
         self.games.clear()
         self.games.addItems(settings.game_processes)
         self.folder.setText(data_folder)
+
+    def toggles(self):
+        return (
+            self.autostart,
+            self.on_top,
+            self.auto_game,
+            self.off_game_cores,
+            self.quit_off,
+            self.vad_enabled,
+            self.smart_turn,
+            self.echo_cancel,
+            self.talk_over,
+        )

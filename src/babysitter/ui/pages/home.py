@@ -454,7 +454,9 @@ class HomePage(QWidget):
         mode = MODES.get(mode_id, MODES["medium"])
         for key, button in self.intel_buttons.items():
             button.setChecked(key == mode.id)
-        self.intel_summary.setText(f"{mode.summary} Context {mode.num_ctx:,}.")
+        self.intel_summary.setText(
+            f"{mode.summary} Context {mode.num_ctx:,}. About {mode.vram_mib / 1024:.1f} GB of video memory."
+        )
 
     def set_history(self, lines: list[str]) -> None:
         self.recent.setPlainText("\n".join(lines))
