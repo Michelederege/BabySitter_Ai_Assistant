@@ -223,10 +223,7 @@ class Controller(QObject):
         mode = get_mode(self.settings.intelligence)
         game_name = None
         if self.settings.auto_game_mode and self.latest_status is not None:
-            match = first_matching_game(
-                self.settings.game_processes, self.latest_status.process_names
-            )
-            game_name = self.games.auto_switch_target(match)
+            game_name = self.games.auto_switch_target(self._game_match(self.latest_status))
         self.cancel.clear()
         self._emergency_latched = False
         self._set_busy(True)
@@ -257,11 +254,16 @@ class Controller(QObject):
         """Leave game mode and load the model, even if the game is still open."""
         match = None
         if self.latest_status is not None:
-            match = first_matching_game(
-                self.settings.game_processes, self.latest_status.process_names
-            )
+            match = self._game_match(self.latest_status)
         self.games.suppress(match)
         self.turn_on()
+
+    def _game_match(self, snap: StatusSnapshot) -> str | None:
+        """A game from your list, or one noticed by its install folder."""
+        match = first_matching_game(self.settings.game_processes, snap.process_names)
+        if match is None and self.settings.detect_games:
+            match = snap.detected_game
+        return match
 
     def turn_off(self, *, emergency: bool = False, tray_choice: str = "ask") -> None:
         if emergency:
@@ -336,6 +338,10 @@ class Controller(QObject):
 
     def set_auto_game(self, enabled: bool) -> None:
         self.settings.auto_game_mode = enabled
+        save_settings(self.settings)
+
+    def set_detect_games(self, enabled: bool) -> None:
+        self.settings.detect_games = bool(enabled)
         save_settings(self.settings)
 
     def set_core_avoidance(self, enabled: bool) -> str:
@@ -418,8 +424,7 @@ class Controller(QObject):
         self.status_changed.emit(snap)
         if self._busy or not self.settings.auto_game_mode or self.state != ON:
             return
-        match = first_matching_game(self.settings.game_processes, snap.process_names)
-        target = self.games.auto_switch_target(match)
+        target = self.games.auto_switch_target(self._game_match(snap))
         if target:
             self._remember(f"{target} is running. Switching to game mode.")
             self.enter_game()
