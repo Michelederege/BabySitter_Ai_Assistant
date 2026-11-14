@@ -17,7 +17,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.commands import match_quick_command, timer_label
 from babysitter.controller import Controller, windows_registrar_or_dummy
-from babysitter.deskstore import add_item, hero_path, load_list
+from babysitter.deskstore import add_item, hero_path, load_list, remove_item
 from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
@@ -66,6 +66,18 @@ from babysitter.plugins.voice.speech import (
 )
 from babysitter.responsiveness import ResponsivenessLog, TurnClock
 from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
+from babysitter.pcscan import (
+    apply_startup,
+    close_named,
+    collect_processes,
+    collect_startups,
+    pids_named,
+    scan,
+    suggestion_answer,
+    terminate_pid,
+    windows_startup_store,
+)
+from babysitter.plugins.tools.google_account import GoogleError, GoogleReader, default_google_vault, http_get_json
 from babysitter.plugins.tools.social import (
     PreparedSearch,
     SocialSearchError,
@@ -378,6 +390,35 @@ class _SearchJob(QThread):
             key = ""
 
 
+class _GoogleJob(QThread):
+    ready = Signal(str)
+
+    def __init__(self, token: str, kind: str) -> None:
+        super().__init__()
+        self._token = token
+        self._kind = kind
+
+    def run(self) -> None:
+        secret = self._token
+        self._token = ""
+        try:
+            reader = GoogleReader(secret, http_get_json)
+            if self._kind == "mail":
+                speech = reader.unread()
+            elif self._kind == "calendar":
+                speech = reader.upcoming()
+            else:
+                speech = reader.unread() + " " + reader.upcoming()
+        except GoogleError as exc:
+            speech = str(exc)
+        except Exception:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        if secret and secret in speech:
+            speech = "Google did not answer. Mail and the calendar were not changed."
+        secret = ""
+        self.ready.emit(speech)
+
+
 class _HideCharts(QObject):
     def __init__(self, collector) -> None:
         super().__init__()
@@ -399,6 +440,14 @@ class Shell:
         self.tray = Tray(self.icon)
         self.registrar = windows_registrar_or_dummy()
         self.vault = default_vault()
+        self.google_vault = default_google_vault()
+        self._startup_store = windows_startup_store()
+        self._suggestions: list = []
+        self._suggestion_at = 0
+        self._scan_prefix = ""
+        self._soft_undo = None
+        self._google_notified = False
+        self._google_speak_errors = True
         self._search_job: _SearchJob | None = None
         self._power_ready = False
         self._turn_id = 0
@@ -502,10 +551,17 @@ class Shell:
         tools.save_key.connect(self._save_social_key)
         tools.delete_key.connect(self._delete_social_key)
         tools.search_requested.connect(self._prepare_search)
+        tools.google_enabled_changed.connect(self._set_google)
+        tools.save_google.connect(self._save_google_token)
+        tools.delete_google.connect(self._delete_google_token)
+        tools.google_check.connect(self._google_from_button)
         tools.set_enabled(self.controller.settings.social_search_enabled)
-        self.window.home.set_privacy(self.controller.settings.social_search_enabled)
+        tools.set_google_enabled(self.controller.settings.google_enabled)
+        self._refresh_privacy()
         saved = self.vault.has_key() if self.vault.available else False
         tools.set_key_saved(saved, self.vault.available)
+        saved_google = self.google_vault.has_token() if self.google_vault.available else False
+        tools.set_google_saved(saved_google, self.google_vault.available)
         self.window.expand_button.clicked.connect(self._toggle_expand)
         self.window.set_expanded(self.controller.settings.window_expanded)
         self.window.pin_open.connect(self._show_pin)
@@ -545,7 +601,16 @@ class Shell:
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
         save_settings(self.controller.settings)
-        self.window.home.set_privacy(bool(on))
+        self._refresh_privacy()
+
+    def _set_google(self, on: bool) -> None:
+        self.controller.settings.google_enabled = bool(on)
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+
+    def _refresh_privacy(self) -> None:
+        settings = self.controller.settings
+        self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -645,6 +710,7 @@ class Shell:
             release_model()
             release_kokoro()
             self._session_personality = ""
+            self._google_notified = False
             self._end_model_turn()
             self._return_to_game = False
             timer = getattr(self, "_game_return_timer", None)
@@ -660,6 +726,9 @@ class Shell:
                 self._queued_after_load = ""
                 self._pending_line = queued
                 self._send_heard()
+            elif self.controller.settings.google_enabled and not self._google_notified:
+                self._google_notified = True
+                self._start_google("both", speak_errors=False)
         self.window.home.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
@@ -1055,6 +1124,12 @@ class Shell:
         if quick is not None and quick.kind == "undo":
             self._undo_timer()
             return
+        if self._suggestions and self._suggestion_at < len(self._suggestions):
+            answer = suggestion_answer(text)
+            if answer:
+                self._answer_suggestion(answer)
+                return
+            self._suggestions = []
         if getattr(self, "_offer_load", False) and more_answer(text) == "yes":
             self._offer_load = False
             self._return_to_game = True
@@ -1090,10 +1165,8 @@ class Shell:
                 return
             self._clear_more()
         self._pending_line = text
-        self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
-        if text.lower().startswith("remind"):
-            self._on_command(text)
-            return
+        if match_quick_command(text) is None:
+            self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
         self._send_heard()
 
     def _hear_failed(self, message: str) -> None:
@@ -1229,6 +1302,18 @@ class Shell:
         if not text:
             self.window.home.set_reply("nothing", "Type something first.", "Nothing was sent.")
             return
+        typed_quick = match_quick_command(text)
+        if typed_quick is not None and typed_quick.kind == "undo":
+            self.window.home.typed.clear()
+            self._undo_timer()
+            return
+        if self._suggestions and self._suggestion_at < len(self._suggestions):
+            answer = suggestion_answer(text)
+            if answer:
+                self.window.home.typed.clear()
+                self._answer_suggestion(answer)
+                return
+            self._suggestions = []
         if getattr(self, "_awaiting_more", False):
             answer = more_answer(text)
             if answer == "yes":
@@ -1242,21 +1327,10 @@ class Shell:
             self._clear_more()
         self.window.home.typed.clear()
         self._pending_line = text
-        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
-        if text.lower().startswith("remind"):
-            if not ask_yes_no(
-                self.window,
-                "Save this reminder?",
-                f"This stays on this PC. Nothing is sent out.\n\n{text}",
-                "Save the reminder",
-                "Don't save",
-            ):
-                self.window.home.set_reply(text, "Not saved.", "Nothing was sent.")
-                return
-            add_item("schedule.json", text=text)
-            self.window.schedule_page.refresh()
-            self.window.home.set_reply(text, "Saved on this PC.", "Nothing was sent off this computer.")
+        if typed_quick is not None:
+            self._send_heard()
             return
+        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
 
     def _send_heard(self) -> None:
         text = getattr(self, "_pending_line", "").strip()
@@ -1565,23 +1639,16 @@ class Shell:
     def _on_page_notice(self, text: str) -> None:
         if text.startswith("CONFIRM reminder:"):
             body = text.split(":", 1)[1].strip()
-            if ask_yes_no(self.window, "Save this reminder?", body, "Save the reminder", "Don't save"):
-                add_item("schedule.json", text=body)
-                self.window.schedule_page.text.clear()
-                self.window.schedule_page.refresh()
+            self.window.schedule_page.text.clear()
+            self._save_local("schedule.json", body, "the reminder")
             return
         if text.startswith("CONFIRM memory:"):
             body = text.split(":", 1)[1].strip()
-            if ask_yes_no(
-                self.window,
-                "Remember this?",
-                f"Save this on this PC?\n\n{body}",
-                "Remember it",
-                "Don't save",
-            ):
-                add_item("memory.json", text=body)
-                self.window.memory_page.text.clear()
-                self.window.memory_page.refresh()
+            self.window.memory_page.text.clear()
+            self._save_local("memory.json", body, "that")
+            return
+        if text == "SCAN pc":
+            self._begin_scan()
             return
         if text == "CONFIRM screen":
             self._look_at_screen()
@@ -1639,21 +1706,6 @@ class Shell:
         mode = get_mode(self.controller.settings.intelligence)
         native = full and mode.num_ctx > 4096
         edge = mode.image_edge if not full else 1280
-        if not ask_yes_no(
-            self.window,
-            "Look at the screen?",
-            "BabySitter will take one picture in memory and ask the model that is already loaded. "
-            + (
-                "Small text is sent at full size, so this takes a few seconds. "
-                if native
-                else f"The long edge stays at or under {edge} pixels so it fits this level. "
-            )
-            + "The picture is not saved.",
-            "Look now",
-            "Don't look",
-        ):
-            self.window.screen_page.body.setPlainText("Nothing was captured.")
-            return
         screen = QApplication.primaryScreen()
         if screen is None:
             self.window.screen_page.body.setPlainText("No screen was found. Nothing was saved.")
@@ -2033,6 +2085,20 @@ class Shell:
         if quick.kind == "timer":
             self._begin_timer(quick.seconds)
             return True
+        if quick.kind == "scan":
+            self._begin_scan()
+            return True
+        if quick.kind == "mail":
+            self._start_google("mail", speak_errors=True)
+            return True
+        if quick.kind == "calendar":
+            self._start_google("calendar", speak_errors=True)
+            return True
+        if quick.kind in {"remember", "remind"}:
+            filename = "memory.json" if quick.kind == "remember" else "schedule.json"
+            noun = "that" if quick.kind == "remember" else "the reminder"
+            self._save_local(filename, text.strip(), noun)
+            return True
         return False
 
     def _begin_timer(self, seconds: int) -> None:
@@ -2051,14 +2117,201 @@ class Shell:
         self._speak(speech)
 
     def _undo_timer(self) -> None:
-        if time.time() > getattr(self, "_undo_until", 0) or getattr(self, "_active_timer", None) is None:
-            self._speak("Nothing to undo.")
+        now = time.time()
+        if now <= getattr(self, "_undo_until", 0) and getattr(self, "_active_timer", None) is not None:
+            self._active_timer.stop()
+            self._active_timer = None
+            self._undo_until = 0
+            self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
+            self._speak("Cancelled the timer.")
             return
-        self._active_timer.stop()
-        self._active_timer = None
-        self._undo_until = 0
-        self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
-        self._speak("Cancelled the timer.")
+        soft = getattr(self, "_soft_undo", None)
+        if soft and now <= float(soft.get("until") or 0):
+            self._undo_soft(soft)
+            return
+        self._speak("Nothing to undo.")
+
+    def _undo_soft(self, soft: dict) -> None:
+        self._soft_undo = None
+        kind = soft.get("kind")
+        if kind == "note":
+            remove_item(str(soft.get("file") or ""), str(soft.get("id") or ""))
+            self.window.schedule_page.refresh()
+            self.window.memory_page.refresh()
+            speech = "Removed that."
+        elif kind == "close":
+            speech = "I can't reopen it. It is already closed."
+        elif kind == "startup":
+            try:
+                self._startup_store.restore(str(soft.get("name") or ""), str(soft.get("command") or ""))
+                speech = "Turned it back on at startup."
+            except Exception:
+                speech = "I could not put that startup item back."
+        else:
+            speech = "Nothing to undo."
+        self.window.home.set_reply("undo", speech, "Nothing else was changed.")
+        self._speak(speech)
+
+    def _save_local(self, filename: str, text: str, noun: str) -> None:
+        item = add_item(filename, text=text)
+        self._soft_undo = {
+            "kind": "note",
+            "until": time.time() + 10,
+            "file": filename,
+            "id": item["id"],
+        }
+        if filename.startswith("schedule"):
+            self.window.schedule_page.refresh()
+        else:
+            self.window.memory_page.refresh()
+        speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
+        self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _begin_scan(self) -> None:
+        if self.turns.busy():
+            self.window.health_page.body.setPlainText("I'll scan when this reply finishes.")
+            self._speak("I'll scan when this reply finishes.")
+            return
+        result = scan(
+            collect_processes(),
+            collect_startups(),
+            games=self.controller.settings.game_processes,
+        )
+        self._suggestions = list(result.suggestions)
+        self._suggestion_at = 0
+        self._awaiting_more = False
+        self._scan_prefix = "I left games alone. " if result.left_games else ""
+        if not self._suggestions:
+            speech = self._scan_prefix + "I didn't find a heavy app or a startup item I would change."
+            self._scan_prefix = ""
+            self.window.health_page.body.setPlainText(speech)
+            self.window.home.set_reply("scan", speech, "Nothing was changed.")
+            self._speak(speech)
+            return
+        self._speak_current_suggestion()
+
+    def _speak_current_suggestion(self) -> None:
+        item = self._suggestions[self._suggestion_at]
+        speech = self._scan_prefix + item.speech
+        self._scan_prefix = ""
+        self.window.health_page.body.setPlainText(speech + "\n\nSay yes, or say no.")
+        self.window.home.set_reply("scan", speech, "Nothing changes until you say yes.")
+        self._speak(speech)
+
+    def _answer_suggestion(self, answer: str) -> None:
+        item = self._suggestions[self._suggestion_at]
+        if answer == "yes":
+            result = self._apply_suggestion(item)
+        else:
+            result = "Leaving it."
+        self._suggestion_at += 1
+        if self._suggestion_at < len(self._suggestions):
+            nxt = self._suggestions[self._suggestion_at]
+            speech = f"{result} {nxt.speech}"
+            detail = nxt.speech
+        else:
+            speech = f"{result} That's everything I would change."
+            self._suggestions = []
+            detail = "Nothing else was changed."
+        self.window.health_page.body.setPlainText(speech)
+        self.window.home.set_reply(answer, speech, detail)
+        self._speak(speech)
+
+    def _apply_suggestion(self, item) -> str:
+        if item.kind == "close_app":
+            speech = close_named(item.name, pids=pids_named, terminate=terminate_pid)
+            if speech.startswith("Closed"):
+                self._soft_undo = {"kind": "close", "until": time.time() + 10}
+            return speech
+        if item.kind == "startup":
+            speech, previous = apply_startup(item, self._startup_store)
+            if previous is not None:
+                self._soft_undo = {
+                    "kind": "startup",
+                    "until": time.time() + 10,
+                    "name": item.name,
+                    "command": previous,
+                }
+            return speech
+        return "I left it."
+
+    def _google_from_button(self, kind: str) -> None:
+        self._start_google(kind or "mail", speak_errors=True)
+
+    def _start_google(self, kind: str, *, speak_errors: bool) -> None:
+        self._google_speak_errors = speak_errors
+        if not self.controller.settings.google_enabled:
+            self._show_google(
+                "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
+                speak=speak_errors,
+            )
+            return
+        if not self.google_vault.available:
+            self._show_google("Saving a Google token needs Windows. Nothing was sent.", speak=speak_errors)
+            return
+        try:
+            token = self.google_vault.load()
+        except SecretsError as exc:
+            self._show_google(str(exc), speak=speak_errors)
+            return
+        if not token:
+            self._show_google(
+                "There is no Google token saved. Paste a read-only token under Tools. Nothing was sent.",
+                speak=speak_errors,
+            )
+            return
+        running = getattr(self, "_google_job", None)
+        if running is not None and running.isRunning():
+            self._show_google("I'm already checking Google.", speak=True)
+            return
+        job = _GoogleJob(token, kind)
+        self._google_job = job
+        job.ready.connect(self._google_ready)
+        job.start()
+        self.window.tools_page.show_google("Checking Google. Only mail and calendar are read.")
+
+    def _google_ready(self, speech: str) -> None:
+        failed = speech.startswith("Google did not") or speech.startswith("Google refused") or speech.startswith("Google sent")
+        speak = (self._google_speak_errors or not failed) and not self.turns.busy()
+        self._show_google(speech, speak=speak)
+
+    def _show_google(self, speech: str, *, speak: bool) -> None:
+        self.window.tools_page.show_google(speech)
+        detail = "Nothing was sent." if "Nothing was sent" in speech else "Read only. The token stays out of the log."
+        self.window.home.set_reply("google", speech, detail)
+        if speak:
+            self._speak(speech)
+
+    def _save_google_token(self, raw: str) -> None:
+        page = self.window.tools_page
+        try:
+            self.google_vault.save(raw)
+        except SecretsError as exc:
+            saved = self.google_vault.has_token() if self.google_vault.available else False
+            page.set_google_saved(saved, self.google_vault.available)
+            page.show_google(str(exc))
+            return
+        page.set_google_saved(True, self.google_vault.available)
+        page.show_google("The token is saved. It is not shown again, and it is not stored in settings.json.")
+
+    def _delete_google_token(self) -> None:
+        page = self.window.tools_page
+        if not ask_yes_no(
+            self.window,
+            "Delete the saved Google token?",
+            "This removes the encrypted token from this PC. Mail and calendar checks stop until you save one again.",
+            "Delete the token",
+            "Keep it",
+        ):
+            return
+        try:
+            self.google_vault.delete()
+        except SecretsError as exc:
+            page.show_google(str(exc))
+            return
+        page.set_google_saved(False, self.google_vault.available)
+        page.show_google("The token is deleted. Nothing was sent.")
 
     def _timer_finished(self, label: str) -> None:
         self._active_timer = None

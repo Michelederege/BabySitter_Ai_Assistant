@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from babysitter.deskstore import add_item, load_list, remove_item
+from babysitter.models import model_choice
 
 
 class _Page(QWidget):
@@ -43,14 +44,14 @@ class SchedulePage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Schedule",
-            "Reminders stay on this PC. A reminder is saved only after you confirm it from Home or from the button here.",
+            "Reminders stay on this PC. Adding one saves it, and you can say undo within 10 seconds.",
         )
         row = QHBoxLayout()
         self.text = QLineEdit()
         self.text.setPlaceholderText("Stretch at 6:00 PM")
         add = QPushButton("Add reminder")
         add.setObjectName("primary")
-        add.setToolTip("Asks before it saves. Nothing is sent off this PC.")
+        add.setToolTip("Saves on this PC. Say undo within 10 seconds to remove it.")
         add.clicked.connect(self._add)
         row.addWidget(self.text, 1)
         row.addWidget(add)
@@ -76,7 +77,7 @@ class MemoryPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Memory",
-            "A fact is saved only after you agree. You can delete each one. Memory stays on this PC.",
+            "A fact is saved when you press the button or say remember. Say undo within 10 seconds to remove it. Memory stays on this PC.",
         )
         row = QHBoxLayout()
         self.text = QLineEdit()
@@ -136,11 +137,12 @@ class ScreenPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Screen",
-            "A look starts only when you press the button. The picture stays in memory. It is not saved to disk, and it is not sent unless you confirm that exact picture.",
+            "A look starts when you press the button or ask by voice. "
+            "The picture stays in memory. It is not saved to disk.",
         )
         look = QPushButton("Look at this screen")
         look.setObjectName("primary")
-        look.setToolTip("Asks first. Does not save a file.")
+        look.setToolTip("Takes one picture in memory. It is not saved.")
         look.clicked.connect(lambda: self.notice.emit("CONFIRM screen"))
         self.root.insertWidget(2, look)
 
@@ -149,8 +151,9 @@ class HealthPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "PC Health",
-            "Read only. BabySitter will not change the PC. There is no Fix button. "
-            "On Windows these are three fixed checks. "
+            "The checks below only read. Suggestions are separate. "
+            "BabySitter asks out loud, one at a time, and changes something only after you say yes. "
+            "On Windows the read-only checks are three fixed checks. "
             "Two setup steps BabySitter cannot do for you. "
             "NVIDIA Control Panel, Manage 3D settings, Program Settings, ollama.exe, "
             "CUDA Sysmem Fallback Policy, Prefer No Sysmem Fallback. "
@@ -160,6 +163,10 @@ class HealthPage(_Page):
         run = QPushButton("Read memory, startup, and RAM speed")
         run.setToolTip("Runs the fixed read-only checks. They do not change Windows.")
         run.clicked.connect(lambda: self.notice.emit("RUN health"))
+        suggest = QPushButton("Suggest changes, one at a time")
+        suggest.setToolTip("Speaks one idea. Say yes to do that one, or no to leave it.")
+        suggest.clicked.connect(lambda: self.notice.emit("SCAN pc"))
+        self.root.insertWidget(2, suggest)
         self.root.insertWidget(2, run)
 
 
@@ -167,9 +174,7 @@ class ModelsPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Models",
-            "Only one model is loaded at a time. Low keeps qwen3.5:9b near 6 GB. "
-            "It answers and can look at the screen. gemma4:12b is for longer writing. qwen3-vl:8b is optional. "
-            "Removing a model asks first. An uninstall does not remove Ollama's models.",
+            model_choice() + " Removing a model asks first. An uninstall does not remove Ollama's models.",
         )
         ask = QPushButton("Ask Ollama which models are installed")
         ask.setObjectName("primary")

@@ -80,6 +80,34 @@ def fits_low_band(used_mib: int) -> bool:
     return LOW_FLOOR_MIB <= int(used_mib) <= LOW_CEILING_MIB
 
 
+def smaller_context_mib() -> int:
+    """What Low would weigh at 2,048 tokens. The weights barely move."""
+    return Q4_WEIGHT_MIB + kv_mib(2048, LOW_CACHE) + scratch_mib(LOW_BATCH)
+
+
+def floor_note() -> str:
+    """Why Low stays at 4,096 tokens on this card."""
+    saved = max(0, low_estimate_mib() - smaller_context_mib())
+    return (
+        f"Cutting the context from 4,096 to 2,048 would save about {saved} MB "
+        "and would clip a screenshot and a tool reply. Low stays at 4,096."
+    )
+
+
+def simulate_ryzen_4070() -> dict:
+    """Calculated budget for this PC. It is not a live measurement of the card."""
+    working = low_estimate_mib()
+    smaller = smaller_context_mib()
+    return {
+        "card_mib": RTX_4070_TOTAL_MIB,
+        "working_mib": working,
+        "context_2048_mib": smaller,
+        "savings_mib": working - smaller,
+        "fits_4_to_6": fits_low_band(working),
+        "shrinking_context_keeps_features": False,
+    }
+
+
 def low_load_note(name: str, vram_bytes: int, num_ctx: int) -> str | None:
     """A plain sentence after Low loads. Tiny test doubles are ignored."""
     if int(num_ctx) > LOW_CONTEXT or "qwen" not in (name or "").lower():

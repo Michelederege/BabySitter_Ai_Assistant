@@ -65,6 +65,41 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "read the small text on the screen",
     }:
         return QuickCommand("screen_text")
+    if phrase in {
+        "scan my pc",
+        "scan my computer",
+        "optimize my pc",
+        "optimize my computer",
+        "how can i optimize",
+    } or phrase.startswith("scan my pc") or phrase.startswith("optimize my pc"):
+        return QuickCommand("scan")
+    if phrase in {
+        "check my email",
+        "check my mail",
+        "any new email",
+        "any new emails",
+        "any new mail",
+        "read my email",
+        "check email",
+    }:
+        return QuickCommand("mail")
+    if phrase in {
+        "check my calendar",
+        "whats on my calendar",
+        "what's on my calendar",
+        "what is on my calendar",
+        "any meetings",
+        "check calendar",
+    }:
+        return QuickCommand("calendar")
+    if phrase.startswith("remember "):
+        detail = phrase[len("remember ") :].strip()
+        if detail:
+            return QuickCommand("remember", detail=detail)
+    if phrase.startswith("remind me"):
+        detail = phrase[len("remind me") :].strip()
+        if detail:
+            return QuickCommand("remind", detail=detail)
     timer = _timer_seconds(phrase)
     if timer:
         return QuickCommand("timer", seconds=timer)

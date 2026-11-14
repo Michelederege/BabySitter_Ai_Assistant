@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -51,6 +51,7 @@ class Settings:
     talk_over: bool = False
     proactivity: int = 1
     last_weekly_review: str = ""
+    google_enabled: bool = False
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -78,6 +79,7 @@ class Settings:
             "talk_over": self.talk_over,
             "proactivity": self.proactivity,
             "last_weekly_review": self.last_weekly_review,
+            "google_enabled": self.google_enabled,
         }
 
 
@@ -154,6 +156,11 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("last_weekly_review", "")
         incoming["schema_version"] = 8
         version = 8
+    if version < 9:
+        # Google mail and calendar stay off. The token is never in this file.
+        incoming["google_enabled"] = False
+        incoming["schema_version"] = 9
+        version = 9
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -243,6 +250,7 @@ def settings_from_dict(data: dict) -> Settings:
         talk_over=bool(data.get("talk_over", False)),
         proactivity=_proactivity(data.get("proactivity", 1)),
         last_weekly_review=_weekly_day(data.get("last_weekly_review", "")),
+        google_enabled=bool(data.get("google_enabled", False)),
         notices=notices,
     )
 
