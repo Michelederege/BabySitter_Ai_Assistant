@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.14.3 — The scan says the memory number, then one question
+
+A spoken scan now starts with the real memory reading, such as "Memory is using 20.0 of 32.0 GB, 62 percent," and then one suggestion you can accept or deny. "Why is my ram so high," "my computer is slow," and "free up some memory" take that path. "How is my pc" speaks the memory and CPU numbers.
+
+If a reply is still being spoken, the scan waits and runs when that reply finishes. It no longer says it will scan and then drops the request. The model is told not to invent a scan and not to paste a shell command.
+
 ## 0.14.2 — A spoken scan checks this PC
 
 “I'd like you to scan my computer, my RAM usage is very high” now runs the scan on this PC. It no longer asks the model, which was answering that it could not see the hardware and pasting a shell command. The same is true for “scan this computer”, “check my RAM”, and “what's using my memory”.
