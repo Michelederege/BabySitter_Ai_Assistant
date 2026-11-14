@@ -66,7 +66,14 @@ def download_model() -> str:
         raise HearingError("Install the hearing programs first.")
     from faster_whisper import WhisperModel
 
-    WhisperModel("small", device="cpu", compute_type="int8", download_root=str(whisper_dir()))
+    WhisperModel(
+        "small",
+        device="cpu",
+        compute_type="int8",
+        download_root=str(whisper_dir()),
+        cpu_threads=4,
+        num_workers=1,
+    )
     if not model_ready():
         raise HearingError("The download finished, but the speech model was not found on this PC.")
     return "Speech recognition is ready. Hold Talk to use it. It runs on the processor, not the graphics card."
@@ -147,7 +154,14 @@ def transcribe(wav_bytes: bytes) -> str:
     with wave.open(io.BytesIO(wav_bytes), "rb") as handle:
         frames = handle.readframes(handle.getnframes())
     audio = np.frombuffer(frames, dtype=np.int16).astype("float32") / 32768.0
-    model = WhisperModel("small", device="cpu", compute_type="int8", download_root=str(whisper_dir()))
-    segments, _info = model.transcribe(audio, language="en", vad_filter=True)
+    model = WhisperModel(
+        "small",
+        device="cpu",
+        compute_type="int8",
+        download_root=str(whisper_dir()),
+        cpu_threads=4,
+        num_workers=1,
+    )
+    segments, _info = model.transcribe(audio, language="en", beam_size=1, vad_filter=True)
     text = " ".join(segment.text.strip() for segment in segments).strip()
     return text

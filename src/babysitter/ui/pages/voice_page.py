@@ -70,8 +70,13 @@ class VoicePage(QWidget):
 
         self.speed = self._slider("Speed", 80, 130, 105)
         self.pitch = self._slider("Pitch", -6, 6, -1)
+        self.followup = self._slider("Follow-up seconds", 5, 20, 10)
         layout.addWidget(self.speed[0])
         layout.addWidget(self.pitch[0])
+        layout.addWidget(self.followup[0])
+        self.followup[1].sliderReleased.connect(
+            lambda: self.notice.emit(f"FOLLOWUP {self.followup[1].value()}")
+        )
 
         self.status = QLabel(self._saved_line())
         self.status.setWordWrap(True)

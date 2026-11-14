@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import json
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRect, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QBuffer, QIODevice, QObject, QRect, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
+from babysitter.commands import match_quick_command, timer_label
 from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.deskstore import add_item, hero_path, load_list
 from babysitter.intelligence import get_mode
 from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
+from babysitter.pictures import scaled_size
 from babysitter.plugins.voice.keyword import (
     KeywordError,
     KeywordListener,
@@ -104,19 +108,51 @@ class _WarmVoiceJob(QThread):
             return
 
 
+def _png_base64(picture: QPixmap) -> str:
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    picture.save(buffer, "PNG")
+    return base64.b64encode(bytes(buffer.data())).decode("ascii")
+
+
+class _BenchJob(QThread):
+    finished_text = Signal(str)
+
+    def __init__(self, ollama, model: str, num_ctx: int) -> None:
+        super().__init__()
+        self._ollama = ollama
+        self._model = model
+        self._num_ctx = num_ctx
+
+    def run(self) -> None:
+        from babysitter.pictures import format_benchmark
+
+        samples: list[int] = []
+        try:
+            for _ in range(3):
+                started = time.perf_counter()
+                self._ollama.ask(self._model, "Reply with only the word ready.", self._num_ctx)
+                samples.append(int((time.perf_counter() - started) * 1000))
+        except Exception as exc:
+            self.finished_text.emit(f"The benchmark stopped. {exc}")
+            return
+        self.finished_text.emit(format_benchmark(samples))
+
+
 class _AskJob(QThread):
     first_token = Signal()
     lead_ready = Signal(str)
     succeeded = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, ollama, model: str, prompt: str, num_ctx: int, history=None) -> None:
+    def __init__(self, ollama, model: str, prompt: str, num_ctx: int, history=None, images=None) -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._prompt = prompt
         self._num_ctx = num_ctx
         self._history = list(history or [])
+        self._images = images
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -128,8 +164,9 @@ class _AskJob(QThread):
         sent_token = False
         try:
             for piece in self._ollama.iter_reply(
-                self._model, prompt, self._num_ctx, self.cancel, self._history
+                self._model, prompt, self._num_ctx, self.cancel, self._history, self._images
             ):
+                self._images = None
                 if self.cancel.is_set():
                     return
                 parts.append(piece)
@@ -390,6 +427,7 @@ class Shell:
         home.copy_log.connect(self._copy_log)
         home.choose_hero.connect(self._choose_hero)
         self.window.voice_page.notice.connect(self._on_page_notice)
+        self.window.voice_page.followup[1].setValue(self.controller.settings.followup_seconds)
         self.window.schedule_page.notice.connect(self._on_page_notice)
         self.window.memory_page.notice.connect(self._on_page_notice)
         self.window.screen_page.notice.connect(self._on_page_notice)
@@ -861,6 +899,16 @@ class Shell:
         if clock is None or "first_sound" in clock.marks or "interrupt" in clock.marks:
             self._clock = TurnClock()
         self._clock.mark("transcript")
+        quick = match_quick_command(text)
+        if quick is not None and quick.kind == "undo":
+            self._undo_timer()
+            return
+        if getattr(self, "_offer_load", False) and more_answer(text) == "yes":
+            self._offer_load = False
+            self._close_followup()
+            self.controller.wake()
+            self.window.home.set_phase("on", "Loading the model. Ask again when it says On.")
+            return
         if self._followup_left > 0 and followup_phrase(text) == "":
             self._close_followup()
             self.window.home.set_phase("on", "Okay. I'm here when you need me.")
@@ -1057,6 +1105,13 @@ class Shell:
         if not text:
             self.window.home.set_reply("nothing", "Type a line first.", "Nothing was sent.")
             return
+        if self._run_quick(text):
+            return
+        if self.controller.state == "game":
+            self._offer_load = True
+            self._close_followup()
+            self._speak("I'm in Game mode. Load the brain? It needs about 8 GB of video memory.")
+            return
         if self.controller.state != "on":
             self.window.home.set_reply(text, "The AI is off.", "Turn it on first. Nothing was sent.")
             return
@@ -1105,6 +1160,8 @@ class Shell:
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
         self.orb.set_state("thinking", line)
+        if kokoro_ready() and not getattr(self, "_speaking", False):
+            self._speak(line, filler=True)
 
     def _cut_off(self) -> None:
         started = time.perf_counter()
@@ -1278,6 +1335,12 @@ class Shell:
         if text == "EXPORT timings":
             self._export_timings()
             return
+        if text == "BENCHMARK":
+            self._benchmark()
+            return
+        if text.startswith("FOLLOWUP "):
+            self._save_followup(text)
+            return
         self.controller._remember(text)
         self.window.home.set_history(self.controller.history)
 
@@ -1285,7 +1348,8 @@ class Shell:
         if not ask_yes_no(
             self.window,
             "Look at the screen?",
-            "BabySitter will take one picture in memory. It will not be saved, and it will not be sent anywhere.",
+            "BabySitter will take one picture in memory, shrink the long edge to 1280 pixels, "
+            "and ask the model that is already loaded. The picture is not saved.",
             "Look now",
             "Don't look",
         ):
@@ -1296,11 +1360,40 @@ class Shell:
             self.window.screen_page.body.setPlainText("No screen was found. Nothing was saved.")
             return
         picture = screen.grabWindow(0)
+        width, height = scaled_size(picture.width(), picture.height())
+        if (width, height) != (picture.width(), picture.height()):
+            picture = picture.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        encoded = _png_base64(picture)
         self.window.screen_page.body.setPlainText(
-            f"Captured {picture.width()} by {picture.height()} pixels in memory. "
-            "It was not saved to disk and it was not sent. The vision model is not loaded."
+            f"Captured and shrank the picture to {picture.width()} by {picture.height()} pixels in memory. "
+            "It was not saved to disk."
         )
         del picture
+        if self.controller.state != "on":
+            self.window.screen_page.body.append("\nTurn the AI on before asking about the screen. Nothing was sent.")
+            return
+        self.window.home.set_phase("thinking", "Looking at the screen.")
+        self._speak("Looking at the screen.", filler=True)
+        self._pending_line = "What is on the screen?"
+        mode = get_mode(self.controller.settings.intelligence)
+        self._early_lead = ""
+        self._pending_offer = ""
+        self._finished_phrases = []
+        self._logged_turn = False
+        self._turn_id += 1
+        if getattr(self, "_clock", None) is None:
+            self._clock = TurnClock()
+        self._clock.mark("transcript")
+        text = "What is on this screen? Answer in two or three plain sentences."
+        job = _AskJob(self.controller.ollama, mode.model, text, mode.num_ctx, self._history, [encoded])
+        job.turn = self._turn_id
+        self._ask_job = job
+        job.first_token.connect(lambda turn=job.turn: self._on_first_token(turn))
+        job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
+        job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
+        job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
+        self.orb.set_state("thinking", "Looking.")
+        job.start()
 
     def _read_health(self) -> None:
         if sys.platform != "win32":
@@ -1384,12 +1477,19 @@ class Shell:
             "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
         }
 
-    def _speak(self, text: str) -> None:
+    def _speak(self, text: str, filler: bool = False) -> None:
+        self._is_filler = filler
+        stop_kokoro()
+        speaker.stop()
         self._speaking = True
         self._pending_speech = text
         if getattr(self, "_listener", None) is not None:
             self._listener.stop()
         prefs = self._voice_prefs()
+        if filler and prefs["engine"] == "kokoro" and not kokoro_ready():
+            self._is_filler = False
+            self._speaking = False
+            return
         if prefs["engine"] == "kokoro" and not kokoro_ready():
             self._offer_kokoro()
             return
@@ -1458,6 +1558,8 @@ class Shell:
         self.window.voice_page.set_responsiveness(self._responsiveness.summary())
 
     def _phrase_finished(self, phrase: str) -> None:
+        if getattr(self, "_is_filler", False):
+            return
         job = getattr(self, "_speak_job", None)
         if job is not None and job.turn != self._turn_id:
             return
@@ -1468,6 +1570,9 @@ class Shell:
 
     def _speak_done(self) -> None:
         self._speaking = False
+        if getattr(self, "_is_filler", False):
+            self._is_filler = False
+            return
         if getattr(self, "_pending_offer", ""):
             offer = self._pending_offer
             self._pending_offer = ""
@@ -1497,7 +1602,7 @@ class Shell:
             self._sync_keyword()
             return
         self._listener.expect_followup(True)
-        self._followup_left = 10
+        self._followup_left = max(5, min(20, int(settings.followup_seconds)))
         self._follow_timer.start()
         self._sync_keyword()
         self._show_followup()
@@ -1525,6 +1630,109 @@ class Shell:
             self._listener.expect_followup(False)
         self.orb.set_state(self.controller.state, "Say the keyword")
         self._sync_keyword()
+
+    def _run_quick(self, text: str) -> bool:
+        quick = match_quick_command(text)
+        if quick is None or quick.kind == "undo":
+            return False
+        if quick.kind == "time":
+            now = datetime.now().astimezone()
+            speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
+            self.window.home.set_reply(text, speech, "Read from this PC. The model was not asked.")
+            self._speak(speech)
+            return True
+        if quick.kind == "vram":
+            snap = getattr(self.controller, "latest_status", None)
+            gpu = getattr(snap, "gpu", None) if snap is not None else None
+            if gpu is None:
+                speech = "I can't see the video memory from here."
+                detail = "nvidia-smi did not report a card."
+            else:
+                speech = f"Video memory is using {gpu.used_mib:,} of {gpu.total_mib:,} megabytes."
+                detail = "Read from this PC. The model was not asked."
+            self.window.home.set_reply(text, speech, detail)
+            self._speak(speech)
+            return True
+        if quick.kind == "health":
+            self._read_health()
+            speech = "The PC check is on the PC Health tab. I did not change anything."
+            self.window.home.set_reply(text, speech, "Read only.")
+            self._speak(speech)
+            return True
+        if quick.kind == "screen":
+            self._look_at_screen()
+            return True
+        if quick.kind == "why":
+            lines = []
+            for item in self._history[-6:]:
+                role = "You" if item.get("role") == "user" else "BabySitter"
+                lines.append(f"{role}: {str(item.get('content') or '')[:240]}")
+            detail = "\n".join(lines) if lines else "Nothing from this conversation was sent with the last reply."
+            speech = "I used the recent conversation. It is on the screen. Saved facts are not sent to the model yet."
+            self.window.home.set_reply(text, speech, detail)
+            self._speak(speech)
+            return True
+        if quick.kind == "timer":
+            self._begin_timer(quick.seconds)
+            return True
+        return False
+
+    def _begin_timer(self, seconds: int) -> None:
+        previous = getattr(self, "_active_timer", None)
+        if previous is not None:
+            previous.stop()
+        label = timer_label(seconds)
+        timer = QTimer(self.window)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._timer_finished(label))
+        timer.start(seconds * 1000)
+        self._active_timer = timer
+        self._undo_until = time.time() + 10
+        speech = f"Timer set for {label}. Say undo in the next 10 seconds to cancel it."
+        self.window.home.set_reply("timer", speech, "It stays on this PC. It is not a calendar event.")
+        self._speak(speech)
+
+    def _undo_timer(self) -> None:
+        if time.time() > getattr(self, "_undo_until", 0) or getattr(self, "_active_timer", None) is None:
+            self._speak("Nothing to undo.")
+            return
+        self._active_timer.stop()
+        self._active_timer = None
+        self._undo_until = 0
+        self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
+        self._speak("Cancelled the timer.")
+
+    def _timer_finished(self, label: str) -> None:
+        self._active_timer = None
+        self._undo_until = 0
+        speech = f"Your {label} timer is done."
+        self.window.home.set_reply("timer", speech, "Nothing was sent off this PC.")
+        self._speak(speech)
+
+    def _save_followup(self, text: str) -> None:
+        try:
+            seconds = int(text.split()[1])
+        except (IndexError, ValueError):
+            return
+        seconds = max(5, min(20, seconds))
+        self.controller.settings.followup_seconds = seconds
+        save_settings(self.controller.settings)
+        self.window.voice_page.status.setText(f"Follow-up listening is {seconds} seconds. Saved on this PC.")
+
+    def _benchmark(self) -> None:
+        if self.controller.state != "on":
+            self.window.models_page.body.setPlainText("Turn the AI on before the benchmark. Nothing was sent.")
+            return
+        running = getattr(self, "_bench_job", None)
+        if running is not None and running.isRunning():
+            self.window.models_page.body.setPlainText("A benchmark is already running.")
+            return
+        mode = get_mode(self.controller.settings.intelligence)
+        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx)
+        self._bench_job = job
+        self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
+        job.finished_text.connect(self.window.models_page.body.setPlainText)
+        job.start()
 
     def _export_timings(self) -> None:
         path = data_dir() / "diagnostics.txt"

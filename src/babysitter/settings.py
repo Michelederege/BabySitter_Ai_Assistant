@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -43,6 +43,7 @@ class Settings:
     quit_turns_ai_off: bool = True
     keyword_listening: bool = False
     keyword: str = "baby sitter"
+    followup_seconds: int = 10
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -62,6 +63,7 @@ class Settings:
             "quit_turns_ai_off": self.quit_turns_ai_off,
             "keyword_listening": self.keyword_listening,
             "keyword": self.keyword,
+            "followup_seconds": self.followup_seconds,
         }
 
 
@@ -121,11 +123,23 @@ def migrate(data: dict) -> dict:
             incoming["keyword"] = "baby sitter"
         incoming["schema_version"] = 5
         version = 5
+    if version < 6:
+        incoming.setdefault("followup_seconds", 10)
+        incoming["schema_version"] = 6
+        version = 6
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
     incoming["schema_version"] = SCHEMA_VERSION
     return incoming
+
+
+def _followup_seconds(value: object) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = 10
+    return max(5, min(20, seconds))
 
 
 def _clean_keyword(value: object, notices: list[str]) -> str:
@@ -176,6 +190,7 @@ def settings_from_dict(data: dict) -> Settings:
         quit_turns_ai_off=bool(data.get("quit_turns_ai_off", True)),
         keyword_listening=bool(data.get("keyword_listening", False)),
         keyword=_clean_keyword(data.get("keyword"), notices),
+        followup_seconds=_followup_seconds(data.get("followup_seconds")),
         notices=notices,
     )
 

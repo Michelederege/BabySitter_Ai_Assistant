@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from babysitter.audio import AudioGate
 from babysitter.hotkeys import HotkeyBook
 from babysitter.ollama import OllamaClient, OllamaError
+from babysitter.pictures import room_for_model
 from babysitter.status import StatusCollector, explain_gpu_hold, format_mib
 
 
@@ -100,6 +101,16 @@ class PowerService:
                 )
                 return result
             progress(f"Loading {model}. The first time can take a minute…")
+            gpu, _gpu_error = self.probe.read_gpu()
+            free = None if gpu is None else gpu.total_mib - gpu.used_mib
+            if room_for_model(free, model) and self.ollama.port_open():
+                self.ollama.unload_all()
+                gpu, _gpu_error = self.probe.read_gpu()
+                free = None if gpu is None else gpu.total_mib - gpu.used_mib
+            blocked = room_for_model(free, model)
+            if blocked:
+                self._stop_if_we_started()
+                return self._fail(blocked)
             self.ollama.preload(model, num_ctx)
             if cancel.is_set():
                 return self._cancelled()
@@ -144,6 +155,11 @@ class PowerService:
                 return self._cancelled()
             if self.ollama.port_open():
                 self.ollama.unload_all()
+            gpu, _gpu_error = self.probe.read_gpu()
+            free = None if gpu is None else gpu.total_mib - gpu.used_mib
+            blocked = room_for_model(free, model)
+            if blocked:
+                return self._fail(blocked)
             self.ollama.preload(model, num_ctx)
         except OllamaError as exc:
             return self._fail(str(exc))

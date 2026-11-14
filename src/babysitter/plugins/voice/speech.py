@@ -148,11 +148,39 @@ def sentences(text: str) -> list[str]:
 
 
 def voice_and_rest(text: str) -> tuple[str, str]:
-    """Two or three sentences to say, and the rest for the screen."""
+    """Two or three sentences to say, and the rest for the screen.
+
+    Code and lists longer than three items stay on the screen. The voice
+    says one line about them.
+    """
     parts = sentences(text)
     if not parts:
         return "", ""
-    return " ".join(parts[:3]), " ".join(parts[3:]).strip()
+    if _belongs_on_a_card(text):
+        return spell_codes(parts[0]), ""
+    spoken = " ".join(parts[:3])
+    rest = " ".join(parts[3:]).strip()
+    return spell_codes(spoken), rest
+
+
+def spell_codes(text: str) -> str:
+    """Read error codes and KB numbers one character at a time."""
+
+    def spell(match) -> str:
+        return " ".join(match.group(0))
+
+    spoken = re.sub(r"\bKB\d+\b", spell, text or "", flags=re.IGNORECASE)
+    return re.sub(r"\b0x[0-9A-Fa-f]+\b", spell, spoken)
+
+
+def _belongs_on_a_card(text: str) -> bool:
+    if "```" in (text or ""):
+        return True
+    bullets = 0
+    for line in (text or "").splitlines():
+        if re.match(r"\s*(?:[-*]|\d+[.)])\s+\S", line):
+            bullets += 1
+    return bullets > 3
 
 
 def followup_phrase(text: str) -> str | None:

@@ -145,7 +145,10 @@ class HealthPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "PC Health",
-            "Read only. BabySitter will not change the PC. There is no Fix button. On Windows these are three fixed checks. Suggested changes are yours to run.",
+            "Read only. BabySitter will not change the PC. There is no Fix button. "
+            "On Windows these are three fixed checks. "
+            "One setup step BabySitter cannot do for you: NVIDIA Control Panel, Manage 3D settings, "
+            "Program Settings, ollama.exe, CUDA Sysmem Fallback Policy, Prefer No Sysmem Fallback.",
         )
         run = QPushButton("Read memory, startup, and RAM speed")
         run.setToolTip("Runs the fixed read-only checks. They do not change Windows.")
@@ -157,11 +160,17 @@ class ModelsPage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Models",
-            "Only one model is loaded at a time. Recommended: qwen3.5:9b, gemma4:12b, and qwen3-vl:8b. Removing a model asks first. An uninstall does not remove Ollama's models.",
+            "Only one model is loaded at a time. qwen3.5:9b answers and can look at the screen. "
+            "gemma4:12b is for longer writing. qwen3-vl:8b is optional. "
+            "Removing a model asks first. An uninstall does not remove Ollama's models.",
         )
         ask = QPushButton("Ask Ollama which models are installed")
         ask.setObjectName("primary")
         ask.clicked.connect(lambda: self.notice.emit("LIST models"))
+        bench = QPushButton("Benchmark")
+        bench.setToolTip("Times a fixed prompt three times. It does not save the words.")
+        bench.clicked.connect(lambda: self.notice.emit("BENCHMARK"))
+        self.root.insertWidget(2, bench)
         self.root.insertWidget(2, ask)
 
 
