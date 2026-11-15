@@ -21,6 +21,10 @@ KOKORO_MODEL_URLS = (
 SILERO_MODEL_URL = (
     "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
 )
+EMBEDDER_MODEL_URLS = (
+    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
+    "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/vocab.txt",
+)
 LOCAL_BINDINGS = {"127.0.0.1", "::1", "localhost"}
 # 0.0.0.0 and :: mean "every network interface", which is not private.
 PUBLIC_BINDINGS = {"0.0.0.0", "::", ""}
@@ -32,6 +36,8 @@ DOWNLOAD_SHA256 = {
     KOKORO_MODEL_URLS[0]: "beb0d1848dee9a49da392cc3df26958d46cfa35d321edf434f52949153f0df3a",
     KOKORO_MODEL_URLS[1]: "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
     SILERO_MODEL_URL: "2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f",
+    EMBEDDER_MODEL_URLS[0]: "6fd5d72fe4589f189f8ebc006442dbb529bb7ce38f8082112682524616046452",
+    EMBEDDER_MODEL_URLS[1]: "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
 }
 
 
@@ -85,6 +91,12 @@ def require_silero_url(url: str) -> None:
     """The voice detector has one allowed file, and only after a confirm."""
     if url != SILERO_MODEL_URL:
         raise ValueError("That voice-detector download is not allowed.")
+
+
+def require_embedder_url(url: str) -> None:
+    """The sharper memory has two allowed files, and only after a confirm."""
+    if url not in EMBEDDER_MODEL_URLS:
+        raise ValueError("That memory download is not allowed.")
 
 
 def require_matching_bytes(url: str, raw: bytes) -> None:

@@ -126,6 +126,12 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "check calendar",
     }:
         return QuickCommand("calendar")
+    journal = _journal_command(phrase, original)
+    if journal:
+        return journal
+    search = _search_command(phrase, original)
+    if search:
+        return search
     if phrase.startswith("remember "):
         detail = _tail(original, "remember")
         if detail:
@@ -185,6 +191,65 @@ def _wants_pc_scan(phrase: str) -> bool:
         return True
     machine = bool(words & {"pc", "computer", "hardware"})
     return machine and bool(words & {"scan", "optimize", "slow", "cleanup", "check", "lagging", "laggy", "freezing", "frozen"})
+
+
+def _journal_command(phrase: str, original: str) -> QuickCommand | None:
+    if phrase in {
+        "what did i do today",
+        "what have i done today",
+        "what did i work on today",
+        "show my day",
+        "my day",
+        "todays journal",
+        "today's journal",
+    }:
+        return QuickCommand("journal_today")
+    if phrase in {
+        "what did i do yesterday",
+        "what did i work on yesterday",
+        "yesterdays journal",
+        "yesterday's journal",
+    }:
+        return QuickCommand("journal_yesterday")
+    for label in ("start task", "start a task", "new task", "start working on"):
+        if phrase.startswith(label + " "):
+            detail = _tail(original, label.split()[-1])
+            if detail:
+                return QuickCommand("task_start", detail=detail)
+    if phrase in {
+        "done",
+        "im done",
+        "i'm done",
+        "task done",
+        "done with that",
+        "finish task",
+        "finish the task",
+        "finished the task",
+    }:
+        return QuickCommand("task_done")
+    if phrase in {"pause the journal", "stop the journal", "journal off"}:
+        return QuickCommand("journal_pause")
+    if phrase in {"resume the journal", "start the journal", "journal on"}:
+        return QuickCommand("journal_resume")
+    return None
+
+
+def _search_command(phrase: str, original: str) -> QuickCommand | None:
+    number = re.fullmatch(r"open (?:number |file )?(\d{1,2})", phrase)
+    if number:
+        return QuickCommand("open_number", seconds=int(number.group(1)))
+    for label in ("find", "pull up", "look for", "locate"):
+        if phrase == label or not phrase.startswith(label + " "):
+            continue
+        detail = _tail(original, label.split()[-1])
+        if not detail:
+            return None
+        # "find out about ..." and "look for news ..." belong to the model.
+        first = detail.split()[0].lower() if detail.split() else ""
+        if first in {"out", "news", "information", "info"}:
+            return None
+        return QuickCommand("find", detail=detail)
+    return None
 
 
 def _rating(phrase: str) -> str:

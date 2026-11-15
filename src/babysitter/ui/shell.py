@@ -8,7 +8,7 @@ import json
 import sys
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThread, QTimer, QUrl, Signal
@@ -16,7 +16,25 @@ from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
 from babysitter.commands import match_quick_command, timer_label
+from babysitter.filefind import (
+    CACHE_SECONDS,
+    default_folders,
+    match_files,
+    open_found,
+    recently_opened,
+    scan_folders,
+    search_reply,
+)
 from babysitter.games import foreground_process_name, should_hide_orb
+from babysitter.journal import (
+    day_detail,
+    day_speech,
+    finish_task,
+    load_day,
+    save_day,
+    start_task,
+    wipe as wipe_journal,
+)
 from babysitter.intents import guarded_prompt, match_tool
 from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
@@ -296,6 +314,21 @@ class _KokoroDownloadJob(QThread):
         try:
             self.succeeded.emit(download_kokoro())
         except KokoroError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class _EmbedderDownloadJob(QThread):
+    succeeded = Signal(str)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        from babysitter.embedder import EmbedderError, download as download_embedder
+
+        try:
+            self.succeeded.emit(download_embedder())
+        except EmbedderError as exc:
             self.failed.emit(str(exc))
         except Exception as exc:
             self.failed.emit(str(exc))
@@ -637,6 +670,10 @@ class Shell:
         settings.add_game.clicked.connect(self._add_running_game)
         settings.add_typed.clicked.connect(self._add_typed_game)
         settings.remove_game.clicked.connect(self._remove_game)
+        settings.journal_enabled.toggled.connect(self._set_journal_enabled)
+        settings.wipe_journal.clicked.connect(self._wipe_journal)
+        settings.add_search_folder.clicked.connect(self._add_search_folder)
+        settings.remove_search_folder.clicked.connect(self._remove_search_folder)
         settings.open_data.clicked.connect(lambda: open_folder(self.controller.data_folder()))
         settings.open_log.clicked.connect(lambda: open_folder(self.controller.log_folder()))
         tools = self.window.tools_page
@@ -958,6 +995,55 @@ class Shell:
         self.controller.set_detect_games(enabled)
         self._refresh_game_note()
 
+    def _set_journal_enabled(self, enabled: bool) -> None:
+        self.controller.set_journal_enabled(enabled)
+        note = (
+            "The journal is on. It writes program names and minutes, on this PC."
+            if enabled
+            else "The journal is off. Nothing new is written. The old days stay until you wipe them."
+        )
+        self.window.home.set_phase(self.controller.state, note)
+
+    def _wipe_journal(self) -> None:
+        if not ask_yes_no(
+            self.window,
+            "Wipe the journal?",
+            "This deletes every journal day file from your BabySitter folder. There is no undo.",
+            "Wipe it",
+            "Keep it",
+        ):
+            return
+        removed = wipe_journal()
+        note = f"Wiped the journal. {removed} day files were deleted from this PC."
+        self.controller._remember(note)
+        self.window.home.set_phase(self.controller.state, note)
+
+    def _add_search_folder(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(self.window, "Add a folder to search")
+        if not chosen:
+            return
+        folders = self.controller.settings.search_folders
+        if chosen.lower() not in {item.lower() for item in folders}:
+            folders.append(chosen)
+            save_settings(self.controller.settings)
+        self.window.settings_page.search_folders.clear()
+        self.window.settings_page.search_folders.addItems(folders)
+        self._scan_cache = None
+
+    def _remove_search_folder(self) -> None:
+        item = self.window.settings_page.search_folders.currentItem()
+        if item is None:
+            return
+        name = item.text()
+        self.controller.settings.search_folders = [
+            folder for folder in self.controller.settings.search_folders
+            if folder.lower() != name.lower()
+        ]
+        save_settings(self.controller.settings)
+        self.window.settings_page.search_folders.clear()
+        self.window.settings_page.search_folders.addItems(self.controller.settings.search_folders)
+        self._scan_cache = None
+
     def _set_core_avoidance(self, enabled: bool) -> None:
         note = self.controller.set_core_avoidance(enabled)
         if note:
@@ -1113,6 +1199,41 @@ class Shell:
         except SileroError as exc:
             speech = str(exc)
         self.window.voice_page.status.setText(speech)
+
+    def _download_embedder(self) -> None:
+        from babysitter.embedder import ready as embedder_ready
+
+        if embedder_ready():
+            self.window.memory_page.refresh_sharper()
+            return
+        if not ask_yes_no(
+            self.window,
+            "Download the sharper memory?",
+            "This downloads a small sentence model (about 90 MB) so saved facts "
+            "match by meaning, not just by the same words. It is checked against "
+            "a recorded fingerprint, stays in your BabySitter folder, and runs "
+            "on the processor. Only the top two matching facts still reach a question.",
+            "Download",
+            "Don't download",
+        ):
+            return
+        job = _EmbedderDownloadJob()
+        self._embedder_job = job
+        self.window.home.set_phase(
+            self.controller.state, "Downloading the sharper memory onto this PC."
+        )
+        job.succeeded.connect(self._embedder_downloaded)
+        job.failed.connect(self._embedder_download_failed)
+        job.start()
+
+    def _embedder_downloaded(self, message: str) -> None:
+        self.window.home.set_phase(self.controller.state, message)
+        self.window.memory_page.refresh_sharper()
+        self.controller._remember(message)
+
+    def _embedder_download_failed(self, message: str) -> None:
+        self.window.home.set_phase(self.controller.state, message)
+        self.controller._remember(message)
 
     def _export_session(self) -> None:
         session_id = self.window.history_page.selected_id()
@@ -1947,6 +2068,9 @@ class Shell:
         if text == "INSTALL silero":
             self._download_silero()
             return
+        if text == "INSTALL embedder":
+            self._download_embedder()
+            return
         if text == "EXPORT session":
             self._export_session()
             return
@@ -2425,7 +2549,87 @@ class Shell:
             noun = "that" if quick.kind == "remember" else "the reminder"
             self._save_local(filename, text.strip(), noun)
             return True
+        if quick.kind in {"journal_today", "journal_yesterday"}:
+            self._speak_journal(text, quick.kind == "journal_yesterday")
+            return True
+        if quick.kind == "task_start":
+            self._journal_task(text, start=quick.detail)
+            return True
+        if quick.kind == "task_done":
+            self._journal_task(text)
+            return True
+        if quick.kind in {"journal_pause", "journal_resume"}:
+            speech = self.controller.set_journal_paused(quick.kind == "journal_pause")
+            self.window.home.set_reply(text, speech, "The journal lives in your BabySitter folder.")
+            self._speak(speech)
+            return True
+        if quick.kind == "find":
+            self._find_files(text, quick.detail)
+            return True
+        if quick.kind == "open_number":
+            self._open_numbered(text, quick.seconds)
+            return True
         return False
+
+    def _speak_journal(self, text: str, yesterday: bool) -> None:
+        day = date.today() - timedelta(days=1) if yesterday else date.today()
+        record = load_day(day)
+        word = "yesterday" if yesterday else "today"
+        speech = day_speech(record, word)
+        self.window.home.set_reply(text, speech, day_detail(record))
+        self._speak(speech)
+
+    def _journal_task(self, text: str, start: str = "") -> None:
+        moment = datetime.now()
+        record = load_day(moment.date())
+        if start:
+            speech = start_task(record, start, moment)
+        else:
+            speech = finish_task(record, moment)
+        try:
+            save_day(record)
+        except OSError:
+            speech = "The journal file could not be written, so that was not kept."
+        self.window.home.set_reply(text, speech, "Tasks live in the journal, in your BabySitter folder.")
+        self._speak(speech)
+
+    def _search_places(self) -> list[str]:
+        return default_folders() + list(self.controller.settings.search_folders)
+
+    def _find_files(self, text: str, wanted: str) -> None:
+        now = time.time()
+        cached = getattr(self, "_scan_cache", None)
+        if cached and now - cached[0] < CACHE_SECONDS:
+            entries = cached[1]
+        else:
+            entries = scan_folders(self._search_places())
+            self._scan_cache = (now, entries)
+        matches = match_files(wanted, entries, recently_opened())
+        speech, detail, best = search_reply(wanted, matches, self._search_places())
+        self._found_files = matches
+        if best is not None:
+            opened = open_found(best)
+            if not opened.startswith("Opened"):
+                speech = opened
+        self.window.home.set_reply(text, speech, detail)
+        self._speak(speech)
+
+    def _open_numbered(self, text: str, number: int) -> None:
+        matches = getattr(self, "_found_files", None) or []
+        if not matches:
+            speech = "Nothing is on the list. Say find and a file name first."
+            self.window.home.set_reply(text, speech, "The search looks only in your chosen folders.")
+            self._speak(speech)
+            return
+        if number < 1 or number > len(matches):
+            speech = f"The list goes from 1 to {len(matches)}."
+            self.window.home.set_reply(text, speech, "Say open number and one of those.")
+            self._speak(speech)
+            return
+        found = matches[number - 1]
+        speech = open_found(found)
+        self.window.home.set_reply(text, speech, found.path)
+        self._speak(speech)
 
     def _begin_timer(self, seconds: int) -> None:
         previous = getattr(self, "_active_timer", None)
