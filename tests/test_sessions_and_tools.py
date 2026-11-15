@@ -66,7 +66,7 @@ def test_searx_stays_on_this_computer():
 def test_update_check_compares_versions_and_does_not_download():
     assert is_newer("v0.14.0", "0.13.0") is True
     assert is_newer("0.13.0", "0.13.0") is False
-    speech = describe_release({"tag_name": "v9.0.0", "html_url": "https://github.com/alex-de-rege/Ai-assistant-Babysitter/releases/tag/v9.0.0"}, "0.13.0")
+    speech = describe_release({"tag_name": "v9.0.0", "html_url": "https://github.com/Michelederege/BabySitter_Ai_Assistant/releases/tag/v9.0.0"}, "0.13.0")
     assert "did not download" in speech
     assert "sign" in speech
 
