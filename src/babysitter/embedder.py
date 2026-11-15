@@ -103,11 +103,13 @@ def _rank_vectors(engine, query: str, texts: list[str], k: int) -> list[str]:
     cache = VectorCache()
     wanted = engine.embed(query)
     scored: list[tuple[float, str]] = []
+    kept: list[str] = []
     changed = False
     for text in texts:
         cleaned = (text or "").strip()
         if not cleaned:
             continue
+        kept.append(cleaned)
         vector = cache.get(cleaned)
         if vector is None:
             vector = engine.embed(cleaned)
@@ -116,6 +118,9 @@ def _rank_vectors(engine, query: str, texts: list[str], k: int) -> list[str]:
         score = sum(a * b for a, b in zip(wanted, vector))
         if score >= ONNX_FLOOR:
             scored.append((score, cleaned))
+    # A deleted fact must not leave its vector behind forever.
+    if cache.prune(kept):
+        changed = True
     if changed:
         cache.save()
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -366,6 +371,15 @@ class VectorCache:
     def put(self, text: str, vector: list[float]) -> None:
         self._load()
         self._data[self._key(text)] = [round(float(value), 6) for value in vector]
+
+    def prune(self, texts: list[str]) -> bool:
+        """Keep only the vectors for these texts. Returns True when any left."""
+        self._load()
+        wanted = {self._key(text) for text in texts}
+        stale = [key for key in self._data if key not in wanted]
+        for key in stale:
+            del self._data[key]
+        return bool(stale)
 
     def save(self) -> None:
         try:

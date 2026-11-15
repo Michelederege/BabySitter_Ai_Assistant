@@ -477,7 +477,7 @@ class Controller(QObject):
                 record, app, moment, excluded=self.settings.journal_excluded
             ):
                 journal.save_day(record)
-        except OSError as exc:
+        except Exception as exc:  # noqa: BLE001 — the journal must never break the status loop
             log.error("Could not write the journal: %s", exc)
 
     def _on_version(self, report: VersionReport) -> None:
