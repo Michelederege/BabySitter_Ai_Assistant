@@ -95,7 +95,11 @@ def _walk(folder: str, depth: int, found: list[FoundFile]) -> None:
                         _walk(entry.path, depth + 1, found)
                 elif entry.is_file(follow_symlinks=False):
                     found.append(
-                        FoundFile(name, entry.path, float(entry.stat().st_mtime))
+                        FoundFile(
+                            name,
+                            entry.path,
+                            float(entry.stat(follow_symlinks=False).st_mtime),
+                        )
                     )
             except OSError:
                 continue
