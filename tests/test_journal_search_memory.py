@@ -259,6 +259,8 @@ def test_without_the_model_the_hashed_match_still_answers(tmp_path, monkeypatch)
     facts = ["I have a Prusa printer.", "My dog is called Biscuit.", ""]
     found = rank_texts("what printer do I have", facts)
     assert found == ["I have a Prusa printer."]
+    dog = ["My dog is called Biscuit.", "The wifi name is North."]
+    assert rank_texts("what is my dog called", dog) == ["My dog is called Biscuit."]
     assert rank_texts("completely unrelated question", ["something else entirely"]) == []
 
 
