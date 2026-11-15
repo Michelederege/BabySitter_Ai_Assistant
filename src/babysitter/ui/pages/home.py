@@ -8,7 +8,7 @@ column, assistant first.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
@@ -86,17 +86,56 @@ class HomePage(QWidget):
         self._cpu_samples: list[float] = []
         self._ram_samples: list[float] = []
         self._expanded = True
+        self._side_by_side = True
+        self._controls_columns = 0
         self._arrange()
+        self._place_controls(4)
 
     # ---------- layout ----------
     def set_detailed(self, expanded: bool) -> None:
         self._expanded = expanded
-        self._arrange()
+        self._fit_to_width()
+
+    def _available_width(self) -> int:
+        parent = self.parentWidget()
+        if parent is not None and parent.width() > 80:
+            return parent.width()
+        return self.width()
+
+    def _fit_to_width(self) -> None:
+        """Keep every control inside the window.
+
+        One row of four cells is wider than a half screen, which used to
+        slice the keyword control off the right edge. Narrow windows drop
+        to two columns, and the cards stack the same way Half screen does.
+        """
+        width = self._available_width()
+        if width < 80:
+            return
+        columns = 4 if width >= 980 else 2 if width >= 520 else 1
+        changed = columns != self._controls_columns
+        self._place_controls(columns)
+        side_by_side = self._expanded and width >= 980
+        if side_by_side != self._side_by_side:
+            self._side_by_side = side_by_side
+            self._arrange()
+            changed = True
+        if changed:
+            self.updateGeometry()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._fit_to_width()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._fit_to_width()
+        QTimer.singleShot(0, self._fit_to_width)
 
     def _arrange(self) -> None:
         for card in (self.pin_card, self.assistant_card, self.pc_card, self.log_card):
             self._grid.removeWidget(card)
-        if self._expanded:
+        if self._side_by_side:
             self._grid.addWidget(self.pin_card, 0, 0)
             self._grid.addWidget(self.assistant_card, 0, 1)
             self._grid.addWidget(self.pc_card, 1, 0)
@@ -114,14 +153,27 @@ class HomePage(QWidget):
     # ---------- the controls strip ----------
     def _controls_strip(self) -> QFrame:
         strip = self._card()
-        row = QHBoxLayout(strip)
-        row.setContentsMargins(14, 12, 14, 12)
-        row.setSpacing(18)
-        row.addWidget(self._power_cell(), 2)
-        row.addWidget(self._intel_cell(), 3)
-        row.addWidget(self._game_cell(), 3)
-        row.addWidget(self._keyword_cell(), 3)
+        self._controls_grid = QGridLayout(strip)
+        self._controls_grid.setContentsMargins(14, 12, 14, 12)
+        self._controls_grid.setSpacing(18)
+        self._control_cells = [
+            self._power_cell(),
+            self._intel_cell(),
+            self._game_cell(),
+            self._keyword_cell(),
+        ]
         return strip
+
+    def _place_controls(self, columns: int) -> None:
+        if columns == self._controls_columns:
+            return
+        self._controls_columns = columns
+        for cell in self._control_cells:
+            self._controls_grid.removeWidget(cell)
+        for index, cell in enumerate(self._control_cells):
+            self._controls_grid.addWidget(cell, index // columns, index % columns)
+        for column in range(4):
+            self._controls_grid.setColumnStretch(column, 1 if column < columns else 0)
 
     def _power_cell(self) -> QWidget:
         cell = QWidget()

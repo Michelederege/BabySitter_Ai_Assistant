@@ -112,6 +112,52 @@ def test_pin_cards_build_and_unpin(tmp_path, monkeypatch):
     _close(app, controller, shell)
 
 
+def test_listening_shows_on_the_state_pill(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    shell._keyword_status("capturing")
+    assert shell.window.pill.text() == "Listening"
+    assert shell.window.title_word.text() == "Listening"
+    assert shell.orb.state == "listening"
+    shell._keyword_status("waiting")
+    assert shell.window.pill.text() == "On"
+    assert shell.orb.state == "on"
+    shell._show_mode("thinking", "Thinking.")
+    assert shell.window.pill.text() == "Thinking"
+    shell._show_mode("speaking", "Speaking the answer.")
+    assert shell.window.pill.text() == "Speaking"
+    shell._on_state("on", "The AI is on.")
+    assert shell.window.pill.text() == "On"
+    _close(app, controller, shell)
+
+
+def test_the_keyword_control_stays_inside_a_narrow_window(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    window = shell.window
+    window.show()
+    window.resize(760, 640)
+    app.processEvents()
+    app.processEvents()
+    home = window.home
+    viewport = home.parentWidget()
+    button = home.keyword_button
+    button.setText("Listening for the keyword")
+    app.processEvents()
+    right = button.mapTo(viewport, button.rect().bottomRight()).x()
+    assert right <= viewport.width()
+    assert button.width() >= button.sizeHint().width()
+    edit_right = home.keyword_edit.mapTo(viewport, home.keyword_edit.rect().bottomRight()).x()
+    assert edit_right <= viewport.width()
+    scroll = window.stack.currentWidget()
+    assert scroll.horizontalScrollBar().maximum() == 0
+    picture = next(
+        child for child in home.findChildren(type(button)) if child.text() == "Choose my picture"
+    )
+    picture_right = picture.mapTo(viewport, picture.rect().bottomRight()).x()
+    assert picture_right <= viewport.width()
+    assert picture.width() >= picture.sizeHint().width()
+    _close(app, controller, shell)
+
+
 def test_the_state_pill_and_status_line_follow_the_controller(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     shell._on_state("game", "The model is unloaded for a game.")
