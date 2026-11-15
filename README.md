@@ -48,10 +48,11 @@ The picture above was taken on a computer that does not have Ollama or an NVIDIA
 
 ## What you should see
 
-- The window opens **compact**. Press **Expand** for the full Home screen and the tabs.
-- The power mark says **Off**. Its color is grey. The orb is grey too.
-- The words under it say the next click. Nothing is listening.
-- Video memory, CPU, and RAM refresh every 2 seconds once the full window is open.
+- The window opens in **Half screen**, leaving room for a game beside it. Press **Full screen** in the title bar for the whole desk; the choice is remembered.
+- The pages sit in a rail on the left, in three groups: Today, Assistant, and This PC.
+- The power mark says **Off**. Its color is grey, and the frog orb on the desktop is asleep on its lily pad.
+- The words under the power mark say the next click. Nothing is listening.
+- Video memory, CPU, and RAM refresh every 2 seconds while the window is open.
 
 Colors, on the button and on the orb:
 
