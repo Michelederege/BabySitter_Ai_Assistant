@@ -109,7 +109,7 @@ class Sparkline(QWidget):
         low = min(self.values)
         high = max(self.values)
         span = high - low or 1
-        painter.setPen(QPen(QColor("#e3902f"), 2))
+        painter.setPen(QPen(QColor("#f5a54a"), 2))
         previous = None
         for index, value in enumerate(self.values):
             x = 2 + width * index / (len(self.values) - 1)
@@ -141,7 +141,7 @@ class BarChart(QWidget):
         gap = 2
         bar_width = max(2, (self.width() - gap * count) / count)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor("#e3902f"))
+        painter.setBrush(QColor("#f5a54a"))
         for index, value in enumerate(self.values):
             height = max(2, self.height() * (value / high))
             painter.drawRoundedRect(
