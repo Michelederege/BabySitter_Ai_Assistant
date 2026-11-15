@@ -15,7 +15,7 @@ from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThre
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
-from babysitter.commands import match_quick_command, timer_label
+from babysitter.commands import match_quick_command, spoken_clock, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -40,7 +40,7 @@ from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
 from babysitter.updates import UpdateError, check_latest
 from babysitter.controller import Controller, windows_registrar_or_dummy
-from babysitter.deskstore import add_item, hero_path, load_list, remove_item
+from babysitter.deskstore import add_item, hero_path, load_list, remove_item, save_list
 from babysitter.intelligence import get_mode
 from babysitter.ollama import IDLE_KEEP_ALIVE, OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
@@ -774,6 +774,10 @@ class Shell:
         self._ptt_timer = QTimer(self.window)
         self._ptt_timer.timeout.connect(self._ptt_tick)
         self._ptt_timer.start(40)
+        self._reminder_timer = QTimer(self.window)
+        self._reminder_timer.setInterval(15000)
+        self._reminder_timer.timeout.connect(self._check_reminders)
+        self._reminder_timer.start()
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
@@ -2666,10 +2670,19 @@ class Shell:
         if quick.kind == "calendar":
             self._start_google("calendar", speak_errors=True)
             return True
+        if quick.kind == "history":
+            self._speak_saved_history(text)
+            return True
         if quick.kind in {"remember", "remind"}:
             filename = "memory.json" if quick.kind == "remember" else "schedule.json"
             noun = "that" if quick.kind == "remember" else "the reminder"
-            self._save_local(filename, text.strip(), noun)
+            shown = text.strip()
+            if quick.kind == "remind" and quick.when:
+                from datetime import datetime
+
+                moment = datetime.fromisoformat(quick.when)
+                shown = f"{spoken_clock(moment)} — {quick.detail}".strip(" —")
+            self._save_local(filename, shown, noun, due=quick.when)
             return True
         if quick.kind in {"journal_today", "journal_yesterday"}:
             self._speak_journal(text, quick.kind == "journal_yesterday")
@@ -2840,8 +2853,11 @@ class Shell:
         self.window.home.set_reply("undo", speech, "Nothing else was changed.")
         self._speak(speech)
 
-    def _save_local(self, filename: str, text: str, noun: str) -> None:
-        item = add_item(filename, text=text)
+    def _save_local(self, filename: str, text: str, noun: str, due: str = "") -> None:
+        fields = {"text": text}
+        if due:
+            fields["due"] = due
+        item = add_item(filename, **fields)
         self._soft_undo = {
             "kind": "note",
             "until": time.time() + 10,
@@ -2852,8 +2868,85 @@ class Shell:
             self.window.schedule_page.refresh()
         else:
             self.window.memory_page.refresh()
-        speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
+        if due:
+            from datetime import datetime
+
+            moment = datetime.fromisoformat(due)
+            speech = (
+                f"Reminder set for {spoken_clock(moment)}. "
+                "I'll say it then. Say undo in the next 10 seconds to remove it."
+            )
+        else:
+            speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _check_reminders(self) -> None:
+        """Say a saved reminder once its clock time has arrived."""
+        if getattr(self, "_speaking", False):
+            return
+        now = datetime.now().astimezone()
+        items = load_list("schedule.json")
+        pending = None
+        for item in items:
+            due = str(item.get("due") or "")
+            if not due or str(item.get("fired") or "") == "yes":
+                continue
+            try:
+                moment = datetime.fromisoformat(due)
+            except ValueError:
+                continue
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=now.tzinfo)
+            if moment <= now:
+                pending = item
+                break
+        if pending is None:
+            return
+        pending["fired"] = "yes"
+        save_list("schedule.json", items)
+        self.window.schedule_page.refresh()
+        words = str(pending.get("text") or "Reminder.")
+        speech = f"Reminder. {words}"
+        self.window.home.set_reply("reminder", speech, "It was saved on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _speak_saved_history(self, text: str) -> None:
+        """Read the saved conversation here. The model is not asked, and the voice gets a short piece."""
+        from babysitter.plugins.voice.speech import first_sentence
+        from babysitter.sessions import list_sessions, load_session
+
+        rows = list_sessions()
+        if not rows:
+            speech = "There isn't a saved conversation yet."
+            self.window.home.set_reply(text, speech, "Conversations are saved on this PC after a reply finishes.")
+            self._speak(speech)
+            return
+        try:
+            record = load_session(str(rows[0].get("id") or ""))
+        except ValueError:
+            speech = "The saved conversation could not be read."
+            self.window.home.set_reply(text, speech, "It stays in your BabySitter folder.")
+            self._speak(speech)
+            return
+        turns = [turn for turn in record.get("turns") or [] if isinstance(turn, dict)]
+        recent = turns[-4:]
+        lines: list[str] = []
+        for turn in recent:
+            you = " ".join(str(turn.get("user") or "").split())
+            mine = first_sentence(str(turn.get("assistant") or ""))
+            if you:
+                lines.append(f"You said: {you[:160]}.")
+            if mine:
+                lines.append(f"I said: {mine[:160]}")
+        if not lines:
+            speech = "That conversation has no lines yet."
+        elif len(recent) < len(turns):
+            speech = "Here are the last few lines. " + " ".join(lines)
+        else:
+            speech = " ".join(lines)
+        detail = "\n".join(lines) if lines else "Nothing was read."
+        self.window.home.set_reply(text, speech, detail)
         self._speak(speech)
 
     def _model_still_running(self) -> bool:
