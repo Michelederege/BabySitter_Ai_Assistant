@@ -64,7 +64,7 @@ def require_searx_url(url: str) -> None:
 
 def require_update_url(url: str) -> None:
     """One GitHub releases address, and only after the user asks."""
-    allowed = "https://api.github.com/repos/michele-de-rege/Ai-assistant-Babysitter/releases/latest"
+    allowed = "https://api.github.com/repos/Michelederege/BabySitter_Ai_Assistant/releases/latest"
     if url != allowed:
         raise ValueError("That update address is not allowed.")
 
