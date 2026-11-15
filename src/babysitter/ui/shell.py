@@ -583,7 +583,9 @@ class Shell:
         self.orb = Orb()
         self.icon = load_icon()
         self.window.setWindowIcon(self.icon)
+        self.window.title_icon.setPixmap(self.icon.pixmap(20, 20))
         self.tray = Tray(self.icon)
+        self._orb_hidden_by_user = False
         self.registrar = windows_registrar_or_dummy()
         self.vault = default_vault()
         self.google_vault = default_google_vault()
@@ -654,18 +656,16 @@ class Shell:
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
-        self.window.stack.setCurrentWidget(self.window.home)
-        home_button = self.window.nav_group.button(0)
-        if home_button is not None:
-            home_button.setChecked(True)
+        self.window.show_page(self.window.home)
 
     def _connect(self) -> None:
         home = self.window.home
         settings = self.window.settings_page
         home.power.clicked.connect(self._on_power)
+        self.window.pill.clicked.connect(self._on_power)
         home.try_again.clicked.connect(self._turn_on)
         home.game.clicked.connect(self._on_game)
-        home.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
+        self.window.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
         home.reload.clicked.connect(self.controller.reload_model)
         home.tray_button.clicked.connect(self._close_tray)
         for mode_id, button in home.intel_buttons.items():
@@ -708,7 +708,9 @@ class Shell:
         settings.add_game.clicked.connect(self._add_running_game)
         settings.add_typed.clicked.connect(self._add_typed_game)
         settings.remove_game.clicked.connect(self._remove_game)
-        settings.journal_enabled.toggled.connect(self._set_journal_enabled)
+        self.window.journal_page.enabled.toggled.connect(self._set_journal_enabled)
+        self.window.journal_page.notice.connect(self._on_page_notice)
+        self.window.files_page.notice.connect(self._on_page_notice)
         settings.wipe_journal.clicked.connect(self._wipe_journal)
         settings.add_search_folder.clicked.connect(self._add_search_folder)
         settings.remove_search_folder.clicked.connect(self._remove_search_folder)
@@ -732,9 +734,12 @@ class Shell:
         tools.set_key_saved(saved, self.vault.available)
         saved_google = self.google_vault.has_token() if self.google_vault.available else False
         tools.set_google_saved(saved_google, self.google_vault.available)
-        self.window.expand_button.clicked.connect(self._toggle_expand)
+        self.window.expanded_changed.connect(self._save_window_mode)
         self.window.set_expanded(self.controller.settings.window_expanded)
         self.window.pin_open.connect(self._show_pin)
+        self.window.home.pin_unpin.connect(self._unpin_card)
+        self.window.files_page.set_folders(self._search_places())
+        self.window.journal_page.set_paused(bool(getattr(self.controller, "journal_paused", False)))
         home.hold_pressed.connect(self._hold_down)
         home.hold_released.connect(self._hold_up)
         home.command_submitted.connect(self._on_command)
@@ -755,6 +760,8 @@ class Shell:
         self._refresh_pins()
         if hero_path().is_file():
             self.window.home.set_hero(str(hero_path()))
+        elif asset_path("hero.jpg").is_file():
+            self.window.home.set_hero(str(asset_path("hero.jpg")))
         self._recorder = Recorder()
         self._listener = KeywordListener()
         self._keyword_hub = _KeywordHub()
@@ -781,6 +788,7 @@ class Shell:
     def _refresh_privacy(self) -> None:
         settings = self.controller.settings
         self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
+        self.window.set_privacy(settings.social_search_enabled or settings.google_enabled)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -877,7 +885,8 @@ class Shell:
         self.window.home.set_state(state, message)
         self.window.home.set_history(self.controller.history)
         self.orb.set_state(state, message)
-        self.window.set_chip(state, STATE_WORDS.get(state, "ERROR"))
+        self.window.set_chip(state, STATE_WORDS.get(state, "Needs you"))
+        self.window.set_status_line(message)
         word = STATE_WORDS.get(state, "Needs you")
         self.tray.set_tooltip(f"BabySitter: {word}. {message}")
         self._sync_keyword()
@@ -907,7 +916,7 @@ class Shell:
                 self._google_notified = True
                 self._start_google("both", speak_errors=False, only_new=True)
                 self._google_poll.start()
-        self.window.home.emergency.setToolTip(
+        self.window.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
         )
@@ -1055,6 +1064,7 @@ class Shell:
         note = f"Wiped the journal. {removed} day files were deleted from this PC."
         self.controller._remember(note)
         self.window.home.set_phase(self.controller.state, note)
+        self.window.journal_page.refresh()
 
     def _add_search_folder(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self.window, "Add a folder to search")
@@ -1072,6 +1082,7 @@ class Shell:
             save_settings(self.controller.settings)
         self.window.settings_page.search_folders.clear()
         self.window.settings_page.search_folders.addItems(folders)
+        self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
     def _remove_search_folder(self) -> None:
@@ -1086,6 +1097,7 @@ class Shell:
         save_settings(self.controller.settings)
         self.window.settings_page.search_folders.clear()
         self.window.settings_page.search_folders.addItems(self.controller.settings.search_folders)
+        self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
     def _set_core_avoidance(self, enabled: bool) -> None:
@@ -1174,6 +1186,8 @@ class Shell:
         self.window.home.game_note.setText(text)
 
     def _hide_orb_if_game(self) -> None:
+        if self._orb_hidden_by_user:
+            return
         settings = self.controller.settings
         hide = should_hide_orb(
             settings.hide_orb_for_games,
@@ -1367,6 +1381,11 @@ class Shell:
         page.fill(self.controller.settings, self.controller.data_folder())
         for toggle in toggles:
             toggle.blockSignals(False)
+        journal = self.window.journal_page
+        journal.enabled.blockSignals(True)
+        journal.enabled.setChecked(self.controller.settings.journal_enabled)
+        journal.enabled.blockSignals(False)
+        self.window.files_page.set_folders(self._search_places())
 
     def _apply_hotkeys(self, emergency: str, power_on: str) -> None:
         try:
@@ -1399,22 +1418,39 @@ class Shell:
     def _fill_menu(self, menu: QMenu) -> None:
         menu.clear()
         state = self.controller.state
-        menu.addAction("Open Home", self.show_window)
-        if state in {"on", "game"}:
-            menu.addAction("Turn AI off", lambda: self.controller.turn_off())
+        word = STATE_WORDS.get(state, "Needs you")
+        latest = self.controller.history[-1] if self.controller.history else ""
+        header = menu.addAction(f"{word} — {latest[:60]}" if latest else word)
+        header.setEnabled(False)
+        menu.addSeparator()
+        if state in {"on", "game"} or self.controller._busy:
+            menu.addAction("Turn the AI off", lambda: self.controller.turn_off())
         else:
-            menu.addAction("Turn AI on", self._turn_on)
+            menu.addAction("Turn the AI on", self._turn_on)
         if state == "game":
-            menu.addAction("Wake the model", self.controller.wake)
+            menu.addAction("Wake up (leave game mode)", self.controller.wake)
         elif state == "on":
             menu.addAction("Game mode", self.controller.enter_game)
-        menu.addAction("Emergency stop", lambda: self.controller.turn_off(emergency=True))
-        top = menu.addAction("Keep orb on top")
+        menu.addAction(
+            f"Emergency stop ({self.controller.settings.emergency_hotkey})",
+            lambda: self.controller.turn_off(emergency=True),
+        )
+        menu.addSeparator()
+        menu.addAction("Open BabySitter", self.show_window)
+        top = menu.addAction("Always on top")
         top.setCheckable(True)
         top.setChecked(self.controller.settings.orb_always_on_top)
         top.triggered.connect(self._menu_on_top)
+        if self._orb_hidden_by_user:
+            menu.addAction("Show the orb", lambda: self._set_orb_hidden(False))
+        else:
+            menu.addAction("Hide the orb", lambda: self._set_orb_hidden(True))
         menu.addSeparator()
-        menu.addAction("Quit", self._quit)
+        menu.addAction("Quit…", self._quit)
+
+    def _set_orb_hidden(self, hidden: bool) -> None:
+        self._orb_hidden_by_user = bool(hidden)
+        self.orb.setVisible(not hidden)
 
     def _menu_on_top(self, checked: bool) -> None:
         self.window.settings_page.on_top.setChecked(checked)
@@ -1436,11 +1472,9 @@ class Shell:
             y = area.bottom() - self.orb.height() - 24
         self.orb.move(x, y)
 
-    def _toggle_expand(self) -> None:
-        expanded = not self.controller.settings.window_expanded
-        self.controller.settings.window_expanded = expanded
+    def _save_window_mode(self, expanded: bool) -> None:
+        self.controller.settings.window_expanded = bool(expanded)
         save_settings(self.controller.settings)
-        self.window.set_expanded(expanded)
 
     def _set_quit_off(self, on: bool) -> None:
         self.controller.settings.quit_turns_ai_off = bool(on)
@@ -2065,6 +2099,11 @@ class Shell:
         if not last:
             self.window.home.set_reply("nothing", "Nothing to pin yet.", "Send a reply first, or save a reminder.")
             return
+        if len(load_list("pins.json")) >= 12:
+            self.window.home.set_reply(
+                "pin", "The board is full.", "Twelve cards is the limit. Unpin one first."
+            )
+            return
         title, body = last
         add_item("pins.json", title=title, body=body)
         self._refresh_pins()
@@ -2102,6 +2141,31 @@ class Shell:
         self.window.home.set_history(self.controller.history)
 
     def _on_page_notice(self, text: str) -> None:
+        if text == "JOURNAL today":
+            self._speak_journal("what did i do today", False)
+            return
+        if text == "JOURNAL yesterday":
+            self._speak_journal("what did i do yesterday", True)
+            return
+        if text in {"JOURNAL pause", "JOURNAL resume"}:
+            paused = text.endswith("pause")
+            speech = self.controller.set_journal_paused(paused)
+            self.window.home.set_reply(text.split()[1], speech, "The journal lives in your BabySitter folder.")
+            self._speak(speech)
+            return
+        if text.startswith("TASK start "):
+            self._journal_task("start task", start=text[len("TASK start "):].strip())
+            return
+        if text == "TASK done":
+            self._journal_task("done")
+            return
+        if text == "WIPE journal":
+            self._wipe_journal()
+            return
+        if text.startswith("FIND "):
+            wanted = text[len("FIND "):].strip()
+            self._find_files(f"find {wanted}", wanted)
+            return
         if text.startswith("CONFIRM reminder:"):
             body = text.split(":", 1)[1].strip()
             self.window.schedule_page.text.clear()
@@ -2610,6 +2674,7 @@ class Shell:
             return True
         if quick.kind in {"journal_pause", "journal_resume"}:
             speech = self.controller.set_journal_paused(quick.kind == "journal_pause")
+            self.window.journal_page.set_paused(quick.kind == "journal_pause")
             self.window.home.set_reply(text, speech, "The journal lives in your BabySitter folder.")
             self._speak(speech)
             return True
@@ -2627,6 +2692,8 @@ class Shell:
         word = "yesterday" if yesterday else "today"
         speech = day_speech(record, word)
         self.window.home.set_reply(text, speech, day_detail(record))
+        if not yesterday:
+            self.window.journal_page.refresh()
         self._speak(speech)
 
     def _journal_task(self, text: str, start: str = "") -> None:
@@ -2648,6 +2715,7 @@ class Shell:
         except OSError:
             speech = "The journal file could not be written, so that was not kept."
         self.window.home.set_reply(text, speech, "Tasks live in the journal, in your BabySitter folder.")
+        self.window.journal_page.refresh()
         self._speak(speech)
 
     def _search_places(self) -> list[str]:
@@ -2668,6 +2736,7 @@ class Shell:
         job = _FindJob(self._search_places())
         self._find_job = job
         self.window.home.set_phase(self.controller.state, "Looking through your folders…")
+        self.window.files_page.set_busy_line("Looking through your folders…")
         job.finished_scan.connect(lambda payload: self._scan_arrived(text, wanted, payload))
         job.start()
 
@@ -2686,6 +2755,7 @@ class Shell:
             if not outcome.startswith("Opened"):
                 speech = outcome
         self.window.home.set_reply(text, speech, detail)
+        self.window.files_page.set_results(speech, detail)
         self._speak(speech)
 
     def _open_numbered(self, text: str, number: int) -> None:
@@ -3224,6 +3294,14 @@ class Shell:
 
     def _refresh_pins(self) -> None:
         self.window.set_pins(load_list("pins.json"))
+
+    def _unpin_card(self, pin_id: str) -> None:
+        if not pin_id:
+            return
+        remove_item("pins.json", pin_id)
+        self._refresh_pins()
+        self.controller._remember("Unpinned a card. Nothing else was deleted.")
+        self.window.home.set_history(self.controller.history)
 
     def _show_pin(self, pin_id: str) -> None:
         for pin in load_list("pins.json"):
