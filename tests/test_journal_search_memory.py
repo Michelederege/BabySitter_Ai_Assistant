@@ -1,5 +1,6 @@
 """Five simulations each for the journal, the file search, and the memory."""
 
+import json
 from datetime import date, datetime, timedelta
 
 from babysitter import journal
@@ -10,9 +11,11 @@ from babysitter.embedder import (
     wordpiece_ids,
 )
 from babysitter.filefind import (
+    NEVER_OPEN,
     FoundFile,
     default_folders,
     match_files,
+    open_found,
     parse_query,
     scan_folders,
     search_reply,
@@ -86,6 +89,21 @@ def test_old_days_are_pruned_and_a_wipe_removes_everything(tmp_path, monkeypatch
     assert list(journal.journal_dir().glob("*.json")) == []
 
 
+def test_a_damaged_day_file_is_cleaned_not_fatal(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    bad = {
+        "date": "2026-03-03",
+        "apps": {"blender": "junk", "odd.exe": {"seconds": "9zz"}, "cura": {"seconds": 90}},
+        "tasks": ["junk", {"noname": 1}, {"name": "real", "start": "", "end": ""}],
+    }
+    journal.day_path(date(2026, 3, 3)).write_text(json.dumps(bad), encoding="utf-8")
+    clean = journal.load_day(date(2026, 3, 3))
+    assert list(clean["apps"]) == ["cura"]
+    assert [task["name"] for task in clean["tasks"]] == ["real"]
+    # The exact write that used to crash the sampler on such a file.
+    assert journal.record_sample(clean, "blender.exe", datetime(2026, 3, 3, 10, 0)) is True
+
+
 def test_journal_phrases_are_quick_commands():
     assert match_quick_command("what did I do today").kind == "journal_today"
     assert match_quick_command("what did i do yesterday").kind == "journal_yesterday"
@@ -104,6 +122,16 @@ def test_journal_phrases_are_quick_commands():
 
 def _entry(name: str, modified: float) -> FoundFile:
     return FoundFile(name, f"C:\\Users\\me\\Documents\\{name}", modified)
+
+
+def test_the_default_folders_include_the_onedrive_homes(tmp_path):
+    home = tmp_path / "home"
+    (home / "Documents").mkdir(parents=True)
+    (home / "OneDrive" / "Documents").mkdir(parents=True)
+    (home / "Documents" / "tax.pdf").write_text("x", encoding="utf-8")
+    (home / "OneDrive" / "Documents" / "cloudtax.pdf").write_text("x", encoding="utf-8")
+    names = {found.name for found in scan_folders(default_folders(home))}
+    assert names == {"tax.pdf", "cloudtax.pdf"}
 
 
 def test_spoken_requests_become_words_and_kinds():
@@ -176,6 +204,16 @@ def test_the_scan_stays_shallow_and_skips_hidden_folders(tmp_path):
     (deep / "toodeep.txt").write_text("no", encoding="utf-8")
     names = {found.name for found in scan_folders([str(tmp_path), str(tmp_path / "missing")])}
     assert names == {"dragon.stl"}
+
+
+def test_a_program_is_listed_but_never_started():
+    for name in ("setup.exe", "patch.bat", "fix.ps1", "Shortcut.LNK", "tool.vbs", "run.py"):
+        spoken = open_found(_entry(name, 1.0))
+        assert "was not started" in spoken, name
+    # The dangerous kinds stay dangerous even if someone edits one out.
+    assert {".exe", ".bat", ".cmd", ".ps1", ".vbs", ".lnk", ".msi", ".scr"} <= NEVER_OPEN
+    # A document is allowed; off Windows that is a polite no-op.
+    assert "not started" not in open_found(_entry("taxes.pdf", 1.0))
 
 
 def test_find_phrases_are_quick_commands_but_questions_are_not():
@@ -252,6 +290,11 @@ def test_the_onnx_path_ranks_by_meaning_with_a_fake_engine(monkeypatch, tmp_path
     assert rank_texts("what is my pet's name", facts) == ["My dog is called Biscuit."]
     cache = VectorCache()
     assert cache.get("My dog is called Biscuit.") is not None
+    # A deleted fact's vector is swept out on the next question.
+    rank_texts("anything", ["My printer is a Prusa."])
+    swept = VectorCache()
+    assert swept.get("My dog is called Biscuit.") is None
+    assert swept.get("My printer is a Prusa.") is not None
 
 
 # ---------------------------------------------------------------------------

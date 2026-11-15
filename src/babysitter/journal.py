@@ -32,15 +32,42 @@ def day_path(day: date) -> Path:
 
 def load_day(day: date) -> dict:
     path = day_path(day)
+    raw = None
     if path.is_file():
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError, UnicodeError):
             raw = None
-        if isinstance(raw, dict) and isinstance(raw.get("apps"), dict):
-            raw.setdefault("tasks", [])
-            return raw
-    return {"date": day.isoformat(), "apps": {}, "tasks": []}
+    if not isinstance(raw, dict):
+        return {"date": day.isoformat(), "apps": {}, "tasks": []}
+    # A hand-edited or damaged day must never crash the sampler, so every
+    # entry is checked and a bad one is dropped, not repaired.
+    raw_apps = raw.get("apps") if isinstance(raw.get("apps"), dict) else {}
+    raw_tasks = raw.get("tasks") if isinstance(raw.get("tasks"), list) else []
+    apps: dict = {}
+    for name, entry in raw_apps.items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            seconds = int(entry.get("seconds") or 0)
+        except (TypeError, ValueError):
+            continue
+        apps[str(name)] = {
+            "seconds": max(0, seconds),
+            "first": str(entry.get("first") or ""),
+            "last": str(entry.get("last") or ""),
+        }
+    tasks = []
+    for task in raw_tasks:
+        if isinstance(task, dict) and task.get("name"):
+            tasks.append(
+                {
+                    "name": str(task.get("name"))[:120],
+                    "start": str(task.get("start") or ""),
+                    "end": str(task.get("end") or ""),
+                }
+            )
+    return {"date": day.isoformat(), "apps": apps, "tasks": tasks}
 
 
 def save_day(record: dict) -> None:
@@ -152,6 +179,12 @@ def day_speech(record: dict, day_word: str = "today", top: int = 3) -> str:
     apps = ranked_apps(record)
     tasks = [task for task in record.get("tasks") or [] if isinstance(task, dict)]
     if not apps and not tasks:
+        if record.get("apps"):
+            # Something was recorded, just not a whole minute of it yet.
+            return (
+                f"Under a minute is in the journal for {day_word} so far. "
+                "The details are on the screen."
+            )
         return (
             f"Nothing is in the journal for {day_word}. "
             "It writes down the front program while the AI is on."
