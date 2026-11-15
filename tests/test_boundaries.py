@@ -30,7 +30,7 @@ def test_http_targets_are_local_or_documented_pages():
         "https://www.googleapis.com/auth/calendar.readonly",
         "https://accounts.google.com/o/oauth2/",
         "https://oauth2.googleapis.com/token",
-        "https://api.github.com/repos/alex-de-rege/Ai-assistant-Babysitter/releases/latest",
+        "https://api.github.com/repos/Michelederege/BabySitter_Ai_Assistant/releases/latest",
         "https://github.com/snakers4/silero-vad/",
         "https://github.com/ScrapeCreators/social-media-research-skills",
         # The local keyword model, downloaded only after a confirm click.
