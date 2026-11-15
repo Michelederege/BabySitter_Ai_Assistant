@@ -186,6 +186,50 @@ class SettingsPage(QWidget):
         game_row.addWidget(self.remove_game)
         root.addLayout(game_row)
 
+        root.addWidget(self._label("Day journal"))
+        journal_hint = QLabel(
+            "While the AI is on, the name of the front program is written down about "
+            "twice a minute, with the minutes spent. Only the program's name — no window "
+            "titles, no keys, no screenshots. It stays in your BabySitter folder and days "
+            "older than 90 days are deleted. Ask what did I do today to hear it."
+        )
+        journal_hint.setWordWrap(True)
+        journal_hint.setObjectName("hint")
+        root.addWidget(journal_hint)
+        self.journal_enabled = QCheckBox("Keep the day journal")
+        self.journal_enabled.setToolTip(
+            "On by default. Turning it off stops the writing at once. The files already "
+            "written stay until you wipe them."
+        )
+        root.addWidget(self.journal_enabled)
+        self.wipe_journal = QPushButton("Wipe the journal")
+        self.wipe_journal.setToolTip("Deletes every journal day file. There is no undo.")
+        journal_row = QHBoxLayout()
+        journal_row.addWidget(self.wipe_journal)
+        journal_row.addStretch(1)
+        root.addLayout(journal_row)
+
+        root.addWidget(self._label("File search folders"))
+        search_hint = QLabel(
+            "Find my tax pdf looks in Documents, Downloads, and Desktop. Add a folder "
+            "here, like a 3D-printing folder, to search it too. Nothing is indexed in "
+            "the background and no file name leaves this PC."
+        )
+        search_hint.setWordWrap(True)
+        search_hint.setObjectName("hint")
+        root.addWidget(search_hint)
+        self.search_folders = QListWidget()
+        self.search_folders.setToolTip("Extra folders the file search may look in.")
+        root.addWidget(self.search_folders)
+        search_row = QHBoxLayout()
+        self.add_search_folder = QPushButton("Add a folder")
+        self.add_search_folder.setToolTip("Pick a folder. Only its name is saved.")
+        self.remove_search_folder = QPushButton("Remove")
+        self.remove_search_folder.setToolTip("Stops searching the selected folder. The folder itself is not changed.")
+        search_row.addWidget(self.add_search_folder)
+        search_row.addWidget(self.remove_search_folder)
+        root.addLayout(search_row)
+
         root.addWidget(self._label("Your files"))
         self.folder = QLabel("")
         self.folder.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -228,6 +272,9 @@ class SettingsPage(QWidget):
         self.talk_over.setChecked(settings.talk_over)
         self.games.clear()
         self.games.addItems(settings.game_processes)
+        self.journal_enabled.setChecked(settings.journal_enabled)
+        self.search_folders.clear()
+        self.search_folders.addItems(settings.search_folders)
         self.folder.setText(data_folder)
 
     def toggles(self):
@@ -246,4 +293,5 @@ class SettingsPage(QWidget):
             self.smart_turn,
             self.echo_cancel,
             self.talk_over,
+            self.journal_enabled,
         )

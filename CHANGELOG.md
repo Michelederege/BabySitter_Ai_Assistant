@@ -2,6 +2,14 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — A day journal, a file search, and a memory that matches meaning
+
+**The day journal.** While the AI is on, the name of the front program is written down about twice a minute, with the minutes spent — only the program's name. No window titles, no keys, no screenshots, nothing sent anywhere. "What did I do today" and "what did I do yesterday" speak the day: "Today you spent 2 hours in blender, 45 minutes in bg3." Say "start task modeling the bracket" and later "done" to put a named block of time in the day too. Days are plain JSON files in your BabySitter folder, kept for 90 days. Settings can turn the journal off, exclude programs, or wipe every day file; "pause the journal" stops the writing until you resume it or restart.
+
+**The file search.** "Pull up my current tax pdf" opens the tax PDF you opened last — "current" and "latest" use Windows' own Recent list, falling back to the newest change. "Find all stls" lists every STL. A partial name never errors: one match opens, several are listed with numbers so "open number 2" opens that one, and only a file the search just listed can be opened. It looks in Documents, Downloads, and Desktop, plus any folder you add in Settings, scanned on demand (never indexed in the background), and no file name leaves this PC.
+
+**The sharper memory.** A new button on the Memory tab downloads a small sentence model (all-MiniLM-L6-v2, about 90 MB, checked against a recorded SHA-256) so saved facts match by meaning: "what's my pet called" now finds "My dog is called Biscuit." It runs on the processor, never the graphics card, and each fact is embedded once and cached, so a question costs one small forward pass. Without the download, the old same-words match keeps working. Either way only the top two matching facts reach a question, so a big memory never slows the AI.
+
 ## 0.15.0 — Game mode switches by itself, plus the November review
 
 Opening a game now switches to game mode without you typing its name first. A program running from a folder where game stores install — Steam's `steamapps`, Epic Games, GOG, the Xbox app, Riot Games, or a folder simply named `Games` — counts as a game. Launchers, anti-cheat helpers, and installers in those folders do not. Only the file name and the folder it runs from are read; nothing reads a game's memory. This one update turns automatic game mode on, since it was asked to work by itself. Two switches in Settings turn it off: one for the folder detection, one for automatic game mode entirely. A game installed somewhere unusual still needs its name in the list, and **Switch** under Game mode still works by hand. Waking the model during a game still keeps the AI on until that game closes.
