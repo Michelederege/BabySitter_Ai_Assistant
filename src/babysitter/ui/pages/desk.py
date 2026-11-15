@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from babysitter.deskstore import add_item, load_list, remove_item
+from babysitter.deskstore import add_item, load_list, reminder_line, remove_item
 from babysitter.models import model_choice
 
 
@@ -46,9 +46,11 @@ class _Page(QWidget):
 class SchedulePage(_Page):
     def __init__(self) -> None:
         super().__init__(
-            "Schedule",
-            "Reminders stay on this PC. Adding one saves it, and you can say undo within 10 seconds.",
+            "Reminders",
+            "Every reminder stays on this PC. A clock time is spoken when it arrives. "
+            "Adding one saves it, and you can say undo within 10 seconds.",
         )
+        self.body.hide()
         row = QHBoxLayout()
         self.text = QLineEdit()
         self.text.setPlaceholderText("Stretch at 6:00 PM")
@@ -56,17 +58,38 @@ class SchedulePage(_Page):
         add.setObjectName("primary")
         add.setToolTip("Saves on this PC. Say undo within 10 seconds to remove it.")
         add.clicked.connect(self._add)
+        remove = QPushButton("Remove")
+        remove.setToolTip("Takes the selected reminder off the list. Nothing else is deleted.")
+        remove.clicked.connect(self._remove)
         row.addWidget(self.text, 1)
         row.addWidget(add)
+        row.addWidget(remove)
         self.root.insertLayout(2, row)
+        self.list = QListWidget()
+        self.list.setToolTip("Reminders saved on this PC, including the time they ring.")
+        self.root.insertWidget(3, self.list)
         self.refresh()
 
     def refresh(self) -> None:
+        self.list.clear()
         items = load_list("schedule.json")
         if not items:
-            self.body.setPlainText("No reminders yet.")
+            self.list.addItem("No reminders yet.")
             return
-        self.body.setPlainText("\n".join(f"• {item.get('text', '')}" for item in items))
+        for item in items:
+            row = QListWidgetItem(reminder_line(item))
+            row.setData(Qt.UserRole, str(item.get("id") or ""))
+            self.list.addItem(row)
+
+    def _remove(self) -> None:
+        current = self.list.currentItem()
+        if current is None:
+            return
+        item_id = str(current.data(Qt.UserRole) or "")
+        if not item_id:
+            return
+        remove_item("schedule.json", item_id)
+        self.refresh()
 
     def _add(self) -> None:
         text = self.text.text().strip()

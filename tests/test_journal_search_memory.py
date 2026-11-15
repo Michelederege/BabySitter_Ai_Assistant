@@ -303,8 +303,9 @@ def test_the_onnx_path_ranks_by_meaning_with_a_fake_engine(monkeypatch, tmp_path
 
 def test_an_eleventh_schema_file_gains_the_new_fields():
     upgraded = migrate({"schema_version": 11, "intelligence": "low"})
-    assert upgraded["schema_version"] == 12
+    assert upgraded["schema_version"] == 13
     assert upgraded["journal_enabled"] is True
+    assert upgraded["game_mode_ask"] is False
     assert upgraded["journal_excluded"] == []
     assert upgraded["search_folders"] == []
     settings = settings_from_dict(upgraded)

@@ -147,6 +147,7 @@ class Controller(QObject):
     tray_prompt = Signal(str)
     confirm_old_version = Signal(str)
     notice = Signal(str)
+    game_offer = Signal(str)
     quit_ready = Signal()
 
     def __init__(self) -> None:
@@ -167,6 +168,7 @@ class Controller(QObject):
         self._quit_after_off = False
         self._emergency_latched = False
         self.accepted_old_version = False
+        self._game_prompt_open = False
         self.journal_paused = False
         self._journal_last = 0.0
         self._priority_note = lower_own_priority()
@@ -349,6 +351,10 @@ class Controller(QObject):
         self.settings.auto_game_mode = enabled
         save_settings(self.settings)
 
+    def set_game_ask(self, enabled: bool) -> None:
+        self.settings.game_mode_ask = bool(enabled)
+        save_settings(self.settings)
+
     def set_detect_games(self, enabled: bool) -> None:
         self.settings.detect_games = bool(enabled)
         save_settings(self.settings)
@@ -446,9 +452,16 @@ class Controller(QObject):
         if self._busy or not self.settings.auto_game_mode or self.state != ON:
             return
         target = self.games.auto_switch_target(self._game_match(snap))
-        if target:
-            self._remember(f"{target} is running. Switching to game mode.")
-            self.enter_game()
+        if not target:
+            return
+        if self.settings.game_mode_ask:
+            if self._game_prompt_open:
+                return
+            self._game_prompt_open = True
+            self.game_offer.emit(target)
+            return
+        self._remember(f"{target} is running. Switching to game mode.")
+        self.enter_game()
 
     def _journal_tick(self) -> None:
         """About twice a minute, write down the front program's name.

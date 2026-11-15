@@ -73,6 +73,14 @@ def closed_lead(text: str) -> str | None:
     return chunk
 
 
+def rest_after_lead(lead: str, spoken: str) -> str:
+    """The sentences still waiting after the opening line was already sent to the voice."""
+    bare = lead[:-1].rstrip() if (lead or "")[-1:] in ".!?" else (lead or "")
+    if bare and (spoken or "").startswith(bare):
+        return spoken[len(bare) :].lstrip(" \t,.;:!?")
+    return ""
+
+
 def lead_and_rest(text: str) -> tuple[str, str]:
     """The first sentence, then everything else that can be read later."""
     spoken = plain_speech(text)
