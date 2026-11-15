@@ -138,6 +138,17 @@ def test_a_typed_note_pins_and_a_reminder_shows_its_clock(tmp_path, monkeypatch)
     _close(app, controller, shell)
 
 
+def test_a_clock_answer_stays_in_the_conversation(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    monkeypatch.setattr(shell, "_speak", lambda *_args, **_kwargs: None)
+    shell._logged_turn = True
+    shell._run_quick("what time is it")
+    assert shell._history[-2]["role"] == "user"
+    assert shell._history[-2]["content"] == "what time is it"
+    assert "It's" in shell._history[-1]["content"]
+    _close(app, controller, shell)
+
+
 def test_listening_shows_on_the_state_pill(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     shell._keyword_status("capturing")

@@ -38,6 +38,12 @@ VOCAB_URL = "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resol
 # Hashed-word scores and sentence-model scores live on different scales.
 HASHED_FLOOR = 0.2
 ONNX_FLOOR = 0.3
+# Shared only through these, a fact is not about the question.
+_LIGHT_WORDS = {
+    "a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or",
+    "in", "on", "for", "my", "your", "i", "you", "it", "that", "this", "what",
+    "do", "does", "did", "have", "has", "with", "from", "at",
+}
 
 
 class EmbedderError(Exception):
@@ -88,7 +94,10 @@ def _rank_hashed(query: str, texts: list[str], k: int, floor: float) -> list[str
         cleaned = (text or "").strip()
         if not cleaned:
             continue
-        if query_tokens and not (query_tokens & set(_tokens(cleaned))):
+        shared = query_tokens & set(_tokens(cleaned))
+        if query_tokens and not shared:
+            continue
+        if shared and not (shared - _LIGHT_WORDS):
             continue
         score = similarity(query, cleaned)
         if score >= floor:

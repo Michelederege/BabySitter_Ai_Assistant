@@ -84,6 +84,7 @@ from babysitter.plugins.voice.speech import (
     more_answer,
     unread_detail,
     remainder_after,
+    remembered_reply,
     sapi_rate,
     speech_chunks,
     strip_thinking,
@@ -1692,7 +1693,9 @@ class Shell:
             self._more_text = ""
             self._close_followup()
             if self._history and self._history[-1].get("role") == "assistant":
-                self._history[-1]["content"] = (self._history[-1]["content"] + " " + rest).strip()
+                current = str(self._history[-1].get("content") or "")
+                if rest and rest not in current:
+                    self._history[-1]["content"] = (current + " " + rest).strip()
             self.window.home.set_reply(text, rest, getattr(self, "_full_reply", rest))
             self._speak(rest)
             return
@@ -2087,8 +2090,9 @@ class Shell:
         spoken = spoken or early or "I don't have an answer for that."
         self._last_reply = (spoken[:80] or "Reply", reply)
         self._full_reply = reply
-        self._spoken_for_history = spoken
+        self._spoken_for_history = remembered_reply(reply) or spoken
         heard = getattr(self, "_pending_line", "")
+        self._remember_exchange(heard, self._spoken_for_history)
         self._more_text = rest
         level = int(self.controller.settings.proactivity)
         fact = ""
@@ -2611,6 +2615,20 @@ class Shell:
             return
         self._open_followup()
 
+    def _note_local(self, user: str, assistant: str) -> None:
+        """Keep a local answer in the conversation, so the next question still knows it.
+
+        If the model was still speaking, its answer is kept first. Otherwise the
+        clock or the reminder would replace it.
+        """
+        if not getattr(self, "_logged_turn", False):
+            pending = getattr(self, "_pending_line", "")
+            spoken = getattr(self, "_spoken_for_history", "") or " ".join(getattr(self, "_finished_phrases", []))
+            if (pending or spoken) and pending != user:
+                self._remember_exchange(pending, spoken)
+        self._logged_turn = False
+        self._remember_exchange(user, assistant)
+
     def _remember_exchange(self, user: str, assistant: str) -> None:
         if getattr(self, "_logged_turn", False):
             return
@@ -2682,6 +2700,7 @@ class Shell:
             now = datetime.now().astimezone()
             speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
             self.window.home.set_reply(text, speech, "Read from this PC. The model was not asked.")
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "vram":
@@ -2694,6 +2713,7 @@ class Shell:
                 speech = f"Video memory is using {gpu.used_mib:,} of {gpu.total_mib:,} megabytes."
                 detail = "Read from this PC. The model was not asked."
             self.window.home.set_reply(text, speech, detail)
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "health":
@@ -2703,6 +2723,7 @@ class Shell:
             else:
                 speech = spoken_reading(snap.ram_used_bytes, snap.ram_total_bytes, snap.cpu_percent)
             self.window.home.set_reply(text, speech, "Read from this PC. Nothing was changed.")
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "screen":
@@ -2730,6 +2751,7 @@ class Shell:
                 speech = "I used the recent conversation. No saved fact matched. It is on the screen."
             detail = "\n".join(lines) if lines else "Nothing from this conversation was kept."
             self.window.home.set_reply(text, speech, detail)
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "weekly":
@@ -2758,8 +2780,6 @@ class Shell:
             noun = "that" if quick.kind == "remember" else "the reminder"
             shown = text.strip()
             if quick.kind == "remind" and quick.when:
-                from datetime import datetime
-
                 moment = datetime.fromisoformat(quick.when)
                 shown = f"{spoken_clock(moment)} — {quick.detail}".strip(" —")
             self._save_local(filename, shown, noun, due=quick.when)
@@ -2795,6 +2815,7 @@ class Shell:
         self.window.home.set_reply(text, speech, day_detail(record))
         if not yesterday:
             self.window.journal_page.refresh()
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _journal_task(self, text: str, start: str = "") -> None:
@@ -2817,6 +2838,7 @@ class Shell:
             speech = "The journal file could not be written, so that was not kept."
         self.window.home.set_reply(text, speech, "Tasks live in the journal, in your BabySitter folder.")
         self.window.journal_page.refresh()
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _search_places(self) -> list[str]:
@@ -2895,6 +2917,7 @@ class Shell:
         self._undo_until = time.time() + 10
         speech = f"Timer set for {label}. Say undo in the next 10 seconds to cancel it."
         self.window.home.set_reply("timer", speech, "It stays on this PC. It is not a calendar event.")
+        self._note_local(f"Timer for {label}.", speech)
         self._speak(speech)
 
     def _undo_timer(self) -> None:
@@ -2949,8 +2972,6 @@ class Shell:
         else:
             self.window.memory_page.refresh()
         if due:
-            from datetime import datetime
-
             moment = datetime.fromisoformat(due)
             speech = (
                 f"Reminder set for {spoken_clock(moment)}. "
@@ -2959,6 +2980,7 @@ class Shell:
         else:
             speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _check_reminders(self) -> None:

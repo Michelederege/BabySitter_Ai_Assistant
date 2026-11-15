@@ -41,6 +41,8 @@ def test_voice_turns_skip_hidden_thinking():
     assert "two or three plain sentences" in low["messages"][0]["content"]
     assert "Start with the answer" in low["messages"][0]["content"]
     assert low["options"]["temperature"] == 0.7
+    assert low["options"]["num_predict"] == 512
+    assert "Continue from what was just said" in low["messages"][0]["content"]
     assert "November" not in low["messages"][0]["content"]
 
 
