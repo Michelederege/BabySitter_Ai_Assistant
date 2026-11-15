@@ -41,6 +41,23 @@ def test_a_clock_reminder_is_saved_here_and_history_is_not_sent_to_the_model():
     assert match_quick_command("set a timer for 30 seconds").kind == "timer"
 
 
+def test_the_voice_keeps_the_rest_and_trims_the_padding():
+    from babysitter.deskstore import reminder_line
+    from babysitter.plugins.voice.kokoro_voice import trim_edges
+    from babysitter.plugins.voice.speech import rest_after_lead
+
+    assert rest_after_lead("It is 1:30.", "It is 1:30. Then go to bed.") == "Then go to bed."
+    assert rest_after_lead("It is 1:30.", "It is 1:30.") == ""
+    samples = [0.0] * 24000
+    samples[8000] = 0.5
+    samples[9000] = 0.5
+    trimmed = trim_edges(samples, 24000)
+    assert len(trimmed) < len(samples)
+    assert max(trimmed) == 0.5
+    line = reminder_line({"text": "go to bed", "due": "2026-11-15T13:30", "fired": "yes"})
+    assert "go to bed" in line and "already said" in line
+
+
 def test_a_long_sentence_is_split_before_the_voice_reads_it():
     from babysitter.plugins.voice.speech import speech_chunks
 

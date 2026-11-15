@@ -114,10 +114,10 @@ def test_the_snapshot_names_a_game_running_from_a_game_folder(monkeypatch):
 
 
 def test_a_heavy_low_load_is_reported_and_a_fitting_one_is_named():
-    over = low_load_note("qwen3.5:9b", 7 * 1024 * 1024 * 1024, 4096)
-    assert over is not None and "above the 6 GB goal" in over
+    over = low_load_note("qwen3.5:9b", 8 * 1024 * 1024 * 1024, 4096)
+    assert over is not None and "past 7 GB" in over
     inside = low_load_note("qwen3.5:9b", 5 * 1024 * 1024 * 1024, 4096)
-    assert inside is not None and "4 to 6 GB" in inside
+    assert inside is not None and "5.6 GB" in inside
     assert low_load_note("qwen3.5:9b", 1000, 4096) is None
     assert low_load_note("gemma4:12b", 9 * 1024 * 1024 * 1024, 8192) is None
 
