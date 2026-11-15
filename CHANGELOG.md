@@ -12,6 +12,8 @@ BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
 **Two new pages.** Journal got its own page: the switch, Say my day and Say yesterday, pause and resume, starting and finishing tasks by button, today's minutes per program, and the wipe. Files got its own page too: type a few words, press Find, and the same search runs that "find my tax pdf" runs by voice — one match opens, several make a numbered list, and programs are listed but never started.
 
+**Reminders ring.** "Set a reminder at one thirty to go to bed" is saved on this PC and spoken when that time arrives. It is not sent to the model. "Read out my history" reads the last few saved lines here too, in a short piece, so a long reply cannot knock the voice over. Medium still says, up front, that it uses about 8 to 10 GB. Low is the 4 to 6 GB voice model.
+
 **The look.** Inter for everything you read, JetBrains Mono for keys and paths, Space Grotesk for the name, and the amber BS pacifier as the program's icon everywhere. Orange is only ever something you can click; green, blue, yellow, and red only ever mean state. Nothing else changed underneath: the same settings, the same confirmations, the same rule that nothing listens, loads, or sends until you act.
 
 ## Also in 0.15.0 — A day journal, a file search, and a memory that matches meaning

@@ -497,7 +497,9 @@ STABLE_SYSTEM = (
     "A yes or a no is for one change to this PC, or for something that leaves it. "
     "Rules: Use the conversation so far. Do not invent a memory you were not given. "
     "Do not paste shell commands, PowerShell, or Task Manager steps. "
-    "A scan of this PC is performed before you are asked. Do not invent a scan result."
+    "A scan of this PC is performed before you are asked. Do not invent a scan result. "
+    "Reminders, timers, the journal, and file search are saved on this PC before you are asked. "
+    "The clock on the newest message is context. Do not explain time zones."
 )
 
 
@@ -616,7 +618,7 @@ def chat_messages(prompt: str, history=None, now=None, facts=None, personality: 
         content = item.get("content")
         if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
             messages.append({"role": role, "content": content})
-    line = f"Current local time: {clock} ({zone}). {prompt}"
+    line = f"Clock on this PC, for context only: {clock} ({zone}). {prompt}"
     saved = [str(fact).strip() for fact in facts or [] if str(fact).strip()]
     if saved:
         line += " Saved facts from this PC: " + " | ".join(saved[:2])

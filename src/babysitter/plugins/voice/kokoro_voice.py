@@ -170,7 +170,10 @@ def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_s
             for piece in waiting:
                 if _playback_stop.is_set():
                     break
-                samples, rate = _render(engine, piece, style, speed, pitch)
+                try:
+                    samples, rate = _render(engine, piece, style, speed, pitch)
+                except Exception:
+                    break
                 audio.put((piece, samples, rate))
         finally:
             audio.put(None)
@@ -194,6 +197,10 @@ def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_s
 def _render(engine, text: str, style, speed: float, pitch: int):
     with _lock:
         samples, sample_rate = engine.create(text, voice=style, speed=speed, lang="en-us")
+    # A one-step pitch change also slows the words down, which is what made the
+    # default voice sound dragged. Larger steps on the slider still shift pitch.
+    if abs(int(pitch)) < 2:
+        return samples, sample_rate
     shifted = int(sample_rate * (2 ** (int(pitch) / 12)))
     shifted = max(8000, min(48000, shifted))
     return samples, shifted

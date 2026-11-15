@@ -1,4 +1,6 @@
-from babysitter.commands import match_quick_command, timer_label
+from datetime import datetime
+
+from babysitter.commands import clock_in, match_quick_command, timer_label
 from babysitter.pictures import benchmark_warning, format_benchmark, image_tokens, room_for_model, scaled_size
 from babysitter.plugins.voice.speech import spell_codes, voice_and_rest
 
@@ -18,6 +20,33 @@ def test_short_requests_do_not_need_the_model():
     assert timer.seconds == 20 * 60
     assert timer_label(20 * 60) == "20 minutes"
     assert match_quick_command("who invented dancing") is None
+
+
+def test_a_clock_reminder_is_saved_here_and_history_is_not_sent_to_the_model():
+    bedtime = match_quick_command("can you set a reminder at one thirty to go to bed")
+    assert bedtime is not None and bedtime.kind == "remind"
+    assert bedtime.detail == "to go to bed"
+    assert bedtime.when
+    moment = datetime.fromisoformat(bedtime.when)
+    assert (moment.hour, moment.minute) in {(1, 30), (13, 30)}
+    plain = match_quick_command("remind me to call Mom")
+    assert plain is not None and plain.detail == "to call Mom" and plain.when == ""
+    fixed = datetime(2026, 11, 15, 1, 28, tzinfo=datetime.now().astimezone().tzinfo)
+    upcoming = clock_in("at one thirty", fixed)
+    assert upcoming is not None
+    assert upcoming.hour == 1 and upcoming.minute == 30
+    assert upcoming > fixed
+    history = match_quick_command("read out my history")
+    assert history is not None and history.kind == "history"
+    assert match_quick_command("set a timer for 30 seconds").kind == "timer"
+
+
+def test_a_long_sentence_is_split_before_the_voice_reads_it():
+    from babysitter.plugins.voice.speech import speech_chunks
+
+    chunks = speech_chunks(" ".join(["word"] * 200), limit=80)
+    assert chunks
+    assert all(len(chunk) <= 80 for chunk in chunks)
 
 
 def test_a_picture_is_shrunk_and_a_full_card_is_refused():
