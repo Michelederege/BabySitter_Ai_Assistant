@@ -240,7 +240,22 @@ def speech_chunks(text: str, limit: int = 400) -> list[str]:
         sentences.append(tail)
     chunks: list[str] = []
     current = ""
+    bounded: list[str] = []
     for sentence in sentences:
+        if len(sentence) <= limit:
+            bounded.append(sentence)
+            continue
+        words = sentence.split()
+        piece = ""
+        for word in words:
+            if piece and len(piece) + 1 + len(word) > limit:
+                bounded.append(piece)
+                piece = word
+            else:
+                piece = f"{piece} {word}".strip()
+        if piece:
+            bounded.append(piece)
+    for sentence in bounded:
         if current and len(current) + 1 + len(sentence) > limit:
             chunks.append(current)
             current = sentence

@@ -26,6 +26,9 @@ a = Analysis(
     datas=[
         (str(ROOT / "assets" / "icon.png"), "assets"),
         (str(ROOT / "assets" / "icon.ico"), "assets"),
+        (str(ROOT / "assets" / "hero.jpg"), "assets"),
+        (str(ROOT / "assets" / "fonts"), "assets/fonts"),
+        (str(ROOT / "assets" / "orb"), "assets/orb"),
     ],
     hiddenimports=[
         "babysitter",
