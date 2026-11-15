@@ -119,10 +119,10 @@ Do this on Windows, after the steps above work:
 
 That file is built with no console. Double-clicking it should show only the BabySitter window. It must not open Command Prompt or PowerShell. Ollama, `nvidia-smi`, and any later helper are started the same way: no console window.
 
-The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.1.0.exe`, with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
+The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.15.0.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
 
 ```bat
-BabySitter-Setup-0.1.0.exe /SILENT
+BabySitter-Setup-0.15.0.exe /SILENT
 ```
 
 The installer does not delete `%LOCALAPPDATA%\BabySitter`. The uninstaller asks before it deletes that folder. A silent uninstall does not delete it. Ollama and its downloaded models are never removed.
