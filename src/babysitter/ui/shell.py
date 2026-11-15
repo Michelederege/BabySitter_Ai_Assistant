@@ -15,7 +15,7 @@ from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThre
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
-from babysitter.commands import match_quick_command, timer_label
+from babysitter.commands import match_quick_command, spoken_clock, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -40,7 +40,7 @@ from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
 from babysitter.updates import UpdateError, check_latest
 from babysitter.controller import Controller, windows_registrar_or_dummy
-from babysitter.deskstore import add_item, hero_path, load_list, remove_item
+from babysitter.deskstore import add_item, hero_path, load_list, remove_item, save_list
 from babysitter.intelligence import get_mode
 from babysitter.ollama import IDLE_KEEP_ALIVE, OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
@@ -583,7 +583,9 @@ class Shell:
         self.orb = Orb()
         self.icon = load_icon()
         self.window.setWindowIcon(self.icon)
+        self.window.title_icon.setPixmap(self.icon.pixmap(20, 20))
         self.tray = Tray(self.icon)
+        self._orb_hidden_by_user = False
         self.registrar = windows_registrar_or_dummy()
         self.vault = default_vault()
         self.google_vault = default_google_vault()
@@ -634,7 +636,7 @@ class Shell:
         self._refresh_game_note()
         self.window.home.set_power_ready(False)
         self.window.home.set_intelligence(controller.settings.intelligence)
-        self.orb.set_state("off", "The AI is off. Nothing is listening.")
+        self._show_mode("off", "The AI is off. Nothing is listening.")
 
     def show(self) -> None:
         self._place_orb()
@@ -654,18 +656,16 @@ class Shell:
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
-        self.window.stack.setCurrentWidget(self.window.home)
-        home_button = self.window.nav_group.button(0)
-        if home_button is not None:
-            home_button.setChecked(True)
+        self.window.show_page(self.window.home)
 
     def _connect(self) -> None:
         home = self.window.home
         settings = self.window.settings_page
         home.power.clicked.connect(self._on_power)
+        self.window.pill.clicked.connect(self._on_power)
         home.try_again.clicked.connect(self._turn_on)
         home.game.clicked.connect(self._on_game)
-        home.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
+        self.window.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
         home.reload.clicked.connect(self.controller.reload_model)
         home.tray_button.clicked.connect(self._close_tray)
         for mode_id, button in home.intel_buttons.items():
@@ -708,7 +708,9 @@ class Shell:
         settings.add_game.clicked.connect(self._add_running_game)
         settings.add_typed.clicked.connect(self._add_typed_game)
         settings.remove_game.clicked.connect(self._remove_game)
-        settings.journal_enabled.toggled.connect(self._set_journal_enabled)
+        self.window.journal_page.enabled.toggled.connect(self._set_journal_enabled)
+        self.window.journal_page.notice.connect(self._on_page_notice)
+        self.window.files_page.notice.connect(self._on_page_notice)
         settings.wipe_journal.clicked.connect(self._wipe_journal)
         settings.add_search_folder.clicked.connect(self._add_search_folder)
         settings.remove_search_folder.clicked.connect(self._remove_search_folder)
@@ -732,9 +734,12 @@ class Shell:
         tools.set_key_saved(saved, self.vault.available)
         saved_google = self.google_vault.has_token() if self.google_vault.available else False
         tools.set_google_saved(saved_google, self.google_vault.available)
-        self.window.expand_button.clicked.connect(self._toggle_expand)
+        self.window.expanded_changed.connect(self._save_window_mode)
         self.window.set_expanded(self.controller.settings.window_expanded)
         self.window.pin_open.connect(self._show_pin)
+        self.window.home.pin_unpin.connect(self._unpin_card)
+        self.window.files_page.set_folders(self._search_places())
+        self.window.journal_page.set_paused(bool(getattr(self.controller, "journal_paused", False)))
         home.hold_pressed.connect(self._hold_down)
         home.hold_released.connect(self._hold_up)
         home.command_submitted.connect(self._on_command)
@@ -755,6 +760,8 @@ class Shell:
         self._refresh_pins()
         if hero_path().is_file():
             self.window.home.set_hero(str(hero_path()))
+        elif asset_path("hero.jpg").is_file():
+            self.window.home.set_hero(str(asset_path("hero.jpg")))
         self._recorder = Recorder()
         self._listener = KeywordListener()
         self._keyword_hub = _KeywordHub()
@@ -767,6 +774,10 @@ class Shell:
         self._ptt_timer = QTimer(self.window)
         self._ptt_timer.timeout.connect(self._ptt_tick)
         self._ptt_timer.start(40)
+        self._reminder_timer = QTimer(self.window)
+        self._reminder_timer.setInterval(15000)
+        self._reminder_timer.timeout.connect(self._check_reminders)
+        self._reminder_timer.start()
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
@@ -781,6 +792,7 @@ class Shell:
     def _refresh_privacy(self) -> None:
         settings = self.controller.settings
         self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
+        self.window.set_privacy(settings.social_search_enabled or settings.google_enabled)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -873,13 +885,22 @@ class Shell:
         else:
             self.controller.enter_game()
 
+    def _show_mode(self, state: str, detail: str) -> None:
+        """The frog, the state pill, and the tray all show the same mode.
+
+        Listening, Thinking, and Speaking are not power states. The power
+        switch stays where the controller left it.
+        """
+        self.orb.set_state(state, detail)
+        word = STATE_WORDS.get(state, "Needs you")
+        self.window.set_chip(state, word)
+        self.tray.set_tooltip(f"BabySitter: {word}. {detail}")
+
     def _on_state(self, state: str, message: str) -> None:
         self.window.home.set_state(state, message)
         self.window.home.set_history(self.controller.history)
-        self.orb.set_state(state, message)
-        self.window.set_chip(state, STATE_WORDS.get(state, "ERROR"))
-        word = STATE_WORDS.get(state, "Needs you")
-        self.tray.set_tooltip(f"BabySitter: {word}. {message}")
+        self._show_mode(state, message)
+        self.window.set_status_line(message)
         self._sync_keyword()
         if state == "off":
             release_model()
@@ -907,7 +928,7 @@ class Shell:
                 self._google_notified = True
                 self._start_google("both", speak_errors=False, only_new=True)
                 self._google_poll.start()
-        self.window.home.emergency.setToolTip(
+        self.window.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
         )
@@ -1055,6 +1076,7 @@ class Shell:
         note = f"Wiped the journal. {removed} day files were deleted from this PC."
         self.controller._remember(note)
         self.window.home.set_phase(self.controller.state, note)
+        self.window.journal_page.refresh()
 
     def _add_search_folder(self) -> None:
         chosen = QFileDialog.getExistingDirectory(self.window, "Add a folder to search")
@@ -1072,6 +1094,7 @@ class Shell:
             save_settings(self.controller.settings)
         self.window.settings_page.search_folders.clear()
         self.window.settings_page.search_folders.addItems(folders)
+        self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
     def _remove_search_folder(self) -> None:
@@ -1086,6 +1109,7 @@ class Shell:
         save_settings(self.controller.settings)
         self.window.settings_page.search_folders.clear()
         self.window.settings_page.search_folders.addItems(self.controller.settings.search_folders)
+        self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
     def _set_core_avoidance(self, enabled: bool) -> None:
@@ -1174,6 +1198,8 @@ class Shell:
         self.window.home.game_note.setText(text)
 
     def _hide_orb_if_game(self) -> None:
+        if self._orb_hidden_by_user:
+            return
         settings = self.controller.settings
         hide = should_hide_orb(
             settings.hide_orb_for_games,
@@ -1367,6 +1393,11 @@ class Shell:
         page.fill(self.controller.settings, self.controller.data_folder())
         for toggle in toggles:
             toggle.blockSignals(False)
+        journal = self.window.journal_page
+        journal.enabled.blockSignals(True)
+        journal.enabled.setChecked(self.controller.settings.journal_enabled)
+        journal.enabled.blockSignals(False)
+        self.window.files_page.set_folders(self._search_places())
 
     def _apply_hotkeys(self, emergency: str, power_on: str) -> None:
         try:
@@ -1399,22 +1430,39 @@ class Shell:
     def _fill_menu(self, menu: QMenu) -> None:
         menu.clear()
         state = self.controller.state
-        menu.addAction("Open Home", self.show_window)
-        if state in {"on", "game"}:
-            menu.addAction("Turn AI off", lambda: self.controller.turn_off())
+        word = STATE_WORDS.get(state, "Needs you")
+        latest = self.controller.history[-1] if self.controller.history else ""
+        header = menu.addAction(f"{word} — {latest[:60]}" if latest else word)
+        header.setEnabled(False)
+        menu.addSeparator()
+        if state in {"on", "game"} or self.controller._busy:
+            menu.addAction("Turn the AI off", lambda: self.controller.turn_off())
         else:
-            menu.addAction("Turn AI on", self._turn_on)
+            menu.addAction("Turn the AI on", self._turn_on)
         if state == "game":
-            menu.addAction("Wake the model", self.controller.wake)
+            menu.addAction("Wake up (leave game mode)", self.controller.wake)
         elif state == "on":
             menu.addAction("Game mode", self.controller.enter_game)
-        menu.addAction("Emergency stop", lambda: self.controller.turn_off(emergency=True))
-        top = menu.addAction("Keep orb on top")
+        menu.addAction(
+            f"Emergency stop ({self.controller.settings.emergency_hotkey})",
+            lambda: self.controller.turn_off(emergency=True),
+        )
+        menu.addSeparator()
+        menu.addAction("Open BabySitter", self.show_window)
+        top = menu.addAction("Always on top")
         top.setCheckable(True)
         top.setChecked(self.controller.settings.orb_always_on_top)
         top.triggered.connect(self._menu_on_top)
+        if self._orb_hidden_by_user:
+            menu.addAction("Show the orb", lambda: self._set_orb_hidden(False))
+        else:
+            menu.addAction("Hide the orb", lambda: self._set_orb_hidden(True))
         menu.addSeparator()
-        menu.addAction("Quit", self._quit)
+        menu.addAction("Quit…", self._quit)
+
+    def _set_orb_hidden(self, hidden: bool) -> None:
+        self._orb_hidden_by_user = bool(hidden)
+        self.orb.setVisible(not hidden)
 
     def _menu_on_top(self, checked: bool) -> None:
         self.window.settings_page.on_top.setChecked(checked)
@@ -1436,11 +1484,9 @@ class Shell:
             y = area.bottom() - self.orb.height() - 24
         self.orb.move(x, y)
 
-    def _toggle_expand(self) -> None:
-        expanded = not self.controller.settings.window_expanded
-        self.controller.settings.window_expanded = expanded
+    def _save_window_mode(self, expanded: bool) -> None:
+        self.controller.settings.window_expanded = bool(expanded)
         save_settings(self.controller.settings)
-        self.window.set_expanded(expanded)
 
     def _set_quit_off(self, on: bool) -> None:
         self.controller.settings.quit_turns_ai_off = bool(on)
@@ -1498,7 +1544,7 @@ class Shell:
             return
         self._holding = True
         self._recording = False
-        self.orb.set_state("listening", "Listening. Release to stop.")
+        self._show_mode("listening", "Listening. Release to stop.")
         if packages_installed() and model_ready():
             try:
                 self._recorder.start()
@@ -1508,7 +1554,7 @@ class Shell:
                 self._holding = False
                 self._recorder.close()
                 self.window.home.set_reply("nothing", "The microphone did not open.", str(exc))
-                self.orb.set_state(self.controller.state, "Hold to talk")
+                self._show_mode(self.controller.state, "Hold to talk")
             return
         self.window.home.set_phase(
             "listening",
@@ -1529,7 +1575,7 @@ class Shell:
                 self._recorder.close()
                 wav = b""
         if not packages_installed() or not model_ready():
-            self.orb.set_state(self.controller.state, "Hold to talk")
+            self._show_mode(self.controller.state, "Hold to talk")
             self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
             self._pending_line = ""
             self.window.home.set_reply(
@@ -1539,7 +1585,7 @@ class Shell:
             )
             self._sync_keyword()
             return
-        self.orb.set_state("thinking", "Turning speech into text on this PC.")
+        self._show_mode("thinking", "Turning speech into text on this PC.")
         self.window.home.set_phase("thinking", "The microphone is closed. Nothing has been sent yet.")
         job = _HearJob(wav)
         self._hear_job = job
@@ -1553,7 +1599,7 @@ class Shell:
         text = (text or "").strip()
         if not text:
             self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
-            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
         clock = getattr(self, "_clock", None)
@@ -1618,7 +1664,7 @@ class Shell:
 
     def _hear_failed(self, message: str) -> None:
         self.window.home.set_reply("(no words yet)", "I didn't hear words.", message)
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _show_keyword(self) -> None:
@@ -1716,21 +1762,21 @@ class Shell:
             self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
             return
         if status == "capturing":
-            self.orb.set_state("listening", "Listening to the question.")
+            self._show_mode("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
             return
         if getattr(self, "_followup_left", 0) > 0:
             self._show_followup()
             return
         if getattr(self, "_awaiting_more", False):
-            self.orb.set_state("on", "Say yes or no")
+            self._show_mode("on", "Say yes or no")
             self.window.home.set_phase(
                 "on",
                 "Say yes to hear the rest, or no to stop there. "
                 f"A new question still starts with {word}.",
             )
             return
-        self.orb.set_state("on", f"Say {word}")
+        self._show_mode("on", f"Say {word}")
         self.window.home.set_phase(
             "on",
             f"Say “{word}” and the command in one sentence. "
@@ -1851,7 +1897,7 @@ class Shell:
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
         job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
         job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
-        self.orb.set_state("thinking", "Thinking.")
+        self._show_mode("thinking", "Thinking.")
         self.window.home.set_phase("thinking", "Asking the model on this PC.")
         job.start()
 
@@ -1899,7 +1945,7 @@ class Shell:
         line = PHRASES[index]
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
-        self.orb.set_state("thinking", line)
+        self._show_mode("thinking", line)
         clip = library().clip(index)
         if clip is None or getattr(self, "_speaking", False):
             return
@@ -2046,7 +2092,7 @@ class Shell:
     def _decline_more(self) -> None:
         self._clear_more()
         self.window.home.set_phase("on", "Okay. I'll stop there.")
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _read_the_rest(self) -> None:
@@ -2064,6 +2110,11 @@ class Shell:
         last = getattr(self, "_last_reply", None)
         if not last:
             self.window.home.set_reply("nothing", "Nothing to pin yet.", "Send a reply first, or save a reminder.")
+            return
+        if len(load_list("pins.json")) >= 12:
+            self.window.home.set_reply(
+                "pin", "The board is full.", "Twelve cards is the limit. Unpin one first."
+            )
             return
         title, body = last
         add_item("pins.json", title=title, body=body)
@@ -2102,6 +2153,31 @@ class Shell:
         self.window.home.set_history(self.controller.history)
 
     def _on_page_notice(self, text: str) -> None:
+        if text == "JOURNAL today":
+            self._speak_journal("what did i do today", False)
+            return
+        if text == "JOURNAL yesterday":
+            self._speak_journal("what did i do yesterday", True)
+            return
+        if text in {"JOURNAL pause", "JOURNAL resume"}:
+            paused = text.endswith("pause")
+            speech = self.controller.set_journal_paused(paused)
+            self.window.home.set_reply(text.split()[1], speech, "The journal lives in your BabySitter folder.")
+            self._speak(speech)
+            return
+        if text.startswith("TASK start "):
+            self._journal_task("start task", start=text[len("TASK start "):].strip())
+            return
+        if text == "TASK done":
+            self._journal_task("done")
+            return
+        if text == "WIPE journal":
+            self._wipe_journal()
+            return
+        if text.startswith("FIND "):
+            wanted = text[len("FIND "):].strip()
+            self._find_files(f"find {wanted}", wanted)
+            return
         if text.startswith("CONFIRM reminder:"):
             body = text.split(":", 1)[1].strip()
             self.window.schedule_page.text.clear()
@@ -2239,7 +2315,7 @@ class Shell:
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
         job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
         job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
-        self.orb.set_state("thinking", "Looking.")
+        self._show_mode("thinking", "Looking.")
         job.start()
 
     def _read_health(self) -> None:
@@ -2401,7 +2477,7 @@ class Shell:
             return
         job = _SpeakJob(text, prefs, self._turn_id)
         self._speak_job = job
-        self.orb.set_state("speaking", text)
+        self._show_mode("speaking", text)
         self.window.home.set_phase("speaking", f"Speaking with {prefs['label']}.")
         job.started.connect(self._sound_started)
         job.phrase_done.connect(self._phrase_finished)
@@ -2479,7 +2555,7 @@ class Shell:
         listening = settings.keyword_listening and self.controller.state == "on"
         ready = keyword_packages_installed() and keyword_model_ready()
         if not listening or not ready or getattr(self, "_listener", None) is None:
-            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
         self._listener.expect_followup(True)
@@ -2497,7 +2573,7 @@ class Shell:
 
     def _show_followup(self) -> None:
         left = self._followup_left
-        self.orb.set_state("on", f"Follow-up {left}")
+        self._show_mode("on", f"Follow-up {left}")
         self.window.home.set_phase(
             "on",
             f"Listening for a follow-up. {left} seconds. You do not need to say baby sitter. "
@@ -2509,7 +2585,7 @@ class Shell:
         self._followup_left = 0
         if getattr(self, "_listener", None) is not None:
             self._listener.expect_followup(False)
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _run_quick(self, text: str) -> bool:
@@ -2594,10 +2670,19 @@ class Shell:
         if quick.kind == "calendar":
             self._start_google("calendar", speak_errors=True)
             return True
+        if quick.kind == "history":
+            self._speak_saved_history(text)
+            return True
         if quick.kind in {"remember", "remind"}:
             filename = "memory.json" if quick.kind == "remember" else "schedule.json"
             noun = "that" if quick.kind == "remember" else "the reminder"
-            self._save_local(filename, text.strip(), noun)
+            shown = text.strip()
+            if quick.kind == "remind" and quick.when:
+                from datetime import datetime
+
+                moment = datetime.fromisoformat(quick.when)
+                shown = f"{spoken_clock(moment)} — {quick.detail}".strip(" —")
+            self._save_local(filename, shown, noun, due=quick.when)
             return True
         if quick.kind in {"journal_today", "journal_yesterday"}:
             self._speak_journal(text, quick.kind == "journal_yesterday")
@@ -2610,6 +2695,7 @@ class Shell:
             return True
         if quick.kind in {"journal_pause", "journal_resume"}:
             speech = self.controller.set_journal_paused(quick.kind == "journal_pause")
+            self.window.journal_page.set_paused(quick.kind == "journal_pause")
             self.window.home.set_reply(text, speech, "The journal lives in your BabySitter folder.")
             self._speak(speech)
             return True
@@ -2627,6 +2713,8 @@ class Shell:
         word = "yesterday" if yesterday else "today"
         speech = day_speech(record, word)
         self.window.home.set_reply(text, speech, day_detail(record))
+        if not yesterday:
+            self.window.journal_page.refresh()
         self._speak(speech)
 
     def _journal_task(self, text: str, start: str = "") -> None:
@@ -2648,6 +2736,7 @@ class Shell:
         except OSError:
             speech = "The journal file could not be written, so that was not kept."
         self.window.home.set_reply(text, speech, "Tasks live in the journal, in your BabySitter folder.")
+        self.window.journal_page.refresh()
         self._speak(speech)
 
     def _search_places(self) -> list[str]:
@@ -2668,6 +2757,7 @@ class Shell:
         job = _FindJob(self._search_places())
         self._find_job = job
         self.window.home.set_phase(self.controller.state, "Looking through your folders…")
+        self.window.files_page.set_busy_line("Looking through your folders…")
         job.finished_scan.connect(lambda payload: self._scan_arrived(text, wanted, payload))
         job.start()
 
@@ -2686,6 +2776,7 @@ class Shell:
             if not outcome.startswith("Opened"):
                 speech = outcome
         self.window.home.set_reply(text, speech, detail)
+        self.window.files_page.set_results(speech, detail)
         self._speak(speech)
 
     def _open_numbered(self, text: str, number: int) -> None:
@@ -2762,8 +2853,11 @@ class Shell:
         self.window.home.set_reply("undo", speech, "Nothing else was changed.")
         self._speak(speech)
 
-    def _save_local(self, filename: str, text: str, noun: str) -> None:
-        item = add_item(filename, text=text)
+    def _save_local(self, filename: str, text: str, noun: str, due: str = "") -> None:
+        fields = {"text": text}
+        if due:
+            fields["due"] = due
+        item = add_item(filename, **fields)
         self._soft_undo = {
             "kind": "note",
             "until": time.time() + 10,
@@ -2774,8 +2868,85 @@ class Shell:
             self.window.schedule_page.refresh()
         else:
             self.window.memory_page.refresh()
-        speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
+        if due:
+            from datetime import datetime
+
+            moment = datetime.fromisoformat(due)
+            speech = (
+                f"Reminder set for {spoken_clock(moment)}. "
+                "I'll say it then. Say undo in the next 10 seconds to remove it."
+            )
+        else:
+            speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _check_reminders(self) -> None:
+        """Say a saved reminder once its clock time has arrived."""
+        if getattr(self, "_speaking", False):
+            return
+        now = datetime.now().astimezone()
+        items = load_list("schedule.json")
+        pending = None
+        for item in items:
+            due = str(item.get("due") or "")
+            if not due or str(item.get("fired") or "") == "yes":
+                continue
+            try:
+                moment = datetime.fromisoformat(due)
+            except ValueError:
+                continue
+            if moment.tzinfo is None:
+                moment = moment.replace(tzinfo=now.tzinfo)
+            if moment <= now:
+                pending = item
+                break
+        if pending is None:
+            return
+        pending["fired"] = "yes"
+        save_list("schedule.json", items)
+        self.window.schedule_page.refresh()
+        words = str(pending.get("text") or "Reminder.")
+        speech = f"Reminder. {words}"
+        self.window.home.set_reply("reminder", speech, "It was saved on this PC. Nothing was sent.")
+        self._speak(speech)
+
+    def _speak_saved_history(self, text: str) -> None:
+        """Read the saved conversation here. The model is not asked, and the voice gets a short piece."""
+        from babysitter.plugins.voice.speech import first_sentence
+        from babysitter.sessions import list_sessions, load_session
+
+        rows = list_sessions()
+        if not rows:
+            speech = "There isn't a saved conversation yet."
+            self.window.home.set_reply(text, speech, "Conversations are saved on this PC after a reply finishes.")
+            self._speak(speech)
+            return
+        try:
+            record = load_session(str(rows[0].get("id") or ""))
+        except ValueError:
+            speech = "The saved conversation could not be read."
+            self.window.home.set_reply(text, speech, "It stays in your BabySitter folder.")
+            self._speak(speech)
+            return
+        turns = [turn for turn in record.get("turns") or [] if isinstance(turn, dict)]
+        recent = turns[-4:]
+        lines: list[str] = []
+        for turn in recent:
+            you = " ".join(str(turn.get("user") or "").split())
+            mine = first_sentence(str(turn.get("assistant") or ""))
+            if you:
+                lines.append(f"You said: {you[:160]}.")
+            if mine:
+                lines.append(f"I said: {mine[:160]}")
+        if not lines:
+            speech = "That conversation has no lines yet."
+        elif len(recent) < len(turns):
+            speech = "Here are the last few lines. " + " ".join(lines)
+        else:
+            speech = " ".join(lines)
+        detail = "\n".join(lines) if lines else "Nothing was read."
+        self.window.home.set_reply(text, speech, detail)
         self._speak(speech)
 
     def _model_still_running(self) -> bool:
@@ -3224,6 +3395,14 @@ class Shell:
 
     def _refresh_pins(self) -> None:
         self.window.set_pins(load_list("pins.json"))
+
+    def _unpin_card(self, pin_id: str) -> None:
+        if not pin_id:
+            return
+        remove_item("pins.json", pin_id)
+        self._refresh_pins()
+        self.controller._remember("Unpinned a card. Nothing else was deleted.")
+        self.window.home.set_history(self.controller.history)
 
     def _show_pin(self, pin_id: str) -> None:
         for pin in load_list("pins.json"):

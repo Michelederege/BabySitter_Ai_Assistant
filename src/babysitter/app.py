@@ -14,7 +14,7 @@ from babysitter.logsetup import get_logger, setup_logging
 from babysitter.platform import prefer_per_monitor_dpi, set_windows_app_id
 from babysitter.single_instance import SingleInstance
 from babysitter.ui.shell import Shell, load_icon
-from babysitter.ui.theme import MAIN_QSS
+from babysitter.ui.theme import MAIN_QSS, apply_fonts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -40,8 +40,9 @@ def _run(argv: list[str]) -> int:
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("BabySitter")
     app.setOrganizationName("BabySitter")
+    apply_fonts(app)
     font = QFont()
-    font.setFamilies(["Segoe UI", "Inter", "Ubuntu", "DejaVu Sans", "sans-serif"])
+    font.setFamilies(["Inter", "Segoe UI", "Ubuntu", "DejaVu Sans", "sans-serif"])
     font.setPointSize(11)
     app.setFont(font)
     app.setStyleSheet(MAIN_QSS)

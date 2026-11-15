@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 
 @dataclass(frozen=True)
@@ -12,6 +13,7 @@ class QuickCommand:
     speech: str = ""
     detail: str = ""
     seconds: int = 0
+    when: str = ""
 
 
 _LEAD = re.compile(
@@ -136,10 +138,19 @@ def match_quick_command(text: str) -> QuickCommand | None:
         detail = _tail(original, "remember")
         if detail:
             return QuickCommand("remember", detail=detail)
-    if phrase.startswith("remind me"):
-        detail = _tail(original, "remind me")
-        if detail:
-            return QuickCommand("remind", detail=detail)
+    if phrase in {
+        "read my history",
+        "read out my history",
+        "read the history",
+        "read out the history",
+        "read my conversation",
+        "read out my conversation",
+        "what did we talk about",
+    }:
+        return QuickCommand("history")
+    reminder = _reminder(phrase, original)
+    if reminder:
+        return reminder
     timer = _timer_seconds(phrase)
     if timer:
         return QuickCommand("timer", seconds=timer)
@@ -266,6 +277,133 @@ def _rating(phrase: str) -> str:
         "that was just right": "just right",
     }
     return table.get(phrase, "")
+
+
+_HOUR_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+_MINUTE_WORDS = {
+    "five": 5,
+    "ten": 10,
+    "fifteen": 15,
+    "twenty": 20,
+    "twenty five": 25,
+    "thirty": 30,
+    "forty": 40,
+    "forty five": 45,
+    "forty-five": 45,
+    "fifty": 50,
+    "fifty five": 55,
+    "half": 30,
+    "quarter": 15,
+}
+_REMINDER_LABELS = (
+    "set a reminder",
+    "set reminder",
+    "add a reminder",
+    "add reminder",
+    "make a reminder",
+    "remind me",
+)
+
+
+def _reminder(phrase: str, original: str) -> QuickCommand | None:
+    for label in _REMINDER_LABELS:
+        if phrase != label and not phrase.startswith(label + " "):
+            continue
+        detail = _tail(original, label)
+        if not detail:
+            return None
+        moment = clock_in(detail, datetime.now().astimezone())
+        when = moment.isoformat(timespec="minutes") if moment else ""
+        if moment is not None:
+            detail = _without_clock(detail) or detail
+        return QuickCommand("remind", detail=detail, when=when)
+    return None
+
+
+def clock_in(text: str, now: datetime) -> datetime | None:
+    """The next time this sentence names. None when it names no clock time."""
+    lowered = (text or "").lower().replace("a.m.", "am").replace("p.m.", "pm")
+    lowered = lowered.replace("a.m", "am").replace("p.m", "pm")
+    numbered = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", lowered)
+    if numbered:
+        return _next_clock(int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now)
+    spoken = re.search(
+        r"\bat\s+(midnight|noon|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+        r"(?:\s+(o'clock|oclock|five|ten|fifteen|twenty five|twenty|thirty|forty five|forty-five|forty|fifty five|fifty|half|quarter))?"
+        r"(?:\s+(am|pm))?",
+        lowered,
+    )
+    if not spoken:
+        return None
+    word = spoken.group(1)
+    if word == "midnight":
+        return _next_clock(0, 0, "am", now)
+    if word == "noon":
+        return _next_clock(12, 0, "pm", now)
+    minute_word = spoken.group(2) or ""
+    minute = 0 if minute_word in {"", "o'clock", "oclock"} else _MINUTE_WORDS[minute_word]
+    return _next_clock(_HOUR_WORDS[word], minute, spoken.group(3), now)
+
+
+def _next_clock(hour: int, minute: int, ampm: str | None, now: datetime) -> datetime | None:
+    if minute < 0 or minute > 59 or hour < 0 or hour > 23:
+        return None
+    if ampm:
+        if hour == 0 or hour > 12:
+            return None
+        chosen = 0 if hour == 12 and ampm == "am" else hour % 12
+        if ampm == "pm" and chosen != 12:
+            chosen += 12
+        if hour == 12 and ampm == "pm":
+            chosen = 12
+        hours = [chosen]
+    elif hour > 12:
+        hours = [hour]
+    elif hour == 0:
+        hours = [0]
+    elif hour == 12:
+        hours = [0, 12]
+    else:
+        hours = [hour, hour + 12]
+    best: datetime | None = None
+    zone = now.tzinfo
+    for extra in (0, 1):
+        day = (now + timedelta(days=extra)).date()
+        for chosen_hour in hours:
+            candidate = datetime(day.year, day.month, day.day, chosen_hour, minute, tzinfo=zone)
+            if candidate <= now:
+                continue
+            if best is None or candidate < best:
+                best = candidate
+    return best
+
+
+def _without_clock(detail: str) -> str:
+    cleaned = re.sub(
+        r"\bat\s+.+?(?=\s+to\b|\s+about\b|\s+that\b|$)",
+        " ",
+        detail,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return " ".join(cleaned.split()).strip(" .,")
+
+
+def spoken_clock(moment: datetime) -> str:
+    return moment.strftime("%I:%M %p").lstrip("0")
 
 
 def _timer_seconds(phrase: str) -> int:

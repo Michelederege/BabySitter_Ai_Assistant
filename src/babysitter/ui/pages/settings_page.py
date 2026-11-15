@@ -188,20 +188,13 @@ class SettingsPage(QWidget):
 
         root.addWidget(self._label("Day journal"))
         journal_hint = QLabel(
-            "While the AI is on, the name of the front program is written down about "
-            "twice a minute, with the minutes spent. Only the program's name — no window "
-            "titles, no keys, no screenshots. It stays in your BabySitter folder and days "
-            "older than 90 days are deleted. Ask what did I do today to hear it."
+            "The journal's switch lives on the Journal page. Only the front program's "
+            "name and the minutes are written — no window titles, no keys, no "
+            "screenshots. Days older than 90 days are deleted."
         )
         journal_hint.setWordWrap(True)
         journal_hint.setObjectName("hint")
         root.addWidget(journal_hint)
-        self.journal_enabled = QCheckBox("Keep the day journal")
-        self.journal_enabled.setToolTip(
-            "On by default. Turning it off stops the writing at once. The files already "
-            "written stay until you wipe them."
-        )
-        root.addWidget(self.journal_enabled)
         self.wipe_journal = QPushButton("Wipe the journal")
         self.wipe_journal.setToolTip("Deletes every journal day file. There is no undo.")
         journal_row = QHBoxLayout()
@@ -272,7 +265,6 @@ class SettingsPage(QWidget):
         self.talk_over.setChecked(settings.talk_over)
         self.games.clear()
         self.games.addItems(settings.game_processes)
-        self.journal_enabled.setChecked(settings.journal_enabled)
         self.search_folders.clear()
         self.search_folders.addItems(settings.search_folders)
         self.folder.setText(data_folder)
@@ -293,5 +285,4 @@ class SettingsPage(QWidget):
             self.smart_turn,
             self.echo_cancel,
             self.talk_over,
-            self.journal_enabled,
         )

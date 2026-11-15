@@ -55,7 +55,10 @@ MODES: dict[str, IntelligenceMode] = {
     "medium": IntelligenceMode(
         id="medium",
         label="Medium",
-        summary="Everyday answers, including writing. Uses gemma4:12b. This is the default.",
+        summary=(
+            "About 8 to 10 GB of video memory. Uses gemma4:12b for longer writing. "
+            "This is the default. Low is the 4 to 6 GB voice model."
+        ),
         model=WRITING_MODEL,
         num_ctx=8192,
         num_batch=512,

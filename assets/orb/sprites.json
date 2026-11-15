@@ -1,0 +1,47 @@
+{
+  "frameSize": 168,
+  "fps": 20,
+  "layout": "one horizontal strip per state, left to right, loops",
+  "states": {
+    "off": {
+      "file": "frog-off.png",
+      "frames": 104,
+      "seconds": 5.2
+    },
+    "working": {
+      "file": "frog-working.png",
+      "frames": 72,
+      "seconds": 3.6
+    },
+    "on": {
+      "file": "frog-on.png",
+      "frames": 100,
+      "seconds": 5.0
+    },
+    "listening": {
+      "file": "frog-listening.png",
+      "frames": 60,
+      "seconds": 3.0
+    },
+    "thinking": {
+      "file": "frog-thinking.png",
+      "frames": 72,
+      "seconds": 3.6
+    },
+    "speaking": {
+      "file": "frog-speaking.png",
+      "frames": 56,
+      "seconds": 2.8
+    },
+    "game": {
+      "file": "frog-game.png",
+      "frames": 68,
+      "seconds": 3.4
+    },
+    "needs": {
+      "file": "frog-needs.png",
+      "frames": 40,
+      "seconds": 2.0
+    }
+  }
+}
