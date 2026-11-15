@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — The v2 interface: the frog orb, the rail, and two new pages
+
+**The frog orb.** The floating light is now a cartoon pond frog on a lily pad, with the BS pacifier in its mouth, drawn from animation strips that ship with the program. Each state has its own animation: asleep when Off, a firefly while Working, breathing and blinking when On, perked ears while Listening, a croaking throat pouch while Speaking, dozing in blue moonlight in Game, and hopping with a red ring when it Needs you. A short caption sits in a dark pill under the frog, never over it. A plain click opens the window, a drag only moves it, right-click opens the menu, and the animations stop when Windows' "Show animations" is off.
+
+**The window.** A frameless window with its own title bar: Half screen snaps to the left half so a game fits beside it, Full screen fills the desk, the dash hides the window while the orb stays, and the X turns the AI off the way it always did. The pages moved into a rail on the left, in three groups — Today (Home, Schedule, Journal, Files), Assistant (Voice, Memory, History, Screen, Tools), and This PC (PC Health, Models, Settings). The top bar holds the state pill (clicking it is the power switch), the latest status line, Emergency stop, and the privacy word, which changes to "Online only when you approve" while an outside tool is on. Warnings now show in one place under the top bar, on every page.
+
+**Home, rearranged.** The controls strip is first: Power, Intelligence, Game mode, and the Keyword. Then the assistant — the frog-pond picture, what you said, the spoken sentence under SAID, and the detail under ON SCREEN — beside the pinboard, which now holds up to twelve cards with Open and Unpin on each. This PC and What just happened close the page. In Half screen everything stacks into one column, assistant first.
+
+**Two new pages.** Journal got its own page: the switch, Say my day and Say yesterday, pause and resume, starting and finishing tasks by button, today's minutes per program, and the wipe. Files got its own page too: type a few words, press Find, and the same search runs that "find my tax pdf" runs by voice — one match opens, several make a numbered list, and programs are listed but never started.
+
+**The look.** Inter for everything you read, JetBrains Mono for keys and paths, Space Grotesk for the name, and the amber BS pacifier as the program's icon everywhere. Orange is only ever something you can click; green, blue, yellow, and red only ever mean state. Nothing else changed underneath: the same settings, the same confirmations, the same rule that nothing listens, loads, or sends until you act.
+
 ## Also in 0.15.0 — A day journal, a file search, and a memory that matches meaning
 
 **The day journal.** While the AI is on, the name of the front program is written down about twice a minute, with the minutes spent — only the program's name. No window titles, no keys, no screenshots, nothing sent anywhere. "What did I do today" and "what did I do yesterday" speak the day: "Today you spent 2 hours in blender, 45 minutes in bg3." Say "start task modeling the bracket" and later "done" to put a named block of time in the day too. Days are plain JSON files in your BabySitter folder, kept for 90 days. Settings can turn the journal off, exclude programs, or wipe every day file; "pause the journal" stops the writing until you resume it or restart.
