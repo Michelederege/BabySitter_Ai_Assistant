@@ -56,8 +56,16 @@ class FoundFile:
 
 
 def default_folders(home: Path | None = None) -> list[str]:
+    """Documents, Downloads, and Desktop — and their OneDrive homes.
+
+    On many Windows PCs, Documents and Desktop actually live under
+    OneDrive. A folder that does not exist is skipped by the scan, so
+    naming both costs nothing on PCs without it.
+    """
     base = Path(home) if home else Path.home()
-    return [str(base / name) for name in ("Documents", "Downloads", "Desktop")]
+    folders = [str(base / name) for name in ("Documents", "Downloads", "Desktop")]
+    folders += [str(base / "OneDrive" / name) for name in ("Documents", "Desktop")]
+    return folders
 
 
 def scan_folders(folders: list[str]) -> list[FoundFile]:
@@ -95,7 +103,11 @@ def _walk(folder: str, depth: int, found: list[FoundFile]) -> None:
                         _walk(entry.path, depth + 1, found)
                 elif entry.is_file(follow_symlinks=False):
                     found.append(
-                        FoundFile(name, entry.path, float(entry.stat().st_mtime))
+                        FoundFile(
+                            name,
+                            entry.path,
+                            float(entry.stat(follow_symlinks=False).st_mtime),
+                        )
                     )
             except OSError:
                 continue
@@ -181,7 +193,11 @@ def _word_in(word: str, name: str) -> bool:
 def when_label(stamp: float, now: datetime | None = None) -> str:
     if stamp <= 0:
         return ""
-    moment = datetime.fromtimestamp(stamp).astimezone()
+    try:
+        moment = datetime.fromtimestamp(stamp).astimezone()
+    except (OverflowError, OSError, ValueError):
+        # A nonsense file date from a damaged disk is not worth a crash.
+        return ""
     today = (now or datetime.now().astimezone()).date()
     days = (today - moment.date()).days
     if days <= 0:
@@ -224,12 +240,31 @@ def search_reply(
     return speech, "\n".join(lines), None
 
 
+# Kinds that Windows would run instead of show. The search can list them,
+# but speaking a number never starts a program.
+NEVER_OPEN = {
+    ".exe", ".bat", ".cmd", ".com", ".msi", ".msix", ".scr", ".pif",
+    ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh",
+    ".hta", ".reg", ".lnk", ".url", ".jar", ".py", ".pyw", ".appx",
+}
+
+
 def open_found(found: FoundFile) -> str:
-    """Open one file this search listed, the same way as a double-click."""
+    """Open one file this search listed, the same way as a double-click.
+
+    A program or a script is never started this way: opening those by
+    voice is how a stray match becomes code running on your PC.
+    """
+    suffix = Path(found.name).suffix.lower()
+    if suffix in NEVER_OPEN:
+        return (
+            f"{found.name} is a program, not a document, so it was not started. "
+            "Its place is on the screen if you want it."
+        )
     if sys.platform != "win32":
         return "Opening files works on Windows."
     try:
-        os.startfile(found.path)  # noqa: S606 — same as a double-click, after a match was shown
+        os.startfile(found.path)  # noqa: S606 — same as a double-click, documents only
     except OSError as exc:
         return f"Windows could not open {found.name} ({exc})."
     return f"Opened {found.name}."
