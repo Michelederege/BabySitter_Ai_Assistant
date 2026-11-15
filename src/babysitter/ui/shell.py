@@ -636,7 +636,7 @@ class Shell:
         self._refresh_game_note()
         self.window.home.set_power_ready(False)
         self.window.home.set_intelligence(controller.settings.intelligence)
-        self.orb.set_state("off", "The AI is off. Nothing is listening.")
+        self._show_mode("off", "The AI is off. Nothing is listening.")
 
     def show(self) -> None:
         self._place_orb()
@@ -881,14 +881,22 @@ class Shell:
         else:
             self.controller.enter_game()
 
+    def _show_mode(self, state: str, detail: str) -> None:
+        """The frog, the state pill, and the tray all show the same mode.
+
+        Listening, Thinking, and Speaking are not power states. The power
+        switch stays where the controller left it.
+        """
+        self.orb.set_state(state, detail)
+        word = STATE_WORDS.get(state, "Needs you")
+        self.window.set_chip(state, word)
+        self.tray.set_tooltip(f"BabySitter: {word}. {detail}")
+
     def _on_state(self, state: str, message: str) -> None:
         self.window.home.set_state(state, message)
         self.window.home.set_history(self.controller.history)
-        self.orb.set_state(state, message)
-        self.window.set_chip(state, STATE_WORDS.get(state, "Needs you"))
+        self._show_mode(state, message)
         self.window.set_status_line(message)
-        word = STATE_WORDS.get(state, "Needs you")
-        self.tray.set_tooltip(f"BabySitter: {word}. {message}")
         self._sync_keyword()
         if state == "off":
             release_model()
@@ -1532,7 +1540,7 @@ class Shell:
             return
         self._holding = True
         self._recording = False
-        self.orb.set_state("listening", "Listening. Release to stop.")
+        self._show_mode("listening", "Listening. Release to stop.")
         if packages_installed() and model_ready():
             try:
                 self._recorder.start()
@@ -1542,7 +1550,7 @@ class Shell:
                 self._holding = False
                 self._recorder.close()
                 self.window.home.set_reply("nothing", "The microphone did not open.", str(exc))
-                self.orb.set_state(self.controller.state, "Hold to talk")
+                self._show_mode(self.controller.state, "Hold to talk")
             return
         self.window.home.set_phase(
             "listening",
@@ -1563,7 +1571,7 @@ class Shell:
                 self._recorder.close()
                 wav = b""
         if not packages_installed() or not model_ready():
-            self.orb.set_state(self.controller.state, "Hold to talk")
+            self._show_mode(self.controller.state, "Hold to talk")
             self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
             self._pending_line = ""
             self.window.home.set_reply(
@@ -1573,7 +1581,7 @@ class Shell:
             )
             self._sync_keyword()
             return
-        self.orb.set_state("thinking", "Turning speech into text on this PC.")
+        self._show_mode("thinking", "Turning speech into text on this PC.")
         self.window.home.set_phase("thinking", "The microphone is closed. Nothing has been sent yet.")
         job = _HearJob(wav)
         self._hear_job = job
@@ -1587,7 +1595,7 @@ class Shell:
         text = (text or "").strip()
         if not text:
             self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
-            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
         clock = getattr(self, "_clock", None)
@@ -1652,7 +1660,7 @@ class Shell:
 
     def _hear_failed(self, message: str) -> None:
         self.window.home.set_reply("(no words yet)", "I didn't hear words.", message)
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _show_keyword(self) -> None:
@@ -1750,21 +1758,21 @@ class Shell:
             self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
             return
         if status == "capturing":
-            self.orb.set_state("listening", "Listening to the question.")
+            self._show_mode("listening", "Listening to the question.")
             self.window.home.set_phase("listening", "Say the question now. The microphone is open.")
             return
         if getattr(self, "_followup_left", 0) > 0:
             self._show_followup()
             return
         if getattr(self, "_awaiting_more", False):
-            self.orb.set_state("on", "Say yes or no")
+            self._show_mode("on", "Say yes or no")
             self.window.home.set_phase(
                 "on",
                 "Say yes to hear the rest, or no to stop there. "
                 f"A new question still starts with {word}.",
             )
             return
-        self.orb.set_state("on", f"Say {word}")
+        self._show_mode("on", f"Say {word}")
         self.window.home.set_phase(
             "on",
             f"Say “{word}” and the command in one sentence. "
@@ -1885,7 +1893,7 @@ class Shell:
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
         job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
         job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
-        self.orb.set_state("thinking", "Thinking.")
+        self._show_mode("thinking", "Thinking.")
         self.window.home.set_phase("thinking", "Asking the model on this PC.")
         job.start()
 
@@ -1933,7 +1941,7 @@ class Shell:
         line = PHRASES[index]
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
-        self.orb.set_state("thinking", line)
+        self._show_mode("thinking", line)
         clip = library().clip(index)
         if clip is None or getattr(self, "_speaking", False):
             return
@@ -2080,7 +2088,7 @@ class Shell:
     def _decline_more(self) -> None:
         self._clear_more()
         self.window.home.set_phase("on", "Okay. I'll stop there.")
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _read_the_rest(self) -> None:
@@ -2303,7 +2311,7 @@ class Shell:
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
         job.succeeded.connect(lambda reply, turn=job.turn: self._asked(reply, turn))
         job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
-        self.orb.set_state("thinking", "Looking.")
+        self._show_mode("thinking", "Looking.")
         job.start()
 
     def _read_health(self) -> None:
@@ -2465,7 +2473,7 @@ class Shell:
             return
         job = _SpeakJob(text, prefs, self._turn_id)
         self._speak_job = job
-        self.orb.set_state("speaking", text)
+        self._show_mode("speaking", text)
         self.window.home.set_phase("speaking", f"Speaking with {prefs['label']}.")
         job.started.connect(self._sound_started)
         job.phrase_done.connect(self._phrase_finished)
@@ -2543,7 +2551,7 @@ class Shell:
         listening = settings.keyword_listening and self.controller.state == "on"
         ready = keyword_packages_installed() and keyword_model_ready()
         if not listening or not ready or getattr(self, "_listener", None) is None:
-            self.orb.set_state(self.controller.state, "Say the keyword")
+            self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
         self._listener.expect_followup(True)
@@ -2561,7 +2569,7 @@ class Shell:
 
     def _show_followup(self) -> None:
         left = self._followup_left
-        self.orb.set_state("on", f"Follow-up {left}")
+        self._show_mode("on", f"Follow-up {left}")
         self.window.home.set_phase(
             "on",
             f"Listening for a follow-up. {left} seconds. You do not need to say baby sitter. "
@@ -2573,7 +2581,7 @@ class Shell:
         self._followup_left = 0
         if getattr(self, "_listener", None) is not None:
             self._listener.expect_followup(False)
-        self.orb.set_state(self.controller.state, "Say the keyword")
+        self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _run_quick(self, text: str) -> bool:
