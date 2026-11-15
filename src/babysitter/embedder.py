@@ -206,6 +206,11 @@ def download() -> str:
     )
 
 
+def warm() -> None:
+    """Load the model off the window's thread, so a question is not waiting on it."""
+    _shared_engine()
+
+
 def release() -> None:
     """Drop the loaded model. The files stay on disk."""
     global _engine, _engine_checked

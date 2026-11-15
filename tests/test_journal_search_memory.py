@@ -10,9 +10,11 @@ from babysitter.embedder import (
     wordpiece_ids,
 )
 from babysitter.filefind import (
+    NEVER_OPEN,
     FoundFile,
     default_folders,
     match_files,
+    open_found,
     parse_query,
     scan_folders,
     search_reply,
@@ -176,6 +178,16 @@ def test_the_scan_stays_shallow_and_skips_hidden_folders(tmp_path):
     (deep / "toodeep.txt").write_text("no", encoding="utf-8")
     names = {found.name for found in scan_folders([str(tmp_path), str(tmp_path / "missing")])}
     assert names == {"dragon.stl"}
+
+
+def test_a_program_is_listed_but_never_started():
+    for name in ("setup.exe", "patch.bat", "fix.ps1", "Shortcut.LNK", "tool.vbs", "run.py"):
+        spoken = open_found(_entry(name, 1.0))
+        assert "was not started" in spoken, name
+    # The dangerous kinds stay dangerous even if someone edits one out.
+    assert {".exe", ".bat", ".cmd", ".ps1", ".vbs", ".lnk", ".msi", ".scr"} <= NEVER_OPEN
+    # A document is allowed; off Windows that is a polite no-op.
+    assert "not started" not in open_found(_entry("taxes.pdf", 1.0))
 
 
 def test_find_phrases_are_quick_commands_but_questions_are_not():
