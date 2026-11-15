@@ -9,12 +9,15 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 import traceback
+from datetime import date, datetime
 
 from PySide6.QtCore import QObject, QThread, Signal
 
+from babysitter import journal
 from babysitter.audio import AudioGate
-from babysitter.games import GameWatch, clean_process_name, first_matching_game
+from babysitter.games import GameWatch, clean_process_name, first_matching_game, foreground_process_name
 from babysitter.quiet import in_quiet_hours, quiet_sentence
 from babysitter.hotkeys import HotkeyBook, HotkeyError, UnavailableRegistrar, canonical_hotkey
 from babysitter.intelligence import get_mode
@@ -164,6 +167,8 @@ class Controller(QObject):
         self._quit_after_off = False
         self._emergency_latched = False
         self.accepted_old_version = False
+        self.journal_paused = False
+        self._journal_last = 0.0
         self._priority_note = lower_own_priority()
         self._core_note = apply_game_core_avoidance(self.settings.keep_off_game_cores)
         self.worker = PowerThread(self.power, self.cancel)
@@ -186,6 +191,10 @@ class Controller(QObject):
         if self.settings.notices:
             save_settings(self.settings)
         self._sync_autostart()
+        try:
+            journal.prune(date.today())
+        except OSError as exc:
+            log.error("Could not tidy the journal folder: %s", exc)
         self.state_changed.emit(OFF, "The AI is off. Nothing is listening.")
         self.worker.start()
         self.status_thread.start()
@@ -344,6 +353,17 @@ class Controller(QObject):
         self.settings.detect_games = bool(enabled)
         save_settings(self.settings)
 
+    def set_journal_enabled(self, enabled: bool) -> None:
+        self.settings.journal_enabled = bool(enabled)
+        save_settings(self.settings)
+
+    def set_journal_paused(self, paused: bool) -> str:
+        """Pause writing until it is resumed or the app restarts."""
+        self.journal_paused = bool(paused)
+        if paused:
+            return "The journal is paused. Nothing is being written down."
+        return "The journal is back on."
+
     def set_core_avoidance(self, enabled: bool) -> str:
         self.settings.keep_off_game_cores = bool(enabled)
         save_settings(self.settings)
@@ -422,12 +442,43 @@ class Controller(QObject):
     def _on_status(self, snap: StatusSnapshot) -> None:
         self.latest_status = snap
         self.status_changed.emit(snap)
+        self._journal_tick()
         if self._busy or not self.settings.auto_game_mode or self.state != ON:
             return
         target = self.games.auto_switch_target(self._game_match(snap))
         if target:
             self._remember(f"{target} is running. Switching to game mode.")
             self.enter_game()
+
+    def _journal_tick(self) -> None:
+        """About twice a minute, write down the front program's name.
+
+        Only while the AI is on or in game mode, only the file name, and
+        only into a plain file in the personal folder.
+        """
+        if not self.settings.journal_enabled or self.journal_paused:
+            return
+        if self.state not in {ON, GAME}:
+            return
+        now = time.monotonic()
+        if self._journal_last and now - self._journal_last < journal.SAMPLE_SECONDS:
+            return
+        self._journal_last = now
+        try:
+            app = foreground_process_name()
+        except OSError:
+            return
+        if not app:
+            return
+        moment = datetime.now()
+        try:
+            record = journal.load_day(moment.date())
+            if journal.record_sample(
+                record, app, moment, excluded=self.settings.journal_excluded
+            ):
+                journal.save_day(record)
+        except OSError as exc:
+            log.error("Could not write the journal: %s", exc)
 
     def _on_version(self, report: VersionReport) -> None:
         self.version = report

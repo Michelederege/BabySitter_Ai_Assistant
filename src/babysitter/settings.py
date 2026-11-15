@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -61,6 +61,9 @@ class Settings:
     side_button: bool = False
     searx_enabled: bool = False
     searx_port: int = 8080
+    journal_enabled: bool = True
+    journal_excluded: list[str] = field(default_factory=list)
+    search_folders: list[str] = field(default_factory=list)
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -98,6 +101,9 @@ class Settings:
             "side_button": self.side_button,
             "searx_enabled": self.searx_enabled,
             "searx_port": self.searx_port,
+            "journal_enabled": self.journal_enabled,
+            "journal_excluded": list(self.journal_excluded),
+            "search_folders": list(self.search_folders),
         }
 
 
@@ -116,6 +122,34 @@ def _clean_games(value: object) -> list[str]:
             continue
         if name.lower() not in {existing.lower() for existing in cleaned}:
             cleaned.append(name)
+    return cleaned
+
+
+def _clean_names(value: object) -> list[str]:
+    """Short plain names, like programs the journal should not write down."""
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value[:50]:
+        if not isinstance(item, str):
+            continue
+        name = " ".join(item.split())[:120]
+        if name and name.lower() not in {existing.lower() for existing in cleaned}:
+            cleaned.append(name)
+    return cleaned
+
+
+def _clean_folders(value: object) -> list[str]:
+    """Folders the file search may look in, beyond the usual three."""
+    if not isinstance(value, list):
+        return []
+    cleaned: list[str] = []
+    for item in value[:20]:
+        if not isinstance(item, str):
+            continue
+        path = item.strip()[:500]
+        if path and path.lower() not in {existing.lower() for existing in cleaned}:
+            cleaned.append(path)
     return cleaned
 
 
@@ -198,6 +232,16 @@ def migrate(data: dict) -> dict:
         incoming["auto_game_mode"] = True
         incoming["schema_version"] = 11
         version = 11
+    if version < 12:
+        # The day journal and the file search arrived together. The
+        # journal starts on because it only writes program names and
+        # minutes, stays on this PC, and Settings can turn it off or
+        # wipe it. The search looks only in folders you chose.
+        incoming.setdefault("journal_enabled", True)
+        incoming.setdefault("journal_excluded", [])
+        incoming.setdefault("search_folders", [])
+        incoming["schema_version"] = 12
+        version = 12
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -330,6 +374,9 @@ def settings_from_dict(data: dict) -> Settings:
         side_button=bool(data.get("side_button", False)),
         searx_enabled=bool(data.get("searx_enabled", False)),
         searx_port=_port(data.get("searx_port", 8080)),
+        journal_enabled=bool(data.get("journal_enabled", True)),
+        journal_excluded=_clean_names(data.get("journal_excluded")),
+        search_folders=_clean_folders(data.get("search_folders")),
         notices=notices,
     )
 
