@@ -14,7 +14,7 @@ from babysitter.security import require_update_url
 from babysitter.version import __version__
 
 
-RELEASE_API = "https://api.github.com/repos/michele-de-rege/Ai-assistant-Babysitter/releases/latest"
+RELEASE_API = "https://api.github.com/repos/Michelederege/BabySitter_Ai_Assistant/releases/latest"
 
 
 class UpdateError(Exception):
@@ -53,7 +53,7 @@ def describe_release(payload: dict, current: str = __version__) -> str:
         return "No published release yet. Nothing was downloaded."
     if is_newer(tag, current):
         parsed = urllib.parse.urlsplit(page)
-        owned = (parsed.hostname or "") == "github.com" and "michele-de-rege/Ai-assistant-Babysitter" in (parsed.path or "")
+        owned = (parsed.hostname or "") == "github.com" and "Michelederege/BabySitter_Ai_Assistant" in (parsed.path or "")
         where = f" The page is {page}." if parsed.scheme == "https" and owned else ""
         return (
             f"Version {tag} is published. You are on {current}. "
