@@ -93,12 +93,27 @@ class MemoryPage(_Page):
         review = QPushButton("Weekly review")
         review.setToolTip("A summary from this PC. It does not load a model.")
         review.clicked.connect(lambda: self.notice.emit("WEEKLY review"))
+        self.sharper = QPushButton("Sharper matching")
+        self.sharper.setToolTip(
+            "Downloads a small sentence model (about 90 MB) so facts match by "
+            "meaning, not just the same words. It runs on the processor, on this PC."
+        )
+        self.sharper.clicked.connect(lambda: self.notice.emit("INSTALL embedder"))
         row.addWidget(self.text, 1)
         row.addWidget(add)
         row.addWidget(forget)
         row.addWidget(review)
+        row.addWidget(self.sharper)
+        self.refresh_sharper()
         self.root.insertLayout(2, row)
         self.refresh()
+
+    def refresh_sharper(self) -> None:
+        from babysitter.embedder import ready as embedder_ready
+
+        if embedder_ready():
+            self.sharper.setText("Sharper matching is on")
+            self.sharper.setEnabled(False)
 
     def refresh(self) -> None:
         items = load_list("memory.json")

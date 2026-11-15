@@ -182,6 +182,20 @@ Results list the public text and the link when ScrapeCreators returns one. Each 
 
 This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. The bigger research recipes in that GitHub project (comparing creators, reading ad libraries, and so on) need the talking assistant, which is not built yet. General web search through your own SearXNG is also still later.
 
+## The day journal
+
+While the AI is on, the name of the front program is written down about twice a minute, with the minutes spent — only the program's name. No window titles, no keystrokes, no screenshots, and nothing is sent anywhere. Ask "what did I do today" or "what did I do yesterday" and the day is spoken: the programs, the minutes, and any tasks you named. Say "start task modeling the bracket" and later "done" to put a named block of time in the day. "Pause the journal" stops the writing until you resume it or restart the app.
+
+Days are plain JSON files in your BabySitter folder, one per day, kept for 90 days. Settings has the switch to turn the journal off and a button that wipes every day file.
+
+## Find a file
+
+Say "pull up my current tax pdf" and the tax PDF you opened last opens — "current" and "latest" use Windows' own Recent list, falling back to the newest change. "Find all stls" lists every STL. A partial name is never an error: one match opens, several are shown with numbers so "open number 2" opens that one, and only a file the search just listed can be opened. The search looks in Documents, Downloads, and Desktop, plus any folder you add in Settings, scanned when you ask — nothing is indexed in the background and no file name leaves this PC.
+
+## Memory that matches meaning
+
+Facts you ask BabySitter to remember are matched against each question, and only the top two reach the model. Out of the box that match needs the same words. The **Sharper matching** button on the Memory tab downloads a small sentence model (about 90 MB, checked against a recorded SHA-256) so facts match by meaning — "what's my pet called" finds "My dog is called Biscuit." It runs on the processor, never the graphics card, and each fact's vector is computed once and cached, so a big memory does not slow a reply.
+
 ## History, web search, and updates
 
 Finished replies are saved under History. Search them, export one, delete one, or type WIPE and press Wipe. They stay on this PC.
