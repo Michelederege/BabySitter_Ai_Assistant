@@ -152,6 +152,12 @@ def day_speech(record: dict, day_word: str = "today", top: int = 3) -> str:
     apps = ranked_apps(record)
     tasks = [task for task in record.get("tasks") or [] if isinstance(task, dict)]
     if not apps and not tasks:
+        if record.get("apps"):
+            # Something was recorded, just not a whole minute of it yet.
+            return (
+                f"Under a minute is in the journal for {day_word} so far. "
+                "The details are on the screen."
+            )
         return (
             f"Nothing is in the journal for {day_word}. "
             "It writes down the front program while the AI is on."
