@@ -163,6 +163,12 @@ class _WarmVoiceJob(QThread):
         if self._busy():
             return
         try:
+            from babysitter.embedder import warm as warm_embedder
+
+            warm_embedder()
+        except Exception:
+            pass
+        try:
             from babysitter.plugins.voice.kokoro_voice import ready, warm
             from babysitter.plugins.voice.fillers import library
 
@@ -327,11 +333,43 @@ class _EmbedderDownloadJob(QThread):
         from babysitter.embedder import EmbedderError, download as download_embedder
 
         try:
-            self.succeeded.emit(download_embedder())
+            message = download_embedder()
         except EmbedderError as exc:
             self.failed.emit(str(exc))
+            return
         except Exception as exc:
             self.failed.emit(str(exc))
+            return
+        try:
+            # Embed the facts already saved, here on this thread, so the
+            # first question afterwards does not pay for all of them.
+            from babysitter.embedder import rank_texts
+
+            facts = [str(item.get("text") or "") for item in load_list("memory.json")]
+            if facts:
+                rank_texts("warming the cache", facts)
+        except Exception:
+            pass
+        self.succeeded.emit(message)
+
+
+class _FindJob(QThread):
+    """Walks the chosen folders off the window's thread, so a slow disk
+    or a cloud-backed Documents folder never freezes the app."""
+
+    finished_scan = Signal(object)
+
+    def __init__(self, folders: list[str]) -> None:
+        super().__init__()
+        self._folders = list(folders)
+
+    def run(self) -> None:
+        try:
+            entries = scan_folders(self._folders)
+            opened = recently_opened()
+        except Exception:
+            entries, opened = [], {}
+        self.finished_scan.emit((entries, opened))
 
 
 class _SpeakJob(QThread):
@@ -2600,17 +2638,34 @@ class Shell:
         now = time.time()
         cached = getattr(self, "_scan_cache", None)
         if cached and now - cached[0] < CACHE_SECONDS:
-            entries = cached[1]
-        else:
-            entries = scan_folders(self._search_places())
-            self._scan_cache = (now, entries)
-        matches = match_files(wanted, entries, recently_opened())
+            self._finish_find(text, wanted, cached[1], recently_opened())
+            return
+        running = getattr(self, "_find_job", None)
+        if running is not None and running.isRunning():
+            speech = "Still looking through the folders. Ask again in a moment."
+            self.window.home.set_reply(text, speech, "One search runs at a time.")
+            self._speak(speech)
+            return
+        job = _FindJob(self._search_places())
+        self._find_job = job
+        self.window.home.set_phase(self.controller.state, "Looking through your folders…")
+        job.finished_scan.connect(lambda payload: self._scan_arrived(text, wanted, payload))
+        job.start()
+
+    def _scan_arrived(self, text: str, wanted: str, payload: object) -> None:
+        entries, opened = payload
+        self._scan_cache = (time.time(), entries)
+        self._finish_find(text, wanted, entries, opened)
+
+    def _finish_find(self, text: str, wanted: str, entries, opened) -> None:
+        matches = match_files(wanted, entries, opened)
         speech, detail, best = search_reply(wanted, matches, self._search_places())
         self._found_files = matches
+        self._found_at = time.time()
         if best is not None:
-            opened = open_found(best)
-            if not opened.startswith("Opened"):
-                speech = opened
+            outcome = open_found(best)
+            if not outcome.startswith("Opened"):
+                speech = outcome
         self.window.home.set_reply(text, speech, detail)
         self._speak(speech)
 
@@ -2619,6 +2674,12 @@ class Shell:
         if not matches:
             speech = "Nothing is on the list. Say find and a file name first."
             self.window.home.set_reply(text, speech, "The search looks only in your chosen folders.")
+            self._speak(speech)
+            return
+        if time.time() - getattr(self, "_found_at", 0.0) > 600:
+            self._found_files = []
+            speech = "That list is from a while ago, so nothing was opened. Say find again for a fresh one."
+            self.window.home.set_reply(text, speech, "A numbered list is good for 10 minutes.")
             self._speak(speech)
             return
         if number < 1 or number > len(matches):

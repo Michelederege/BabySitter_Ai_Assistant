@@ -190,7 +190,11 @@ Days are plain JSON files in your BabySitter folder, one per day, kept for 90 da
 
 ## Find a file
 
-Say "pull up my current tax pdf" and the tax PDF you opened last opens — "current" and "latest" use Windows' own Recent list, falling back to the newest change. "Find all stls" lists every STL. A partial name is never an error: one match opens, several are shown with numbers so "open number 2" opens that one, and only a file the search just listed can be opened. The search looks in Documents, Downloads, and Desktop, plus any folder you add in Settings, scanned when you ask — nothing is indexed in the background and no file name leaves this PC.
+Say "pull up my current tax pdf" and the tax PDF you opened last opens — "current" and "latest" use Windows' own Recent list, falling back to the newest change. "Find all stls" lists every STL. A partial name is never an error: one match opens, several are shown with numbers so "open number 2" opens that one, and only a file the search just listed can be opened. A numbered list is good for 10 minutes, then it asks you to search again.
+
+A program or a script — `.exe`, `.bat`, `.ps1`, a shortcut, and the rest — is listed but never started this way. Opening a stray match must not become code running on your PC. Documents open; programs show their place on the screen instead.
+
+The search looks in Documents, Downloads, and Desktop, plus any folder you add in Settings, scanned when you ask — on its own thread, so a slow disk never freezes the window. Nothing is indexed in the background and no file name leaves this PC.
 
 ## Memory that matches meaning
 
