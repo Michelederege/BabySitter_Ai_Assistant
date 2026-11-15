@@ -2,3 +2,10 @@
 pytest
 pyinstaller
 pip-tools
+
+# Windows-only helpers of build, pytest, and pyinstaller. Named here so a
+# pip-compile run on Linux keeps them; without them the hash-locked install
+# refuses to run on a Windows PC, which is where BabySitter actually builds.
+colorama ; sys_platform == "win32"
+pefile ; sys_platform == "win32"
+pywin32-ctypes ; sys_platform == "win32"
