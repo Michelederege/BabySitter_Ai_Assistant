@@ -56,8 +56,16 @@ class FoundFile:
 
 
 def default_folders(home: Path | None = None) -> list[str]:
+    """Documents, Downloads, and Desktop — and their OneDrive homes.
+
+    On many Windows PCs, Documents and Desktop actually live under
+    OneDrive. A folder that does not exist is skipped by the scan, so
+    naming both costs nothing on PCs without it.
+    """
     base = Path(home) if home else Path.home()
-    return [str(base / name) for name in ("Documents", "Downloads", "Desktop")]
+    folders = [str(base / name) for name in ("Documents", "Downloads", "Desktop")]
+    folders += [str(base / "OneDrive" / name) for name in ("Documents", "Desktop")]
+    return folders
 
 
 def scan_folders(folders: list[str]) -> list[FoundFile]:
@@ -185,7 +193,11 @@ def _word_in(word: str, name: str) -> bool:
 def when_label(stamp: float, now: datetime | None = None) -> str:
     if stamp <= 0:
         return ""
-    moment = datetime.fromtimestamp(stamp).astimezone()
+    try:
+        moment = datetime.fromtimestamp(stamp).astimezone()
+    except (OverflowError, OSError, ValueError):
+        # A nonsense file date from a damaged disk is not worth a crash.
+        return ""
     today = (now or datetime.now().astimezone()).date()
     days = (today - moment.date()).days
     if days <= 0:

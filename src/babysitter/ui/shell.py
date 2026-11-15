@@ -1061,6 +1061,12 @@ class Shell:
         if not chosen:
             return
         folders = self.controller.settings.search_folders
+        if len(folders) >= 20:
+            self.window.home.set_phase(
+                self.controller.state,
+                "Twenty folders is the limit, so this one was not added. Remove one first.",
+            )
+            return
         if chosen.lower() not in {item.lower() for item in folders}:
             folders.append(chosen)
             save_settings(self.controller.settings)
@@ -1241,6 +1247,12 @@ class Shell:
     def _download_embedder(self) -> None:
         from babysitter.embedder import ready as embedder_ready
 
+        running = getattr(self, "_embedder_job", None)
+        if running is not None and running.isRunning():
+            self.window.home.set_phase(
+                self.controller.state, "The sharper memory is already downloading."
+            )
+            return
         if embedder_ready():
             self.window.memory_page.refresh_sharper()
             return
@@ -2624,6 +2636,13 @@ class Shell:
             speech = start_task(record, start, moment)
         else:
             speech = finish_task(record, moment)
+            if speech.startswith("No task is open"):
+                # A task started before midnight is finished on yesterday's page.
+                yesterday = load_day(moment.date() - timedelta(days=1))
+                closed = finish_task(yesterday, moment, quiet=True)
+                if closed:
+                    record = yesterday
+                    speech = closed
         try:
             save_day(record)
         except OSError:

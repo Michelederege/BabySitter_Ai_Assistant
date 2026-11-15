@@ -39,6 +39,17 @@ def test_journal_search_and_numbers_through_the_window(tmp_path, monkeypatch):
     assert shell._run_quick("resume the journal") is True
     assert controller.journal_paused is False
 
+    # A task left open before midnight is finished on yesterday's page.
+    from datetime import timedelta
+
+    yesterday = journal.load_day(date.today() - timedelta(days=1))
+    journal.start_task(yesterday, "overnight print", datetime.now() - timedelta(hours=3))
+    journal.save_day(yesterday)
+    assert shell._run_quick("done") is True
+    assert "overnight print took 3 hours" in spoken[-1]
+    saved = journal.load_day(date.today() - timedelta(days=1))
+    assert saved["tasks"][-1]["end"] != ""
+
     # Two files to find; the search runs on its own thread.
     prints = tmp_path / "prints"
     prints.mkdir()
