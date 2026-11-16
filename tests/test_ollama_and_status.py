@@ -41,6 +41,8 @@ def test_voice_turns_skip_hidden_thinking():
     assert "two or three plain sentences" in low["messages"][0]["content"]
     assert "Start with the answer" in low["messages"][0]["content"]
     assert low["options"]["temperature"] == 0.7
+    assert low["options"]["num_predict"] == 512
+    assert "Continue from what was just said" in low["messages"][0]["content"]
     assert "November" not in low["messages"][0]["content"]
 
 
@@ -161,10 +163,10 @@ def test_intelligence_uses_one_model_per_level():
     assert MODES["low"].model == MAIN_MODEL
     assert MODES["medium"].model == WRITING_MODEL
     assert MODES["high"].model == WRITING_MODEL
-    # Low stays in a 4 to 6 GB budget, so its context is 4,096. Medium stays smaller than High.
+    # Low stays at 4,096 tokens. The Q4 file plus CUDA is about 6.5 GB, under 7.
     assert MODES["low"].num_ctx == 4096
     assert MODES["low"].num_batch == 256
-    assert 4096 <= MODES["low"].vram_mib <= 6144
+    assert 6144 < MODES["low"].vram_mib <= 7168
     assert MODES["medium"].num_ctx == 8192
     assert MODES["high"].num_ctx == 16384
     assert MODES["medium"].num_ctx < MODES["high"].num_ctx

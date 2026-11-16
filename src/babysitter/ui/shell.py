@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import ctypes
 import json
+import queue
 import sys
 import threading
 import time
@@ -83,9 +84,11 @@ from babysitter.plugins.voice.speech import (
     more_answer,
     unread_detail,
     remainder_after,
+    remembered_reply,
     sapi_rate,
     speech_chunks,
     strip_thinking,
+    rest_after_lead,
     voice_and_rest,
 )
 from babysitter.responsiveness import ResponsivenessLog, TurnClock
@@ -382,16 +385,29 @@ class _SpeakJob(QThread):
         self._text = text
         self._prefs = prefs
         self.turn = turn
+        self.incoming: queue.Queue = queue.Queue()
+        self._limit = 120 if prefs.get("engine") == "windows" else 220
+
+    def add(self, text: str) -> None:
+        """More sentences for the reply that is already being spoken."""
+        for piece in speech_chunks(text, limit=self._limit):
+            self.incoming.put(piece)
+
+    def close_input(self) -> None:
+        """No more sentences are coming. The voice finishes what it has."""
+        self.incoming.put(None)
 
     def run(self) -> None:
         text = self._text
         self._text = ""
         prefs = self._prefs
         try:
-            pieces = speech_chunks(text, limit=120 if prefs.get("engine") == "windows" else 400)
+            pieces = speech_chunks(text, limit=self._limit)
             if prefs.get("engine") == "windows":
                 announced = False
-                for piece in pieces:
+                pending = list(pieces)
+                while pending:
+                    piece = pending.pop(0)
                     if speaker.cancelled.is_set():
                         break
                     if not announced:
@@ -401,6 +417,11 @@ class _SpeakJob(QThread):
                     if speaker.cancelled.is_set():
                         break
                     self.phrase_done.emit(piece)
+                    if not pending:
+                        nxt = self.incoming.get()
+                        if nxt is None:
+                            break
+                        pending.append(nxt)
             else:
                 from babysitter.plugins.voice.kokoro_voice import speak_sequence
 
@@ -411,6 +432,7 @@ class _SpeakJob(QThread):
                     prefs.get("pitch", -1),
                     on_start=self.started.emit,
                     on_piece=self.phrase_done.emit,
+                    incoming=self.incoming,
                 )
         except (WindowsVoiceError, KokoroError) as exc:
             self.failed.emit(str(exc))
@@ -683,11 +705,13 @@ class Shell:
         self.controller.tray_prompt.connect(self._on_tray_prompt)
         self.controller.confirm_old_version.connect(self._on_old_version)
         self.controller.notice.connect(self._on_notice)
+        self.controller.game_offer.connect(self._offer_game)
         self.controller.quit_ready.connect(self._finish_quit)
         self.window.hidden_to_tray.connect(self._on_hidden_to_tray)
         settings.autostart.toggled.connect(self._set_autostart)
         settings.on_top.toggled.connect(self._set_on_top)
         settings.auto_game.toggled.connect(self._set_auto_game)
+        settings.game_mode_ask.toggled.connect(self._set_game_ask)
         settings.detect_games.toggled.connect(self._set_detect_games)
         settings.off_game_cores.toggled.connect(self._set_core_avoidance)
         settings.vad_enabled.toggled.connect(lambda on: self._set_flag("vad_enabled", on))
@@ -745,6 +769,7 @@ class Shell:
         home.command_submitted.connect(self._on_command)
         home.send_heard.connect(self._send_heard)
         home.pin_reply.connect(self._pin_reply)
+        home.pin_note.connect(self._pin_note)
         home.copy_reply.connect(self._copy_reply)
         home.copy_log.connect(self._copy_log)
         home.choose_hero.connect(self._choose_hero)
@@ -1050,6 +1075,29 @@ class Shell:
         self.controller.set_auto_game(enabled)
         self._refresh_game_note()
 
+    def _set_game_ask(self, enabled: bool) -> None:
+        self.controller.set_game_ask(enabled)
+        self._refresh_game_note()
+
+    def _offer_game(self, name: str) -> None:
+        agreed = ask_yes_no(
+            self.window,
+            "Switch to game mode?",
+            f"{name} is running. Game mode unloads the model so the game can use the graphics card. "
+            "The microphone closes. The Game mode button on Home switches immediately, without this question.",
+            "Switch",
+            "Stay on",
+        )
+        if agreed:
+            self.controller.enter_game()
+        else:
+            self.controller.games.suppress(name)
+            self.controller._remember(
+                f"Staying on while {name} is open. The Game mode button still switches."
+            )
+            self.window.home.set_history(self.controller.history)
+        self.controller._game_prompt_open = False
+
     def _set_detect_games(self, enabled: bool) -> None:
         self.controller.set_detect_games(enabled)
         self._refresh_game_note()
@@ -1184,7 +1232,9 @@ class Shell:
     def _refresh_game_note(self) -> None:
         settings = self.controller.settings
         if not settings.auto_game_mode:
-            text = "Auto game mode is off."
+            text = "Auto game mode is off. The Game mode button still switches by hand."
+        elif settings.game_mode_ask:
+            text = "A game asks before switching. The Game mode button switches immediately."
         elif settings.detect_games and settings.game_processes:
             text = (
                 "Watching game folders, and: " + ", ".join(settings.game_processes)
@@ -1529,6 +1579,7 @@ class Shell:
             getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning()
         ):
             self._cut_off()
+        self._release_speech()
         speaker.stop()
         stop_kokoro()
         if getattr(self, "_listener", None) is not None:
@@ -1642,7 +1693,9 @@ class Shell:
             self._more_text = ""
             self._close_followup()
             if self._history and self._history[-1].get("role") == "assistant":
-                self._history[-1]["content"] = (self._history[-1]["content"] + " " + rest).strip()
+                current = str(self._history[-1].get("content") or "")
+                if rest and rest not in current:
+                    self._history[-1]["content"] = (current + " " + rest).strip()
             self.window.home.set_reply(text, rest, getattr(self, "_full_reply", rest))
             self._speak(rest)
             return
@@ -1985,6 +2038,7 @@ class Shell:
         job = getattr(self, "_ask_job", None)
         if job is not None:
             job.cancel.set()
+        self._release_speech()
         stop_kokoro()
         speaker.stop()
         heard = " ".join(getattr(self, "_finished_phrases", []))
@@ -2007,6 +2061,7 @@ class Shell:
             return
         self._filler.stop()
         self._filler_stop.set()
+        self._release_speech()
         self._end_model_turn()
         self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
@@ -2025,7 +2080,7 @@ class Shell:
         self._early_lead = lead
         heard = getattr(self, "_pending_line", "")
         self.window.home.set_reply(heard, lead, "Still writing the rest on this PC.")
-        self._speak(lead)
+        self._speak(lead, hold_open=True)
 
     def _asked(self, reply: str, turn: int = 0) -> None:
         if turn and not self._same_turn(turn):
@@ -2035,8 +2090,9 @@ class Shell:
         spoken = spoken or early or "I don't have an answer for that."
         self._last_reply = (spoken[:80] or "Reply", reply)
         self._full_reply = reply
-        self._spoken_for_history = spoken
+        self._spoken_for_history = remembered_reply(reply) or spoken
         heard = getattr(self, "_pending_line", "")
+        self._remember_exchange(heard, self._spoken_for_history)
         self._more_text = rest
         level = int(self.controller.settings.proactivity)
         fact = ""
@@ -2067,16 +2123,19 @@ class Shell:
             detail = f"{detail}\n\n{note}".strip() if detail else note
         self.window.home.set_reply(heard, spoken, detail)
         if early:
+            extra = rest_after_lead(early, spoken)
             self._early_lead = ""
-            bare = early[:-1].rstrip() if early[-1:] in ".!?" else early
-            extra = ""
-            if bare and spoken.startswith(bare):
-                extra = spoken[len(bare) :].lstrip(" \t,")
+            job = getattr(self, "_speak_job", None)
+            if job is not None and job.isRunning():
+                if extra:
+                    job.add(extra)
+                job.close_input()
+                return
             if extra:
-                self._pending_offer = extra
-            if not getattr(self, "_speaking", False):
-                self._end_model_turn()
-                self._release_waiting_scan()
+                self._speak(extra)
+                return
+            self._end_model_turn()
+            self._release_waiting_scan()
             return
         self._speak(spoken)
         if not getattr(self, "_speaking", False):
@@ -2105,6 +2164,26 @@ class Shell:
         heard = getattr(self, "_pending_line", "")
         self.window.home.set_reply(heard, rest, getattr(self, "_full_reply", rest))
         self._speak(rest)
+
+    def _release_speech(self) -> None:
+        job = getattr(self, "_speak_job", None)
+        if job is not None:
+            job.close_input()
+
+    def _pin_note(self, title: str, body: str) -> None:
+        title = " ".join((title or "").split())[:80]
+        body = " ".join((body or "").split())[:2000]
+        if not title and not body:
+            return
+        if len(load_list("pins.json")) >= 12:
+            self.window.home.set_reply(
+                "pin", "The board is full.", "Twelve cards is the limit. Unpin one first."
+            )
+            return
+        add_item("pins.json", title=title or body[:80], body=body or title)
+        self._refresh_pins()
+        self.controller._remember("Pinned a note. It stays on this PC.")
+        self.window.home.set_history(self.controller.history)
 
     def _pin_reply(self) -> None:
         last = getattr(self, "_last_reply", None)
@@ -2403,8 +2482,11 @@ class Shell:
             "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
         }
 
-    def _speak(self, text: str, filler: bool = False) -> None:
+    def _speak(self, text: str, filler: bool = False, hold_open: bool = False) -> None:
         self._is_filler = filler
+        previous = getattr(self, "_speak_job", None)
+        if previous is not None:
+            previous.close_input()
         stop_kokoro()
         speaker.stop()
         self._speaking = True
@@ -2427,7 +2509,7 @@ class Shell:
                 self._release_waiting_scan()
             self._sync_keyword()
             return
-        self._start_speech(text, prefs)
+        self._start_speech(text, prefs, hold_open=hold_open)
 
     def _offer_kokoro(self) -> None:
         agreed = ask_yes_no(
@@ -2467,7 +2549,7 @@ class Shell:
         self._sync_keyword()
         self._release_waiting_scan()
 
-    def _start_speech(self, text: str, prefs: dict) -> None:
+    def _start_speech(self, text: str, prefs: dict, hold_open: bool = False) -> None:
         if not text:
             self._speaking = False
             if not getattr(self, "_is_filler", False):
@@ -2484,6 +2566,8 @@ class Shell:
         job.failed.connect(self._speech_failed)
         job.finished.connect(self._speak_done)
         job.start()
+        if not hold_open:
+            job.close_input()
 
     def _sound_started(self) -> None:
         self._filler.stop()
@@ -2530,6 +2614,20 @@ class Shell:
         if self._release_waiting_scan():
             return
         self._open_followup()
+
+    def _note_local(self, user: str, assistant: str) -> None:
+        """Keep a local answer in the conversation, so the next question still knows it.
+
+        If the model was still speaking, its answer is kept first. Otherwise the
+        clock or the reminder would replace it.
+        """
+        if not getattr(self, "_logged_turn", False):
+            pending = getattr(self, "_pending_line", "")
+            spoken = getattr(self, "_spoken_for_history", "") or " ".join(getattr(self, "_finished_phrases", []))
+            if (pending or spoken) and pending != user:
+                self._remember_exchange(pending, spoken)
+        self._logged_turn = False
+        self._remember_exchange(user, assistant)
 
     def _remember_exchange(self, user: str, assistant: str) -> None:
         if getattr(self, "_logged_turn", False):
@@ -2602,6 +2700,7 @@ class Shell:
             now = datetime.now().astimezone()
             speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
             self.window.home.set_reply(text, speech, "Read from this PC. The model was not asked.")
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "vram":
@@ -2614,6 +2713,7 @@ class Shell:
                 speech = f"Video memory is using {gpu.used_mib:,} of {gpu.total_mib:,} megabytes."
                 detail = "Read from this PC. The model was not asked."
             self.window.home.set_reply(text, speech, detail)
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "health":
@@ -2623,6 +2723,7 @@ class Shell:
             else:
                 speech = spoken_reading(snap.ram_used_bytes, snap.ram_total_bytes, snap.cpu_percent)
             self.window.home.set_reply(text, speech, "Read from this PC. Nothing was changed.")
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "screen":
@@ -2650,6 +2751,7 @@ class Shell:
                 speech = "I used the recent conversation. No saved fact matched. It is on the screen."
             detail = "\n".join(lines) if lines else "Nothing from this conversation was kept."
             self.window.home.set_reply(text, speech, detail)
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "weekly":
@@ -2678,8 +2780,6 @@ class Shell:
             noun = "that" if quick.kind == "remember" else "the reminder"
             shown = text.strip()
             if quick.kind == "remind" and quick.when:
-                from datetime import datetime
-
                 moment = datetime.fromisoformat(quick.when)
                 shown = f"{spoken_clock(moment)} — {quick.detail}".strip(" —")
             self._save_local(filename, shown, noun, due=quick.when)
@@ -2715,6 +2815,7 @@ class Shell:
         self.window.home.set_reply(text, speech, day_detail(record))
         if not yesterday:
             self.window.journal_page.refresh()
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _journal_task(self, text: str, start: str = "") -> None:
@@ -2737,6 +2838,7 @@ class Shell:
             speech = "The journal file could not be written, so that was not kept."
         self.window.home.set_reply(text, speech, "Tasks live in the journal, in your BabySitter folder.")
         self.window.journal_page.refresh()
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _search_places(self) -> list[str]:
@@ -2815,6 +2917,7 @@ class Shell:
         self._undo_until = time.time() + 10
         speech = f"Timer set for {label}. Say undo in the next 10 seconds to cancel it."
         self.window.home.set_reply("timer", speech, "It stays on this PC. It is not a calendar event.")
+        self._note_local(f"Timer for {label}.", speech)
         self._speak(speech)
 
     def _undo_timer(self) -> None:
@@ -2869,8 +2972,6 @@ class Shell:
         else:
             self.window.memory_page.refresh()
         if due:
-            from datetime import datetime
-
             moment = datetime.fromisoformat(due)
             speech = (
                 f"Reminder set for {spoken_clock(moment)}. "
@@ -2879,6 +2980,7 @@ class Shell:
         else:
             speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _check_reminders(self) -> None:

@@ -1,13 +1,15 @@
 """Video-memory budget for the Ryzen 9 7900X and RTX 4070 in this PC.
 
 The card reports about 12,282 MB. The desktop and the driver already sit
-in that number, so a model only gets what is free. Low has to land between
-4 and 6 GB and still answer, use tools, and look at a shrunk screenshot.
+in that number, so a model only gets what is free. Low still has to answer,
+use tools, and look at a shrunk screenshot.
 
-A 9B model at Q4 is about 5.4 GB of weights. That file cannot become 4 GB
-without a smaller download, and moving layers into system RAM is refused
-because it makes replies slow. The rest of the 6 GB is the cache and a
-small scratch buffer, which this module sizes on purpose.
+qwen3.5:9b at Q4_K_M is a 5.6 GB weight file. A public config check on
+3 November 2026 put a 4,096-token load at about 6.5 GB once the cache and
+the CUDA runtime are counted. The old 4 to 6 GB line assumed a 5.4 GB file
+and a Qwen3-8B cache. This model is a little larger than that, and its
+cache barely shrinks if the context is cut, so Low stays on this file.
+Moving layers into system RAM is refused because it makes replies slow.
 
 KV bytes are 2 x layers x kv heads x head size x context x element size.
 qwen3.5:9b follows the public Qwen3-8B shape: 36 layers, 8 KV heads, 128.
@@ -28,8 +30,11 @@ QWEN9_LAYERS = 36
 QWEN9_KV_HEADS = 8
 QWEN9_HEAD_DIM = 128
 QWEN9_HIDDEN = 4096
-# Q4_K_M weights plus the CUDA context that stays with the model.
-Q4_WEIGHT_MIB = 5400
+# Q4_K_M weights for qwen3.5:9b. 5.6 GB, from the public file size.
+Q4_WEIGHT_MIB = 5734
+# CUDA graphs and the runtime that sit with the weights. Counted once,
+# so the batch scratch is not added again on top.
+RUNTIME_OVERHEAD_MIB = 717
 
 LOW_CONTEXT = 4096
 # 256 costs about 36 MB more scratch than 128 and roughly doubles how fast
@@ -37,7 +42,8 @@ LOW_CONTEXT = 4096
 LOW_BATCH = 256
 LOW_CACHE = "q4_0"
 LOW_FLOOR_MIB = 4096
-LOW_CEILING_MIB = 6144
+# Past this, the load is no longer the Q4 voice model plus its cache.
+LOW_CEILING_MIB = 7168
 
 _CACHE_SCALE = {"fp16": 1.0, "q8_0": 0.53, "q4_0": 0.28}
 
@@ -56,8 +62,8 @@ def scratch_mib(num_batch: int) -> int:
 
 
 def low_estimate_mib() -> int:
-    """Weights plus the Low cache plus the Low scratch buffer."""
-    return Q4_WEIGHT_MIB + kv_mib(LOW_CONTEXT, LOW_CACHE) + scratch_mib(LOW_BATCH)
+    """Weights plus the Low cache plus the CUDA runtime."""
+    return Q4_WEIGHT_MIB + kv_mib(LOW_CONTEXT, LOW_CACHE) + RUNTIME_OVERHEAD_MIB
 
 
 def need_mib(model: str, num_ctx: int) -> int:
@@ -78,13 +84,13 @@ def need_mib(model: str, num_ctx: int) -> int:
 
 
 def fits_low_band(used_mib: int) -> bool:
-    """True when a finished Low load is inside 4 to 6 GB."""
+    """True when a finished Low load is still the voice model, not a spill."""
     return LOW_FLOOR_MIB <= int(used_mib) <= LOW_CEILING_MIB
 
 
 def smaller_context_mib() -> int:
     """What Low would weigh at 2,048 tokens. The weights barely move."""
-    return Q4_WEIGHT_MIB + kv_mib(2048, LOW_CACHE) + scratch_mib(LOW_BATCH)
+    return Q4_WEIGHT_MIB + kv_mib(2048, LOW_CACHE) + RUNTIME_OVERHEAD_MIB
 
 
 def floor_note() -> str:
@@ -105,7 +111,8 @@ def simulate_ryzen_4070() -> dict:
         "working_mib": working,
         "context_2048_mib": smaller,
         "savings_mib": working - smaller,
-        "fits_4_to_6": fits_low_band(working),
+        "fits_4_to_6": fits_low_band(working) and working <= 6144,
+        "within_voice_budget": working <= LOW_CEILING_MIB,
         "shrinking_context_keeps_features": False,
     }
 
@@ -120,10 +127,13 @@ def low_load_note(name: str, vram_bytes: int, num_ctx: int) -> str | None:
     shown = f"{used / 1024:.1f}"
     if used > LOW_CEILING_MIB:
         return (
-            f"Needs you: Low is using about {shown} GB, above the 6 GB goal. "
-            "The context is already 4,096, the batch is 256, and the cache is q4 "
-            "when BabySitter starts Ollama. The model file itself is larger than 6 GB."
+            f"Needs you: Low is using about {shown} GB, past 7 GB. "
+            "The Q4 voice model is about 5.6 GB before the cache. "
+            "BabySitter does not move layers into system memory, because that makes replies slow."
         )
     if fits_low_band(used):
-        return f"Low is using about {shown} GB of video memory, inside the 4 to 6 GB goal."
+        return (
+            f"Low is using about {shown} GB of video memory. "
+            "The Q4 file is about 5.6 GB, and the rest is the cache and CUDA."
+        )
     return f"Low is using about {shown} GB of video memory."

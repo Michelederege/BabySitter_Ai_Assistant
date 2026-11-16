@@ -43,17 +43,46 @@ def for_speech(text: str) -> str:
     return plain_speech(text)[:400]
 
 
+# A dot after one of these is not the end of a sentence. "Dr. Smith is here."
+_ABBREV = {"mr", "mrs", "ms", "dr", "st", "jr", "sr", "vs", "etc", "prof", "inc", "ltd"}
+
+
+def _at_sentence_end(spoken: str, index: int) -> bool:
+    """True when this mark ends a sentence, not an abbreviation."""
+    if spoken[index] not in ".!?":
+        return False
+    if index + 1 < len(spoken) and spoken[index + 1] != " ":
+        return False
+    if spoken[index] != ".":
+        return True
+    start = index
+    while start > 0 and spoken[start - 1].isalpha():
+        start -= 1
+    return spoken[start:index].lower() not in _ABBREV
+
+
 def first_sentence(text: str) -> str:
     spoken = plain_speech(text)
     if not spoken:
         return ""
-    for mark in (". ", "? ", "! "):
-        index = spoken.find(mark)
-        if index != -1:
+    for index in range(len(spoken)):
+        if _at_sentence_end(spoken, index):
             return spoken[: index + 1]
     if spoken[-1] not in ".!?":
         return spoken + "."
     return spoken
+
+
+def remembered_reply(reply: str, limit: int = 900) -> str:
+    """What the next turn should still know. The voice keeps the short version."""
+    text = strip_thinking(reply or "")
+    text = re.sub(r"```", " ", text)
+    text = re.sub(r"[*_#>]+", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit].rsplit(" ", 1)[0].rstrip(".,;:")
+    return (cut or text[:limit]).rstrip() + "."
 
 
 def closed_lead(text: str) -> str | None:
@@ -71,6 +100,14 @@ def closed_lead(text: str) -> str | None:
     if chunk[-1] not in ".!?":
         chunk += "."
     return chunk
+
+
+def rest_after_lead(lead: str, spoken: str) -> str:
+    """The sentences still waiting after the opening line was already sent to the voice."""
+    bare = lead[:-1].rstrip() if (lead or "")[-1:] in ".!?" else (lead or "")
+    if bare and (spoken or "").startswith(bare):
+        return spoken[len(bare) :].lstrip(" \t,.;:!?")
+    return ""
 
 
 def lead_and_rest(text: str) -> tuple[str, str]:
@@ -129,14 +166,17 @@ def more_answer(text: str) -> str | None:
     return None
 
 
+_ONE_WORD_FOLLOWUP = {"why", "how", "when", "where", "who"}
+
+
 def sentences(text: str) -> list[str]:
     spoken = plain_speech(text)
     if not spoken:
         return []
     found: list[str] = []
     start = 0
-    for index, char in enumerate(spoken):
-        if char in ".!?" and (index + 1 == len(spoken) or spoken[index + 1] == " "):
+    for index, _char in enumerate(spoken):
+        if _at_sentence_end(spoken, index) or (spoken[index] in ".!?" and index + 1 == len(spoken)):
             piece = spoken[start : index + 1].strip()
             if piece:
                 found.append(piece)
@@ -219,6 +259,8 @@ def followup_phrase(text: str) -> str | None:
         return ""
     if phrase in {"tell me more", "read the rest"} or is_resume(text) or more_answer(text) == "yes":
         return phrase
+    if len(words) == 1 and words[0] in _ONE_WORD_FOLLOWUP:
+        return words[0]
     if len(words) < 2:
         return None
     return phrase
@@ -231,8 +273,8 @@ def speech_chunks(text: str, limit: int = 400) -> list[str]:
         return []
     sentences: list[str] = []
     start = 0
-    for index, char in enumerate(spoken):
-        if char in ".!?" and (index + 1 == len(spoken) or spoken[index + 1] == " "):
+    for index, _char in enumerate(spoken):
+        if _at_sentence_end(spoken, index) or (spoken[index] in ".!?" and index + 1 == len(spoken)):
             sentences.append(spoken[start : index + 1].strip())
             start = index + 1
     tail = spoken[start:].strip()

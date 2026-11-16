@@ -24,6 +24,7 @@ def test_a_reply_speaks_two_or_three_sentences():
     assert followup_phrase("yes") == "yes"
     assert followup_phrase("thanks that's all") == ""
     assert followup_phrase("hi") is None
+    assert followup_phrase("why") == "why"
 
 
 def test_thinking_is_not_spoken():
@@ -53,6 +54,7 @@ def test_speech_drops_markdown_and_code():
 
 def test_first_sentence_is_short():
     assert first_sentence("Berlin is the capital. The rest stays on screen.") == "Berlin is the capital."
+    assert first_sentence("Dr. Smith is here. He left.") == "Dr. Smith is here."
 
 
 def test_the_first_sentence_can_be_spoken_before_the_rest_arrives():

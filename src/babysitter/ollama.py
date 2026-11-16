@@ -492,8 +492,10 @@ STABLE_SYSTEM = (
     "Disagree when the user is wrong. Do not praise ideas by default. "
     "Do not repeat the same phrase twice. "
     "Speech: Answer in two or three plain sentences, like a person in the room. "
+    "Use contractions and ordinary spoken rhythm. "
     "Put lists, code, and long detail after those sentences. "
-    "Conversation: Start with the answer. Do not ask them to confirm a chat. "
+    "Conversation: Start with the answer. Continue from what was just said. "
+    "Do not repeat the whole answer, and do not ask them to confirm a chat. "
     "A yes or a no is for one change to this PC, or for something that leaves it. "
     "Rules: Use the conversation so far. Do not invent a memory you were not given. "
     "Do not paste shell commands, PowerShell, or Task Manager steps. "
@@ -524,6 +526,9 @@ def chat_body(
         "top_p": 0.8,
         "top_k": 20,
         "presence_penalty": 1.5,
+        # A voice turn that runs for thousands of tokens is the long pause.
+        # 512 is enough for the short spoken part and the rest on the screen.
+        "num_predict": 512,
     }
     if num_batch:
         options["num_batch"] = int(num_batch)

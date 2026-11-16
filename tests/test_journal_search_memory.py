@@ -259,6 +259,8 @@ def test_without_the_model_the_hashed_match_still_answers(tmp_path, monkeypatch)
     facts = ["I have a Prusa printer.", "My dog is called Biscuit.", ""]
     found = rank_texts("what printer do I have", facts)
     assert found == ["I have a Prusa printer."]
+    dog = ["My dog is called Biscuit.", "The wifi name is North."]
+    assert rank_texts("what is my dog called", dog) == ["My dog is called Biscuit."]
     assert rank_texts("completely unrelated question", ["something else entirely"]) == []
 
 
@@ -303,8 +305,9 @@ def test_the_onnx_path_ranks_by_meaning_with_a_fake_engine(monkeypatch, tmp_path
 
 def test_an_eleventh_schema_file_gains_the_new_fields():
     upgraded = migrate({"schema_version": 11, "intelligence": "low"})
-    assert upgraded["schema_version"] == 12
+    assert upgraded["schema_version"] == 13
     assert upgraded["journal_enabled"] is True
+    assert upgraded["game_mode_ask"] is False
     assert upgraded["journal_excluded"] == []
     assert upgraded["search_folders"] == []
     settings = settings_from_dict(upgraded)

@@ -152,10 +152,23 @@ def render_clip(text: str) -> tuple[bytes, int]:
     speak_sequence([text], voice_name, speed_percent, pitch)
 
 
-def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_start=None, on_piece=None) -> None:
-    """Say each piece in order. The next piece is built while the current one plays."""
+def speak_sequence(
+    pieces,
+    voice_name: str,
+    speed_percent: int,
+    pitch: int,
+    on_start=None,
+    on_piece=None,
+    incoming: queue.Queue | None = None,
+) -> None:
+    """Say each piece in order. Later pieces can arrive while the first is still playing.
+
+    One playback stream stays open for the whole reply. Opening a new stream
+    for every sentence was the pause after the first line. The next piece is
+    built while the current one plays.
+    """
     waiting = [piece.strip() for piece in pieces if piece and piece.strip()]
-    if not waiting:
+    if not waiting and incoming is None:
         return
     if not ready():
         raise KokoroError("Heart and Sarah is not downloaded yet.")
@@ -163,15 +176,24 @@ def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_s
     style = _style(voice_name)
     speed = max(0.5, min(2.0, int(speed_percent) / 100))
     engine = _loaded_engine()
-    audio: queue.Queue = queue.Queue(maxsize=1)
+    audio: queue.Queue = queue.Queue(maxsize=2)
 
     def produce() -> None:
         try:
-            for piece in waiting:
-                if _playback_stop.is_set():
+            index = 0
+            while not _playback_stop.is_set():
+                if index < len(waiting):
+                    piece = waiting[index]
+                    index += 1
+                elif incoming is None:
                     break
+                else:
+                    piece = incoming.get()
+                    if piece is None or _playback_stop.is_set():
+                        break
                 try:
                     samples, rate = _render(engine, piece, style, speed, pitch)
+                    samples = trim_edges(samples, rate)
                 except Exception:
                     break
                 audio.put((piece, samples, rate))
@@ -180,18 +202,71 @@ def speak_sequence(pieces, voice_name: str, speed_percent: int, pitch: int, on_s
 
     threading.Thread(target=produce, name="babysitter-voice", daemon=True).start()
     started = False
-    while not _playback_stop.is_set():
-        item = audio.get()
-        if item is None or _playback_stop.is_set():
+    stream = None
+    stream_rate = None
+    try:
+        while not _playback_stop.is_set():
+            item = audio.get()
+            if item is None or _playback_stop.is_set():
+                break
+            piece, samples, rate = item
+            if stream is None or stream_rate != rate:
+                if stream is not None:
+                    stream.stop()
+                    stream.close()
+                import sounddevice as sd
+
+                stream = sd.OutputStream(samplerate=rate, channels=1, dtype="float32")
+                stream.start()
+                stream_rate = rate
+            if not started:
+                started = True
+                if on_start is not None:
+                    on_start()
+            finished = _play_into(samples, rate, stream.write)
+            if finished and on_piece is not None:
+                on_piece(piece)
+            if not finished:
+                break
+    finally:
+        if stream is not None:
+            stream.stop()
+            stream.close()
+
+
+def trim_edges(samples, sample_rate: int, lead_ms: int = 40, tail_ms: int = 180, threshold: float = 0.02):
+    """Drop the long silence Kokoro puts on each piece, and keep a short breath.
+
+    A whole reply can keep its own pauses. The padding on every piece is what
+    stacks into a stall when the next sentence starts.
+    """
+    try:
+        count = len(samples)
+    except TypeError:
+        return samples
+    if count == 0 or int(sample_rate) <= 0:
+        return samples
+    rate = int(sample_rate)
+    window = min(count, int(rate * 0.9))
+    start = 0
+    found = False
+    for index in range(window):
+        if abs(float(samples[index])) > threshold:
+            start = index
+            found = True
             break
-        piece, samples, rate = item
-        if not started:
-            started = True
-            if on_start is not None:
-                on_start()
-        finished = _play_blocks(samples, rate)
-        if finished and on_piece is not None:
-            on_piece(piece)
+    if not found:
+        return samples
+    end = count
+    for index in range(count - 1, max(count - window, start) - 1, -1):
+        if abs(float(samples[index])) > threshold:
+            end = index + 1
+            break
+    start = max(0, start - int(rate * lead_ms / 1000))
+    end = min(count, end + int(rate * tail_ms / 1000))
+    if end - start < max(1, rate // 20):
+        return samples
+    return samples[start:end]
 
 
 def _render(engine, text: str, style, speed: float, pitch: int):
@@ -206,22 +281,19 @@ def _render(engine, text: str, style, speed: float, pitch: int):
     return samples, shifted
 
 
-def _play_blocks(samples, sample_rate: int, block_ms: int = 10) -> bool:
-    """Play raw audio in 10 ms blocks. Stop is checked inside each former 30 ms block."""
+def _play_into(samples, sample_rate: int, write, block_ms: int = 10) -> bool:
+    """Play raw audio in 10 ms blocks on a stream that stays open."""
     from babysitter.plugins.voice.playback import play_pcm_blocks, publish_playback
 
-    import sounddevice as sd
-
     try:
-        with sd.OutputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
-            return play_pcm_blocks(
-                samples,
-                sample_rate,
-                _playback_stop,
-                stream.write,
-                block_ms=block_ms,
-                publish=publish_playback,
-            )
+        return play_pcm_blocks(
+            samples,
+            sample_rate,
+            _playback_stop,
+            write,
+            block_ms=block_ms,
+            publish=publish_playback,
+        )
     except Exception:
         return False
 
