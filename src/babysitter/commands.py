@@ -329,9 +329,7 @@ def reminder_fields(text: str, when_text: str, now: datetime) -> tuple[str, str]
     if moment is None and note:
         moment = clock_in(note, now) or when_from(note, now)
         if moment is not None and not clock_text:
-            stripped = _without_clock(note)
-            if stripped and stripped.lower() != note.lower():
-                note = stripped
+            note = _without_clock(note) or "Reminder"
     if not note:
         note = "Reminder"
     due = moment.isoformat(timespec="seconds") if moment else ""
@@ -345,21 +343,25 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
         detail = _tail(original, label)
         if not detail:
             return None
-        moment = clock_in(detail, datetime.now().astimezone())
+        now = datetime.now().astimezone()
+        moment = clock_in(detail, now) or when_from(detail, now)
         when = moment.isoformat(timespec="minutes") if moment else ""
         if moment is not None:
-            detail = _without_clock(detail) or detail
+            detail = _without_clock(detail) or "Reminder"
         return QuickCommand("remind", detail=detail, when=when)
     return None
 
 
 def clock_in(text: str, now: datetime) -> datetime | None:
     """The next time this sentence names. None when it names no clock time."""
+    earliest = 1 if _mentions_tomorrow(text) else 0
     lowered = (text or "").lower().replace("a.m.", "am").replace("p.m.", "pm")
     lowered = lowered.replace("a.m", "am").replace("p.m", "pm")
     numbered = re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", lowered)
     if numbered:
-        return _next_clock(int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now)
+        return _next_clock(
+            int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now, earliest
+        )
     spoken = re.search(
         r"\bat\s+(midnight|noon|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
         r"(?:\s+(o'clock|oclock|five|ten|fifteen|twenty five|twenty|thirty|forty five|forty-five|forty|fifty five|fifty|half|quarter))?"
@@ -370,15 +372,26 @@ def clock_in(text: str, now: datetime) -> datetime | None:
         return None
     word = spoken.group(1)
     if word == "midnight":
-        return _next_clock(0, 0, "am", now)
+        return _next_clock(0, 0, "am", now, earliest)
     if word == "noon":
-        return _next_clock(12, 0, "pm", now)
+        return _next_clock(12, 0, "pm", now, earliest)
     minute_word = spoken.group(2) or ""
     minute = 0 if minute_word in {"", "o'clock", "oclock"} else _MINUTE_WORDS[minute_word]
-    return _next_clock(_HOUR_WORDS[word], minute, spoken.group(3), now)
+    return _next_clock(_HOUR_WORDS[word], minute, spoken.group(3), now, earliest)
 
 
-def _next_clock(hour: int, minute: int, ampm: str | None, now: datetime) -> datetime | None:
+def _mentions_tomorrow(text: str) -> bool:
+    return re.search(r"\btomorrow\b", (text or "").lower()) is not None
+
+
+def _on_day(now: datetime, days: int, hour: int, minute: int) -> datetime:
+    day = (now + timedelta(days=days)).date()
+    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=now.tzinfo)
+
+
+def _next_clock(
+    hour: int, minute: int, ampm: str | None, now: datetime, earliest_day: int = 0
+) -> datetime | None:
     if minute < 0 or minute > 59 or hour < 0 or hour > 23:
         return None
     if ampm:
@@ -400,7 +413,7 @@ def _next_clock(hour: int, minute: int, ampm: str | None, now: datetime) -> date
         hours = [hour, hour + 12]
     best: datetime | None = None
     zone = now.tzinfo
-    for extra in (0, 1):
+    for extra in (earliest_day, earliest_day + 1):
         day = (now + timedelta(days=extra)).date()
         for chosen_hour in hours:
             candidate = datetime(day.year, day.month, day.day, chosen_hour, minute, tzinfo=zone)
@@ -419,6 +432,7 @@ def _without_clock(detail: str) -> str:
         count=1,
         flags=re.IGNORECASE,
     )
+    cleaned = re.sub(r"\btomorrow\b", " ", cleaned, flags=re.IGNORECASE)
     return " ".join(cleaned.split()).strip(" .,")
 
 
@@ -426,22 +440,40 @@ def spoken_clock(moment: datetime) -> str:
     return moment.strftime("%I:%M %p").lstrip("0")
 
 
+def spoken_when(moment: datetime, now: datetime | None = None) -> str:
+    """The clock, plus tomorrow when the time is not today."""
+    clock = spoken_clock(moment)
+    current = now or datetime.now().astimezone()
+    if moment.date() == current.date():
+        return clock
+    if moment.date() == (current + timedelta(days=1)).date():
+        return f"{clock} tomorrow"
+    return f"{clock} on {moment.strftime('%b %d')}"
+
+
 def when_from(text: str, now: datetime) -> datetime | None:
-    """A clock time, a bare '6:00 PM', or 'in 20 minutes'. None when the words name no time."""
+    """A clock time, a bare '6:00 PM', 'tomorrow', or 'in 20 minutes'. None when the words name no time."""
     found = clock_in(text, now)
     if found:
         return found
+    earliest = 1 if _mentions_tomorrow(text) else 0
     lowered = (text or "").lower().replace("a.m.", "am").replace("p.m.", "pm")
     lowered = lowered.replace("a.m", "am").replace("p.m", "pm").strip()
+    if earliest:
+        lowered = " ".join(re.sub(r"\btomorrow\b", " ", lowered).split())
     numbered = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)", lowered)
     if numbered:
-        return _next_clock(int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now)
+        return _next_clock(
+            int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now, earliest
+        )
     hours = re.fullmatch(r"(\d{1,2}):(\d{2})", lowered)
     if hours:
         hour = int(hours.group(1))
         minute = int(hours.group(2))
         if 0 <= hour <= 23:
-            return _next_clock(hour, minute, None, now)
+            return _next_clock(hour, minute, None, now, earliest)
+    if earliest:
+        return _on_day(now, 1, 9, 0)
     relative = re.fullmatch(r"(?:in\s+)?(\d+)\s+(seconds|second|minutes|minute|hours|hour)", lowered)
     if not relative:
         relative = re.search(r"\bin\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)\b", lowered)
@@ -495,15 +527,16 @@ def _timer_as_reminder(phrase: str, original: str) -> QuickCommand | None:
     for label in ("set a timer", "set timer", "start a timer", "start timer"):
         if phrase != label and not phrase.startswith(label + " "):
             continue
-        detail = _tail(original, label) or "Timer"
-        moment = clock_in(detail, datetime.now().astimezone()) or when_from(detail, datetime.now().astimezone())
-        when = ""
-        if moment is not None:
-            when = moment.isoformat(timespec="seconds")
-            stripped = _without_clock(detail)
-            if stripped and stripped.lower() != detail.lower():
-                detail = stripped
-        return QuickCommand("remind", detail=detail, when=when)
+        now = datetime.now().astimezone()
+        detail = _tail(original, label)
+        moment = (clock_in(detail, now) or when_from(detail, now)) if detail else None
+        if moment is None and not detail:
+            moment = now + timedelta(minutes=5)
+            detail = "Timer"
+        elif moment is not None:
+            detail = _without_clock(detail) or "Timer"
+        when = moment.isoformat(timespec="seconds") if moment else ""
+        return QuickCommand("remind", detail=detail or "Timer", when=when)
     return None
 
 

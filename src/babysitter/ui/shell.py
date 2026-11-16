@@ -16,7 +16,7 @@ from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThre
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
-from babysitter.commands import match_quick_command, spoken_clock, timer_label
+from babysitter.commands import match_quick_command, spoken_clock, spoken_when, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -3040,7 +3040,7 @@ class Shell:
         if due:
             moment = datetime.fromisoformat(due)
             speech = (
-                f"Reminder set for {spoken_clock(moment)}. "
+                f"Reminder set for {spoken_when(moment)}. "
                 "I'll say it then, and show a notification on this PC, even if the AI is off. "
                 "Say undo in the next 10 seconds to remove it."
             )
