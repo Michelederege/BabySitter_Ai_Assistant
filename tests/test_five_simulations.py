@@ -1173,6 +1173,120 @@ def _feature_followup() -> list[Outcome]:
         return _timed(line, check)
 
     return [one(*row) for row in rows]
+def _feature_setup() -> list[Outcome]:
+    from babysitter.intelligence import MAIN_MODEL, WRITING_MODEL
+    from babysitter.setupneed import (
+        GITHUB_ZIP,
+        Machine,
+        commands_for,
+        perform_pulls,
+        pieces,
+        pull_commands,
+        visitor_summary,
+    )
+
+    ollama = r"C:\Ollama\ollama.exe"
+
+    def github():
+        text = visitor_summary()
+        held = {piece.name for piece in pieces() if piece.on_github}
+        assert "program source" in held and "requirements.txt" in held
+        assert MAIN_MODEL not in held and "Ollama" not in held
+        assert "does not hold a finished .exe" in text
+        assert GITHUB_ZIP.endswith("/archive/refs/heads/main.zip")
+        return "GitHub has the source, not the models"
+
+    def fresh():
+        from babysitter.setupneed import report
+
+        machine = Machine(False, False, None, (), False)
+        text = report(machine)
+        assert "Python 3.12" in text and "Ollama" in text
+        assert commands_for(machine) == ()
+        said = perform_pulls(machine, lambda command: 0, confirmed=True)
+        assert "Nothing was downloaded" in said[0]
+        return "a fresh PC is told what is missing"
+
+    def pulls():
+        machine = Machine(True, True, ollama, (), True)
+        ran: list[list[str]] = []
+        perform_pulls(machine, lambda command: ran.append(list(command)) or 0, confirmed=True)
+        assert ran == [[ollama, "pull", MAIN_MODEL], [ollama, "pull", WRITING_MODEL]]
+        return "two pulls, and only those two"
+
+    def already():
+        machine = Machine(True, True, ollama, (MAIN_MODEL + ":latest", WRITING_MODEL), True)
+        assert commands_for(machine) == ()
+        said = perform_pulls(machine, lambda command: 1, confirmed=True)
+        assert said == ("Both models are already downloaded.",)
+        return "models already here, so nothing is downloaded"
+
+    def stranger():
+        with pytest.raises(ValueError):
+            pull_commands(ollama, (MAIN_MODEL, "evil:latest"))
+        return "a model that is not ours is refused"
+
+    return [
+        _timed("github holds source only", github),
+        _timed("a fresh PC pulls nothing", fresh),
+        _timed("ollama pulls the two models", pulls),
+        _timed("models already here", already),
+        _timed("a stranger model is refused", stranger),
+    ]
+
+
+def _feature_hero() -> list[Outcome]:
+    from babysitter.paths import asset_path
+    from babysitter.ui.hero_banner import HeroBanner
+
+    app = QApplication.instance() or QApplication([])
+    banner = HeroBanner(asset_path("hero.jpg"), asset_path("orb"))
+    banner.set_reduced_motion(True)
+    banner.resize(480, 150)
+    app.processEvents()
+
+    def light() -> int:
+        image = banner._background().toImage()
+        color = image.pixelColor(image.width() // 2, image.height() // 3)
+        return color.red() + color.green() + color.blue()
+
+    def darker():
+        banner.show_phase("off", "Off", "The AI is off. Nothing is listening.")
+        off = light()
+        banner.show_phase("on", "On", "Hold Mouse 4 or say the keyword.")
+        assert light() > off
+        return "Off is darker than On"
+
+    def cropped():
+        image = banner._background().toImage()
+        assert (image.width(), image.height()) == (banner.width(), banner.height())
+        return "the picture fills the banner"
+
+    def listening():
+        banner.show_phase("listening", "Listening", "Say the question now.")
+        assert banner._key == "on" and banner.frog._state == "listening"
+        return "Listening keeps the On picture"
+
+    def height():
+        banner.set_compact(False)
+        full = banner.height()
+        banner.set_compact(True)
+        assert full == 150 and banner.height() == 170
+        return "half screen is 170 tall"
+
+    def missing():
+        width = banner._img.width()
+        assert banner.set_image("/no/such/picture.jpg") is False
+        assert banner._img.width() == width
+        return "a bad picture leaves the current one"
+
+    return [
+        _timed("off is darker", darker),
+        _timed("cropped to the panel", cropped),
+        _timed("listening frog", listening),
+        _timed("half screen height", height),
+        _timed("a missing picture", missing),
+    ]
 
 
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
@@ -1209,6 +1323,8 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("intelligence", _feature_intelligence()),
         ("power", _feature_power()),
         ("shutdown", _feature_shutdown(tmp_path, monkeypatch)),
+        ("setup", _feature_setup()),
+        ("hero", _feature_hero()),
     ]
 
 
