@@ -4,6 +4,22 @@ BabySitter is a voice assistant for your Windows PC. You talk, it talks, and a s
 
 The window icon is a placeholder: the letters **BS** on a teal circle. Your own artwork can replace it later.
 
+## If you opened this on GitHub
+
+The green **Code** button, and **Download ZIP**, give you the program source: the Python files, the pictures, and `requirements.txt`. That download does **not** include a finished `.exe`, Ollama, or the AI models. This page has no release file to click yet. The in-app update check only looks. It does not download an installer.
+
+On a Windows PC, after you unzip the folder:
+
+1. Install Python 3.12 from [python.org](https://www.python.org/downloads/windows/). On the first screen, check **Add python.exe to PATH**.
+2. Install [Ollama](https://ollama.com/download). BabySitter does not download that installer. The file changes, and this project only keeps a download it can check.
+3. Double-click **`Setup.bat`**. It makes the Python folder and downloads the libraries named in `requirements.txt`. It then tells you what is still missing.
+4. When it asks, type **Y** to download `qwen3.5:9b` and `gemma4:12b`. Each one is several gigabytes. Ollama fetches them. Press Enter to skip.
+5. Double-click **`Run BabySitter.bat`**.
+
+The NVIDIA driver is installed from NVIDIA. This setup does not download it. Voice files and the sharper memory stay inside the app. They download later, only after you say yes, and each file is checked.
+
+If you were handed `BabySitter.exe` on its own, you can skip this section. That file does not need Python. It still needs Ollama and the two models on the PC.
+
 ## What you need
 
 - Windows 11
@@ -65,7 +81,7 @@ Colors, on the button and on the orb:
 
 The window opens compact: power, Normal/Game, and one status line. **Expand** opens the tabs. Orange buttons are actions. The other colors are only for those states.
 
-**Choose my picture** on Home copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
+**Choose my picture** sits on the frog-pond picture. That picture fills the assistant panel and is cropped so the frog stays in view. Off turns it grey. The button copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
 
 ## Try the power switch
 
@@ -115,13 +131,15 @@ Do this on Windows, after the steps above work:
 .venv\Scripts\python -m PyInstaller packaging\babysitter.spec --noconfirm
 ```
 
-2. Open `dist\BabySitter\BabySitter.exe`.
+2. Open `dist\BabySitter.exe`.
 
-That file is built with no console. Double-clicking it should show only the BabySitter window. It must not open Command Prompt or PowerShell. Ollama, `nvidia-smi`, and any later helper are started the same way: no console window.
+That file is one file, built with no console. Copy it to the desktop, or any other folder. It does not need the `dist` folder, and it does not need a folder of libraries beside it. The pictures are inside the file. Your settings stay in `%LOCALAPPDATA%\BabySitter`, so moving the file does not move them. Double-clicking it should show only the BabySitter window. It must not open Command Prompt or PowerShell. Ollama, `nvidia-smi`, and any later helper are started the same way: no console window.
 
-3. Double-click `scripts\desktop-icon.bat`. That puts a BabySitter icon on the desktop. The icon opens `dist\BabySitter\BabySitter.exe`. Leave the other files in `dist\BabySitter` next to the exe.
+`scripts\build-exe.bat` asks at the end if you want that file copied to the desktop. Start with Windows remembers the path you gave it. If you move the file later, turn Start with Windows off and on again.
 
-A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
+3. Double-click `scripts\desktop-icon.bat`. That puts a BabySitter icon on the desktop. The icon opens `dist\BabySitter.exe`, the same one file.
+
+A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. A file you copied onto the desktop stays as it was until you copy it again. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
 
 The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.15.0.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
 

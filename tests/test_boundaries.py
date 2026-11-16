@@ -31,6 +31,9 @@ def test_http_targets_are_local_or_documented_pages():
         "https://accounts.google.com/o/oauth2/",
         "https://oauth2.googleapis.com/token",
         "https://api.github.com/repos/Michelederege/BabySitter_Ai_Assistant/releases/latest",
+        # The public page a visitor downloads. Source only. No installer is fetched from it.
+        "https://github.com/Michelederege/BabySitter_Ai_Assistant",
+        "https://www.python.org/downloads/windows/",
         "https://github.com/snakers4/silero-vad/",
         "https://github.com/ScrapeCreators/social-media-research-skills",
         # The local keyword model, downloaded only after a confirm click.

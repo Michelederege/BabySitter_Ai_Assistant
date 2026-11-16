@@ -8,7 +8,22 @@ if not exist ".venv\Scripts\python.exe" (
 ".venv\Scripts\python.exe" -m pip install -r requirements-dev.txt
 ".venv\Scripts\python.exe" -m PyInstaller packaging\babysitter.spec --noconfirm
 echo.
-echo The windowed app is dist\BabySitter\BabySitter.exe
-echo Double-click scripts\desktop-icon.bat to put that app on the desktop.
-echo After a later git pull, run this build again. The same desktop icon opens the new build.
+echo The program is one file: dist\BabySitter.exe
+echo Copy that file to the desktop, or any other folder. It does not need this folder beside it.
+echo Settings stay in %%LOCALAPPDATA%%\BabySitter.
+echo A command window should not appear when you double-click the file.
+echo.
+echo Double-click scripts\desktop-icon.bat for an icon that opens dist\BabySitter.exe.
+echo After a later git pull, run this build again. That same icon opens the new build.
+echo A file copied onto the desktop stays as it was until you copy it again.
+echo.
+set /p COPYDESKTOP=Type Y to copy the file itself to the desktop, or press Enter to skip: 
+if /I "%COPYDESKTOP%"=="Y" (
+  copy /Y "dist\BabySitter.exe" "%USERPROFILE%\Desktop\BabySitter.exe"
+  if errorlevel 1 (
+    echo The copy did not finish. dist\BabySitter.exe is still the file to move.
+  ) else (
+    echo Copied to the desktop.
+  )
+)
 pause

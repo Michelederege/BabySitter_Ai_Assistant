@@ -2,6 +2,16 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — The home picture fills the panel
+
+The frog-pond picture on Home fills the assistant panel, cropped so the frog stays in view. Off is grey and dark. On keeps the colour, with a warm corner. The frog, the state word, and the hint sit on the picture, and **Choose my picture** sits in the top corner. Half screen makes the picture a little taller. A picture that will not open leaves the current one in place.
+
+## Also in 0.15.0 — One exe you can move, and a setup for a GitHub visit
+
+The built program is one file, `dist\BabySitter.exe`. Copy it to the desktop or any other folder. The pictures are inside the file, and settings stay in `%LOCALAPPDATA%\BabySitter`, so the file does not need the folder it was built in. `scripts\build-exe.bat` can copy it to the desktop after the build. Start with Windows remembers the path. Move the file first, then turn that switch off and on again.
+
+Someone who downloads the GitHub ZIP does not get Ollama, the models, or that exe. There is still no release file on the page. Double-click `Setup.bat`. It makes the Python folder and downloads the pinned libraries. It then says what is still missing. Python 3.12, the Ollama installer, and the NVIDIA driver are installed by you. After a yes, the same setup asks Ollama to pull `qwen3.5:9b` and `gemma4:12b`. It will not pull any other name.
+
 ## Also in 0.15.0 — The v2 interface: the frog orb, the rail, and two new pages
 
 **The frog orb.** The floating light is now a cartoon pond frog on a lily pad, with the BS pacifier in its mouth, drawn from animation strips that ship with the program. Each state has its own animation: asleep when Off, a firefly while Working, breathing and blinking when On, perked ears while Listening, a croaking throat pouch while Speaking, dozing in blue moonlight in Game, and hopping with a red ring when it Needs you. A short caption sits in a dark pill under the frog, never over it. A plain click opens the window, a drag only moves it, right-click opens the menu, and the animations stop when Windows' "Show animations" is off.
@@ -12,7 +22,7 @@ BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
 **Two new pages.** Journal got its own page: the switch, Say my day and Say yesterday, pause and resume, starting and finishing tasks by button, today's minutes per program, and the wipe. Files got its own page too: type a few words, press Find, and the same search runs that "find my tax pdf" runs by voice — one match opens, several make a numbered list, and programs are listed but never started.
 
-**A desktop icon for the built app.** `scripts\desktop-icon.bat` puts a BabySitter icon on the desktop. It opens `dist\BabySitter\BabySitter.exe`. After a git pull, building again updates the program that icon opens. Reminders and settings stay in the personal folder.
+**A desktop icon for the built app.** `scripts\desktop-icon.bat` puts a BabySitter icon on the desktop. It opens the one file, `dist\BabySitter.exe`. After a git pull, building again updates the program that icon opens. A copied file stays as it was until you copy it again. Reminders and settings stay in the personal folder.
 
 **A countdown on each reminder.** Home shows the next reminder and the time left, in large type. Each row on the Reminders page shows the same countdown, and it ticks every second until the reminder rings. The README, which is the GitHub page, describes that.
 
