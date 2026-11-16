@@ -130,6 +130,27 @@ def test_listening_shows_on_the_state_pill(tmp_path, monkeypatch):
     _close(app, controller, shell)
 
 
+def test_the_home_picture_fills_the_panel_and_follows_the_state(tmp_path, monkeypatch):
+    app, _controller, shell = _shell(tmp_path, monkeypatch)
+    home = shell.window.home
+    assert home.hero.height() == 170
+    home.set_detailed(True)
+    assert home.hero.height() == 150
+    home.set_phase("off", "The AI is off. Nothing is listening.")
+    assert home.phase_word.text() == "Off"
+    assert home.hero.frog._state == "off"
+    home.set_phase("on", "Hold Mouse 4 or say the keyword.")
+    assert home.hero._key == "on"
+    assert home.phase_hint.text() == "Hold Mouse 4 or say the keyword."
+    home.set_detailed(False)
+    assert home.hero.height() == 170
+    picture = next(
+        child for child in home.findChildren(type(home.hold)) if child.text() == "Choose my picture"
+    )
+    assert picture.parent() is home.hero
+    _close(app, _controller, shell)
+
+
 def test_the_keyword_control_stays_inside_a_narrow_window(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     window = shell.window
