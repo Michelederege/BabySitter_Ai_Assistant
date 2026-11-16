@@ -67,7 +67,8 @@ class SchedulePage(_Page):
             "and shows a notification on this PC, even if the AI is off. BabySitter itself "
             "has to be open, including in the tray. If you quit BabySitter, it is said the "
             "next time the app is open and the time has passed. Nothing is sent. "
-            "Say undo within 10 seconds to remove a new one.",
+            "Say undo within 10 seconds to remove a new one. "
+            "The time left counts down on this page and on Home.",
         )
         self.body.hide()
         row = QHBoxLayout()
@@ -104,9 +105,43 @@ class SchedulePage(_Page):
             return
         fill_pinned_list(
             self.list,
-            [(reminder_line(item), str(item.get("id") or "")) for item in items],
+            [
+                (
+                    reminder_line(item),
+                    str(item.get("id") or ""),
+                    " ".join(str(item.get("text") or "Reminder").split()) or "Reminder",
+                )
+                for item in items
+            ],
             self.pin_line.emit,
         )
+
+    def tick(self) -> None:
+        """Refresh the time left on each row without rebuilding the pins."""
+        from PySide6.QtWidgets import QLabel
+
+        items = load_list("schedule.json")
+        by_id = {str(item.get("id") or ""): item for item in items}
+        shown = [
+            str(self.list.item(row).data(Qt.ItemDataRole.UserRole) or "")
+            for row in range(self.list.count())
+        ]
+        if [item_id for item_id in shown if item_id] != [item_id for item_id in by_id if item_id]:
+            self.refresh()
+            return
+        for row in range(self.list.count()):
+            item = self.list.item(row)
+            source = by_id.get(str(item.data(Qt.ItemDataRole.UserRole) or ""))
+            if source is None:
+                continue
+            text = reminder_line(source)
+            item.setText(text)
+            widget = self.list.itemWidget(item)
+            if widget is None:
+                continue
+            label = widget.findChild(QLabel, "pinnedLine")
+            if label is not None:
+                label.setText(text)
 
     def _remove(self) -> None:
         current = self.list.currentItem()
