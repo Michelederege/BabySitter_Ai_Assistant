@@ -9,7 +9,6 @@ column, assistant first.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -25,7 +24,10 @@ from PySide6.QtWidgets import (
 
 from babysitter.intelligence import MODES
 from babysitter.ollama import classify_ollama_process
+from babysitter.paths import asset_path
 from babysitter.status import format_bytes, format_mib
+from babysitter.ui.hero_banner import HeroBanner
+from babysitter.ui.orb import _animations_wanted
 from babysitter.ui.pinbutton import pin_button
 from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
 from babysitter.ui.widgets import BarChart, PowerButton, Sparkline
@@ -96,6 +98,7 @@ class HomePage(QWidget):
     # ---------- layout ----------
     def set_detailed(self, expanded: bool) -> None:
         self._expanded = expanded
+        self.hero.set_compact(not expanded)
         self._fit_to_width()
 
     def _available_width(self) -> int:
@@ -388,34 +391,28 @@ class HomePage(QWidget):
     def _assistant_card(self) -> QFrame:
         card = self._card()
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
-        header = QHBoxLayout()
-        header.addWidget(self._section("ASSISTANT"))
-        header.addStretch(1)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        self.hero = HeroBanner(asset_path("hero.jpg"), asset_path("orb"))
+        self.hero.setToolTip("Your picture. It stays on this PC.")
+        self.hero.set_reduced_motion(not _animations_wanted())
         picture = QPushButton("Choose my picture")
+        picture.setObjectName("heroCorner")
         picture.setToolTip("Copies a picture into your BabySitter folder. It is not uploaded.")
         picture.clicked.connect(self.choose_hero.emit)
-        header.addWidget(picture)
-        layout.addLayout(header)
-
-        self.hero = QLabel("Your picture shows here.")
-        self.hero.setAlignment(Qt.AlignCenter)
-        self.hero.setMinimumHeight(150)
-        self.hero.setMaximumHeight(170)
-        self.hero.setWordWrap(True)
-        self.hero.setToolTip("Your picture. It stays on this PC.")
+        self.hero.set_corner_widget(picture)
+        self.phase_word = self.hero.word
+        self.phase_hint = self.hero.hint
         layout.addWidget(self.hero)
 
-        badge = QHBoxLayout()
-        self.phase_word = QLabel("Off")
-        self.phase_word.setObjectName("word")
-        self.phase_hint = QLabel("The microphone stays closed until you turn keyword listening on.")
-        self.phase_hint.setObjectName("hint")
-        self.phase_hint.setWordWrap(True)
-        badge.addWidget(self.phase_word)
-        badge.addWidget(self.phase_hint, 1)
-        layout.addLayout(badge)
+        body = QWidget()
+        body.setObjectName("heroBody")
+        layout.addWidget(body)
+        layout = QVBoxLayout(body)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+        layout.addWidget(self._section("ASSISTANT"))
 
         self.heard = QLabel("You: nothing yet.")
         self.heard.setWordWrap(True)
@@ -571,14 +568,9 @@ class HomePage(QWidget):
         )
 
     def set_hero(self, path: str) -> None:
-        pixmap = QPixmap(path)
-        if pixmap.isNull():
-            self.hero.setText("That picture could not be opened.")
+        if self.hero.set_image(path):
             return
-        self.hero.setPixmap(
-            pixmap.scaled(self.hero.width() or 420, 170, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        )
-        self.hero.setText("")
+        self.hero.hint.setText("That picture could not be opened.")
 
     def set_reply(self, heard: str, spoken: str, detail: str) -> None:
         self.heard.setText(f"You: {heard}")
@@ -586,10 +578,7 @@ class HomePage(QWidget):
         self.reply_detail.setText(detail)
 
     def set_phase(self, phase: str, hint: str) -> None:
-        self.phase_word.setText(STATE_WORDS.get(phase, "On"))
-        color = STATE_COLORS.get(phase, STATE_COLORS["on"])
-        self.phase_word.setStyleSheet(f"color: {color};")
-        self.phase_hint.setText(hint)
+        self.hero.show_phase(phase, STATE_WORDS.get(phase, "On"), hint)
 
     def _banner(self, object_name: str) -> QFrame:
         frame = QFrame()
