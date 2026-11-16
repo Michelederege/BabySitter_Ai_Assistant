@@ -175,7 +175,7 @@ These are on purpose. Say if you want one of them changed.
 
 ## Reminders
 
-Open **Reminders** in the left rail, type what to remember, and a time such as `6:00 PM` or `in 20 minutes`. You can also say “set a reminder at 6 to stretch” or “set a timer for 20 minutes.”
+Open **Reminders** in the left rail, type what to remember, and a time such as `6:00 PM`, `tomorrow at 6 pm`, or `in 20 minutes`. You can also say “set a reminder at 6 to stretch” or “set a timer for 20 minutes.” “Tomorrow at 6” is 6:00 on the next day. With no am or pm, that is 6:00 AM. “Remind me tomorrow,” with no hour, is 9:00 AM. “Set a timer,” with no length, is 5 minutes.
 
 The time left is on Home, in large type, and on the reminder’s own row. It ticks every second until the reminder rings. When it reaches zero, BabySitter says it and shows a notification on this PC. That happens even if the AI is off. BabySitter has to be open, including in the tray. If you quit BabySitter, the countdown waits, and the reminder is said the next time the app is open and the time has passed. Nothing is sent off this PC.
 
