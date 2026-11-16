@@ -37,7 +37,7 @@ Name: "desktopicon"; Description: "Add a desktop shortcut"; GroupDescription: "S
 Name: "startmenu"; Description: "Add a Start menu shortcut"; GroupDescription: "Shortcuts:"; Flags: checked
 
 [Files]
-Source: "..\dist\BabySitter\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\BabySitter.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\BabySitter"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
