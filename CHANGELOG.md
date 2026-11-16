@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — The home picture fills the panel
+
+The frog-pond picture on Home fills the assistant panel, cropped so the frog stays in view. Off is grey and dark. On keeps the colour, with a warm corner. The frog, the state word, and the hint sit on the picture, and **Choose my picture** sits in the top corner. Half screen makes the picture a little taller. A picture that will not open leaves the current one in place.
+
 ## Also in 0.15.0 — One exe you can move, and a setup for a GitHub visit
 
 The built program is one file, `dist\BabySitter.exe`. Copy it to the desktop or any other folder. The pictures are inside the file, and settings stay in `%LOCALAPPDATA%\BabySitter`, so the file does not need the folder it was built in. `scripts\build-exe.bat` can copy it to the desktop after the build. Start with Windows remembers the path. Move the file first, then turn that switch off and on again.

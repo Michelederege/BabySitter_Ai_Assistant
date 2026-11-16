@@ -82,7 +82,7 @@ Colors, on the button and on the orb:
 
 The window opens compact: power, Normal/Game, and one status line. **Expand** opens the tabs. Orange buttons are actions. The other colors are only for those states.
 
-**Choose my picture** on Home copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
+**Choose my picture** sits on the frog-pond picture. That picture fills the assistant panel and is cropped so the frog stays in view. Off turns it grey. The button copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
 
 ## Try the power switch
 
