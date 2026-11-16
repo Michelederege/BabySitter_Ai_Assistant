@@ -949,6 +949,60 @@ def _feature_setup() -> list[Outcome]:
     ]
 
 
+def _feature_hero() -> list[Outcome]:
+    from babysitter.paths import asset_path
+    from babysitter.ui.hero_banner import HeroBanner
+
+    app = QApplication.instance() or QApplication([])
+    banner = HeroBanner(asset_path("hero.jpg"), asset_path("orb"))
+    banner.set_reduced_motion(True)
+    banner.resize(480, 150)
+    app.processEvents()
+
+    def light() -> int:
+        image = banner._background().toImage()
+        color = image.pixelColor(image.width() // 2, image.height() // 3)
+        return color.red() + color.green() + color.blue()
+
+    def darker():
+        banner.show_phase("off", "Off", "The AI is off. Nothing is listening.")
+        off = light()
+        banner.show_phase("on", "On", "Hold Mouse 4 or say the keyword.")
+        assert light() > off
+        return "Off is darker than On"
+
+    def cropped():
+        image = banner._background().toImage()
+        assert (image.width(), image.height()) == (banner.width(), banner.height())
+        return "the picture fills the banner"
+
+    def listening():
+        banner.show_phase("listening", "Listening", "Say the question now.")
+        assert banner._key == "on" and banner.frog._state == "listening"
+        return "Listening keeps the On picture"
+
+    def height():
+        banner.set_compact(False)
+        full = banner.height()
+        banner.set_compact(True)
+        assert full == 150 and banner.height() == 170
+        return "half screen is 170 tall"
+
+    def missing():
+        width = banner._img.width()
+        assert banner.set_image("/no/such/picture.jpg") is False
+        assert banner._img.width() == width
+        return "a bad picture leaves the current one"
+
+    return [
+        _timed("off is darker", darker),
+        _timed("cropped to the panel", cropped),
+        _timed("listening frog", listening),
+        _timed("half screen height", height),
+        _timed("a missing picture", missing),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -977,6 +1031,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("power", _feature_power()),
         ("shutdown", _feature_shutdown(tmp_path, monkeypatch)),
         ("setup", _feature_setup()),
+        ("hero", _feature_hero()),
     ]
 
 
