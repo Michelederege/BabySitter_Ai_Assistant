@@ -22,6 +22,8 @@ Someone who downloads the GitHub ZIP does not get Ollama, the models, or that ex
 
 **Two new pages.** Journal got its own page: the switch, Say my day and Say yesterday, pause and resume, starting and finishing tasks by button, today's minutes per program, and the wipe. Files got its own page too: type a few words, press Find, and the same search runs that "find my tax pdf" runs by voice — one match opens, several make a numbered list, and programs are listed but never started.
 
+**A countdown on each reminder.** Home shows the next reminder and the time left, in large type. Each row on the Reminders page shows the same countdown, and it ticks every second until the reminder rings. The README, which is the GitHub page, describes that.
+
 **A reminder still rings when the AI is off.** Turning the AI off unloads the voice. A due reminder now says itself with the Windows voice, and still shows the notification, without turning the AI on or asking to download a voice. BabySitter has to be open, including in the tray.
 
 **Reminders you can add, and a pin on every list.** The Reminders page has a note and a time. "6:00 PM" or "in 20 minutes" is saved as the clock, so the reminder rings. "Set a timer for 20 minutes" saves that same kind of reminder, due 20 minutes from now. When the time arrives, BabySitter says it and shows a notification on this PC. That happens while BabySitter is open, including in the tray. If BabySitter is quit, it is said the next time the app is open and the time has passed. Nothing is sent. Each row on Reminders, Memory, History, Journal, Files, and Settings has a pin, and Screen, Health, Models, Tools, and Voice can pin what they are showing.

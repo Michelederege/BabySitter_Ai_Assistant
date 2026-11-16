@@ -1,8 +1,6 @@
 # BabySitter
 
-BabySitter is a voice assistant for your Windows PC. You talk, it talks, and a small light on the screen shows what it is doing. It is not a chat window.
-
-**This build is Phase 1 only.** It is the power switch, the little floating light (the orb), and a status board. It does **not** listen to the microphone yet. Nothing is listening when you open it. The AI stays off until you turn it on.
+BabySitter is a voice assistant for your Windows PC. You talk, it talks, and a small frog on the screen shows what it is doing. It is not a chat window. The AI stays off until you turn it on. A reminder still counts down and rings while the AI is off, as long as BabySitter is open.
 
 The window icon is a placeholder: the letters **BS** on a teal circle. Your own artwork can replace it later.
 
@@ -69,6 +67,7 @@ The picture above was taken on a computer that does not have Ollama or an NVIDIA
 - The power mark says **Off**. Its color is grey, and the frog orb on the desktop is asleep on its lily pad.
 - The words under the power mark say the next click. Nothing is listening.
 - Video memory, CPU, and RAM refresh every 2 seconds while the window is open.
+- Home shows the next reminder and the time left. The Reminders page shows that countdown on every row.
 
 Colors, on the button and on the orb:
 
@@ -169,6 +168,14 @@ These are on purpose. Say if you want one of them changed.
 - Low is `qwen3.5:9b`. Medium and High are `gemma4:12b`. Only one model is loaded. A second model would have to kick the first one out.
 - Mouse side buttons cannot use the same safe keyboard method (`RegisterHotKey`). Push-to-talk is Phase 2. If you want a mouse button then, it will be off whenever the AI is off, and off in game mode, so it does not get in the way of a game.
 - The orb starts above other windows. You can turn that off in Settings, and you can drag the orb.
+
+## Reminders
+
+Open **Reminders** in the left rail, type what to remember, and a time such as `6:00 PM` or `in 20 minutes`. You can also say “set a reminder at 6 to stretch” or “set a timer for 20 minutes.”
+
+The time left is on Home, in large type, and on the reminder’s own row. It ticks every second until the reminder rings. When it reaches zero, BabySitter says it and shows a notification on this PC. That happens even if the AI is off. BabySitter has to be open, including in the tray. If you quit BabySitter, the countdown waits, and the reminder is said the next time the app is open and the time has passed. Nothing is sent off this PC.
+
+Say undo within 10 seconds to remove a new one, or press Remove on the Reminders page. A reminder with no time stays on the list and does not count down.
 
 ## Google mail and calendar
 

@@ -36,14 +36,20 @@ def pin_button() -> QPushButton:
     return button
 
 
-def fill_pinned_list(widget: QListWidget, rows: list[tuple[str, str]], on_pin) -> None:
+def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
     """Show each line with a pin. The item text stays set for selection.
 
-    rows are (shown text, id). An empty id means the row cannot be removed by id.
+    rows are (shown text, id) or (shown text, id, pin text).
+    An empty id means the row cannot be removed by id.
+    The pin text stays put while the shown text changes, such as a countdown.
     """
     widget.clear()
-    for text, item_id in rows:
+    for row_values in rows:
+        text = row_values[0]
+        item_id = row_values[1] if len(row_values) > 1 else ""
+        pin_text = row_values[2] if len(row_values) > 2 else text
         shown = " ".join((text or "").split())
+        pinned = " ".join((pin_text or shown).split())
         if not shown:
             continue
         item = QListWidgetItem(shown)
@@ -56,10 +62,11 @@ def fill_pinned_list(widget: QListWidget, rows: list[tuple[str, str]], on_pin) -
         layout.setContentsMargins(4, 0, 2, 0)
         layout.setSpacing(6)
         label = QLabel(shown)
+        label.setObjectName("pinnedLine")
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         button = pin_button()
-        button.clicked.connect(lambda _checked=False, line=shown: on_pin(line))
+        button.clicked.connect(lambda _checked=False, line=pinned: on_pin(line))
         layout.addWidget(label, 1)
         layout.addWidget(button)
         widget.setItemWidget(item, row)
