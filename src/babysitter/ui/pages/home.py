@@ -48,6 +48,7 @@ class HomePage(QWidget):
     command_submitted = Signal(str)
     send_heard = Signal()
     pin_reply = Signal()
+    pin_note = Signal(str, str)
     copy_reply = Signal()
     copy_log = Signal()
     choose_hero = Signal()
@@ -240,7 +241,7 @@ class HomePage(QWidget):
         row = QHBoxLayout()
         self.game_word = QLabel("Off")
         self.game_word.setObjectName("word")
-        self.game = QPushButton("Switch")
+        self.game = QPushButton("Game mode")
         self.game.setCheckable(True)
         self.game.setObjectName("choice")
         self.game.setToolTip(
@@ -251,7 +252,7 @@ class HomePage(QWidget):
         row.addStretch(1)
         row.addWidget(self.game)
         layout.addLayout(row)
-        self.game_note = QLabel("Click to unload the model and close the mic for gaming.")
+        self.game_note = QLabel("Click Game mode to unload the model yourself.")
         self.game_note.setObjectName("hint")
         self.game_note.setWordWrap(True)
         layout.addWidget(self.game_note)
@@ -297,18 +298,40 @@ class HomePage(QWidget):
         note = QLabel("A few notes and results. Not a chat.")
         note.setObjectName("hint")
         layout.addWidget(note)
+        self.pin_title = QLineEdit()
+        self.pin_title.setPlaceholderText("Title")
+        self.pin_title.setToolTip("A short name for the card. It stays on this PC.")
+        self.pin_body = QLineEdit()
+        self.pin_body.setPlaceholderText("The note to pin")
+        self.pin_body.setToolTip("The words on the card. Nothing here is sent.")
+        pin_button = QPushButton("Pin this")
+        pin_button.setToolTip("Puts this note on the board. It does not ask the model.")
+        pin_button.clicked.connect(self._submit_pin)
+        self.pin_body.returnPressed.connect(self._submit_pin)
+        layout.addWidget(self.pin_title)
+        layout.addWidget(self.pin_body)
+        layout.addWidget(pin_button)
         self.pin_host = QWidget()
         self.pin_list = QVBoxLayout(self.pin_host)
         self.pin_list.setContentsMargins(0, 0, 0, 0)
         self.pin_list.setSpacing(8)
         layout.addWidget(self.pin_host)
         layout.addStretch(1)
-        self.pins = QLabel("Nothing is pinned yet. Pin a reply from the assistant.")
+        self.pins = QLabel("Nothing is pinned yet. Type a note above, or pin a reply.")
         self.pins.setWordWrap(True)
         self.pins.setObjectName("hint")
         self.pins.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.pins)
         return card
+
+    def _submit_pin(self) -> None:
+        title = self.pin_title.text().strip()
+        body = self.pin_body.text().strip()
+        if not title and not body:
+            return
+        self.pin_note.emit(title or body[:80], body or title)
+        self.pin_title.clear()
+        self.pin_body.clear()
 
     def set_pins(self, pins: list[dict]) -> None:
         while self.pin_list.count():
@@ -319,7 +342,7 @@ class HomePage(QWidget):
         shown = pins[-MAX_PINS:]
         self.pin_count.setText(f"{len(shown)} of {MAX_PINS}")
         if not shown:
-            self.pins.setText("Nothing is pinned yet. Pin a reply from the assistant.")
+            self.pins.setText("Nothing is pinned yet. Type a note above, or pin a reply.")
             self.pins.show()
             return
         if len(pins) >= MAX_PINS:
@@ -580,22 +603,24 @@ class HomePage(QWidget):
         self.try_again.setVisible(state == "error")
         self.set_phase(state, detail)
         if state == "game":
-            self.game.setText("Wake up")
+            self.game.setText("Leave")
             self.game.setChecked(True)
             self.game.setEnabled(True)
             self.game_word.setText("On")
-            self.game.setToolTip("Loads the model again. The microphone stays closed until you hold to talk.")
+            self.game.setToolTip(
+                "Leaves game mode and loads the model again, even if the game is still open."
+            )
         elif state == "on":
-            self.game.setText("Switch")
+            self.game.setText("Game mode")
             self.game.setChecked(False)
             self.game.setEnabled(True)
             self.game_word.setText("Off")
             self.game.setToolTip(
                 "Unloads the model so a game can use the graphics card. "
-                "The microphone stays closed. Ollama stays running with nothing loaded."
+                "This is the manual switch. A game can still switch by itself, or ask first, from Settings."
             )
         else:
-            self.game.setText("Switch")
+            self.game.setText("Game mode")
             self.game.setChecked(False)
             self.game.setEnabled(False)
             self.game_word.setText("Off")

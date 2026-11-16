@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from babysitter.paths import data_dir
@@ -40,6 +41,25 @@ def add_item(name: str, **fields: str) -> dict:
     items.append(item)
     save_list(name, items)
     return item
+
+
+def reminder_line(item: dict) -> str:
+    """One reminder as it should read on the Reminders page."""
+    text = " ".join(str(item.get("text") or "").split()) or "Reminder"
+    due = str(item.get("due") or "").strip()
+    clock = ""
+    if due:
+        try:
+            moment = datetime.fromisoformat(due)
+            clock = moment.strftime("%a %I:%M %p").replace(" 0", " ")
+        except ValueError:
+            clock = due
+    line = text
+    if clock and clock not in text:
+        line = f"{clock} — {text}"
+    if str(item.get("fired") or "") == "yes":
+        line += " — already said"
+    return line
 
 
 def remove_item(name: str, item_id: str) -> None:

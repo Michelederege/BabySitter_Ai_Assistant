@@ -99,7 +99,7 @@ Start with Windows is **off** unless you check it in Settings. Even if you turn 
 
 Only one model is loaded at a time. Switching levels unloads the one that is in memory first.
 
-- **Low** is `qwen3.5:9b` with 4,096 tokens of context. Brief replies, tools, and pictures stay. It aims for 4 to 6 GB of video memory. On this 12 GB card the Q4 weights themselves are about 5.4 GB, so a normal Low load is about 6 GB. BabySitter does not push layers into system memory to chase a smaller number.
+- **Low** is `qwen3.5:9b` with 4,096 tokens of context. Brief replies, tools, and pictures stay. The Q4 file is 5.6 GB, and a normal load on this card is about 6.5 GB once the cache and CUDA are counted. Cutting the context saves very little on this model. BabySitter does not push layers into system memory to chase a smaller number, because replies get slow.
 - **Medium** is `gemma4:12b` with 8,192 tokens. This is the everyday default.
 - **High** is the same writing model with 16,384 tokens. It loads only when the card has room.
 

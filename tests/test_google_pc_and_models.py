@@ -34,8 +34,10 @@ TOKEN = "ya29.a0AfH6SM-test-token-value"
 def test_low_stays_at_4096_on_a_4070():
     report = simulate_ryzen_4070()
     assert report["card_mib"] == 12282
-    assert 4096 <= report["working_mib"] <= 6144
-    assert report["fits_4_to_6"] is True
+    assert report["working_mib"] > 6144
+    assert report["working_mib"] <= 7168
+    assert report["fits_4_to_6"] is False
+    assert report["within_voice_budget"] is True
     assert report["savings_mib"] < 200
     assert report["context_2048_mib"] > 5000
     assert report["shrinking_context_keeps_features"] is False

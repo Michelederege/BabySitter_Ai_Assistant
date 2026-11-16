@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -35,6 +35,7 @@ class Settings:
     emergency_hotkey: str = DEFAULT_EMERGENCY
     power_on_hotkey: str = DEFAULT_POWER_ON
     auto_game_mode: bool = True
+    game_mode_ask: bool = False
     detect_games: bool = True
     game_processes: list[str] = field(default_factory=list)
     orb_x: int | None = None
@@ -75,6 +76,7 @@ class Settings:
             "emergency_hotkey": self.emergency_hotkey,
             "power_on_hotkey": self.power_on_hotkey,
             "auto_game_mode": self.auto_game_mode,
+            "game_mode_ask": self.game_mode_ask,
             "detect_games": self.detect_games,
             "game_processes": list(self.game_processes),
             "orb_x": self.orb_x,
@@ -242,6 +244,12 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("search_folders", [])
         incoming["schema_version"] = 12
         version = 12
+    if version < 13:
+        # Asking before game mode is a choice. Automatic switching stays
+        # on, and the Game mode button still switches by hand.
+        incoming.setdefault("game_mode_ask", False)
+        incoming["schema_version"] = 13
+        version = 13
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -348,6 +356,7 @@ def settings_from_dict(data: dict) -> Settings:
         emergency_hotkey=emergency,
         power_on_hotkey=power_on,
         auto_game_mode=bool(data.get("auto_game_mode", True)),
+        game_mode_ask=bool(data.get("game_mode_ask", False)),
         detect_games=bool(data.get("detect_games", True)),
         game_processes=_clean_games(data.get("game_processes")),
         orb_x=orb_x if isinstance(orb_x, int) else None,

@@ -50,7 +50,7 @@ def test_the_rail_holds_twelve_pages_in_three_groups(tmp_path, monkeypatch):
     assert window.nav_group.button(0).text() == "Home"
     labels = [window.nav_group.button(i).text() for i in range(12)]
     assert labels == [
-        "Home", "Schedule", "Journal", "Files",
+        "Home", "Reminders", "Journal", "Files",
         "Voice", "Memory", "History", "Screen", "Tools",
         "PC Health", "Models", "Settings",
     ]
@@ -109,6 +109,43 @@ def test_pin_cards_build_and_unpin(tmp_path, monkeypatch):
     shell._unpin_card(str(pins[0]["id"]))
     assert load_list("pins.json") == []
     assert shell.window.home.pin_count.text() == "0 of 12"
+    _close(app, controller, shell)
+
+
+def test_a_typed_note_pins_and_a_reminder_shows_its_clock(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    home = shell.window.home
+    home.pin_title.setText("Bins")
+    home.pin_body.setText("Thursday")
+    home._submit_pin()
+    app.processEvents()
+    from babysitter.deskstore import add_item, load_list
+
+    pins = load_list("pins.json")
+    assert pins[0]["title"] == "Bins"
+    assert pins[0]["body"] == "Thursday"
+    assert home.pin_title.text() == ""
+    add_item("schedule.json", text="go to bed", due="2026-11-15T13:30", fired="")
+    page = shell.window.schedule_page
+    page.refresh()
+    shown = page.list.item(0).text()
+    assert "go to bed" in shown
+    assert "01:30" not in shown
+    assert "1:30" in shown
+    assert shell.window.nav_group.button(1).text() == "Reminders"
+    assert shell.window.home.game.text() == "Game mode"
+    assert shell.window.settings_page.game_mode_ask.isChecked() is False
+    _close(app, controller, shell)
+
+
+def test_a_clock_answer_stays_in_the_conversation(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    monkeypatch.setattr(shell, "_speak", lambda *_args, **_kwargs: None)
+    shell._logged_turn = True
+    shell._run_quick("what time is it")
+    assert shell._history[-2]["role"] == "user"
+    assert shell._history[-2]["content"] == "what time is it"
+    assert "It's" in shell._history[-1]["content"]
     _close(app, controller, shell)
 
 

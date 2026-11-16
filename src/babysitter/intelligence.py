@@ -43,8 +43,8 @@ MODES: dict[str, IntelligenceMode] = {
         id="low",
         label="Low",
         summary=(
-            "Brief replies. Fastest. Uses qwen3.5:9b for voice, tools, and pictures, "
-            "in about 4 to 6 GB of video memory."
+            "Brief replies. Fastest. Uses qwen3.5:9b for voice, tools, and pictures. "
+            "The Q4 file is 5.6 GB, and a normal load is about 6.5 GB once the cache and CUDA are counted."
         ),
         model=MAIN_MODEL,
         num_ctx=LOW_CONTEXT,
@@ -57,7 +57,7 @@ MODES: dict[str, IntelligenceMode] = {
         label="Medium",
         summary=(
             "About 8 to 10 GB of video memory. Uses gemma4:12b for longer writing. "
-            "This is the default. Low is the 4 to 6 GB voice model."
+            "This is the default. Low is the voice model, about 6.5 GB."
         ),
         model=WRITING_MODEL,
         num_ctx=8192,

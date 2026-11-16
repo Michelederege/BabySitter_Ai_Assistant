@@ -83,6 +83,12 @@ class SettingsPage(QWidget):
             "read the game's memory and does not draw anything inside the game."
         )
         root.addWidget(self.auto_game)
+        self.game_mode_ask = QCheckBox("Ask me before switching to game mode")
+        self.game_mode_ask.setToolTip(
+            "When a game opens, BabySitter asks first. The Game mode button on Home "
+            "still switches immediately. Leave this off to switch as soon as a game opens."
+        )
+        root.addWidget(self.game_mode_ask)
         self.detect_games = QCheckBox("Count any program running from a game folder as a game")
         self.detect_games.setToolTip(
             "Steam's steamapps, Epic Games, GOG, the Xbox app, Riot Games, and any "
@@ -249,6 +255,7 @@ class SettingsPage(QWidget):
         self.emergency.setText(settings.emergency_hotkey)
         self.power_on.setText(settings.power_on_hotkey)
         self.auto_game.setChecked(settings.auto_game_mode)
+        self.game_mode_ask.setChecked(settings.game_mode_ask)
         self.detect_games.setChecked(settings.detect_games)
         self.off_game_cores.setChecked(settings.keep_off_game_cores)
         self.hide_orb_for_games.setChecked(settings.hide_orb_for_games)
@@ -274,6 +281,7 @@ class SettingsPage(QWidget):
             self.autostart,
             self.on_top,
             self.auto_game,
+            self.game_mode_ask,
             self.detect_games,
             self.off_game_cores,
             self.hide_orb_for_games,
