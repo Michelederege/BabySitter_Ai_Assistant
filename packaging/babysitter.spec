@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Build a windowed BabySitter.exe. No console window.
+"""Build one windowed BabySitter.exe. No console window.
+
+The result is dist/BabySitter.exe. That file can move to the desktop.
+It does not need a folder of DLLs beside it.
 
 Run this on Windows, from the repo root:
 
@@ -50,11 +53,16 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# One file. Copy dist/BabySitter.exe to the desktop or any other folder.
+# The pictures are inside the file. Settings stay in %LOCALAPPDATA%\BabySitter.
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
     [],
-    exclude_binaries=True,
+    exclude_binaries=False,
     name="BabySitter",
     debug=False,
     bootloader_ignore_signals=False,
@@ -65,15 +73,4 @@ exe = EXE(
     argv_emulation=False,
     icon=str(ROOT / "assets" / "icon.ico"),
     version_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=False,
-    upx_exclude=[],
-    name="BabySitter",
 )

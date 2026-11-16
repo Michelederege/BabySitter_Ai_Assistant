@@ -180,6 +180,26 @@ QToolTip {
     background-color: rgba(245, 165, 74, 0.35);
     color: rgba(42, 22, 6, 0.6);
 }
+#appRoot QWidget#heroBanner,
+#appRoot QWidget#heroOverlay,
+#appRoot QWidget#heroFrog,
+#appRoot QWidget#heroBody {
+    background: transparent;
+}
+#appRoot QPushButton#heroCorner {
+    background-color: rgba(20, 26, 44, 0.62);
+    color: #e8ecf4;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 6px 11px;
+    font-size: 12px;
+    font-weight: 600;
+}
+#appRoot QPushButton#heroCorner:hover {
+    background-color: rgba(56, 67, 106, 0.85);
+    color: #ffffff;
+}
+#appRoot QPushButton#heroCorner:focus { border: 2px solid #f6b977; }
 #appRoot QPushButton#danger {
     background-color: transparent;
     color: #ffd0d0;
