@@ -13,7 +13,11 @@ echo Copy that file to the desktop, or any other folder. It does not need this f
 echo Settings stay in %%LOCALAPPDATA%%\BabySitter.
 echo A command window should not appear when you double-click the file.
 echo.
-set /p COPYDESKTOP=Type Y to copy it to the desktop, or press Enter to skip: 
+echo Double-click scripts\desktop-icon.bat for an icon that opens dist\BabySitter.exe.
+echo After a later git pull, run this build again. That same icon opens the new build.
+echo A file copied onto the desktop stays as it was until you copy it again.
+echo.
+set /p COPYDESKTOP=Type Y to copy the file itself to the desktop, or press Enter to skip: 
 if /I "%COPYDESKTOP%"=="Y" (
   copy /Y "dist\BabySitter.exe" "%USERPROFILE%\Desktop\BabySitter.exe"
   if errorlevel 1 (
