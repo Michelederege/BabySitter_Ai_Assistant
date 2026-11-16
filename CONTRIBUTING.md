@@ -23,6 +23,7 @@ src/babysitter/
   security.py         localhost, plus the optional ScrapeCreators host
   secrets.py          Windows DPAPI for the social-search key
   startupcheck.py     Ollama version, and the 0.17.1 warning
+  setupneed.py        what a GitHub visit still has to download
   paths.py            %LOCALAPPDATA%\BabySitter
   plugins/voice/      empty socket for voice engines (Phase 2)
   plugins/tools/      social search (off by default). Other actions are still later
