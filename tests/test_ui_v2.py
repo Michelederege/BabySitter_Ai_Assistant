@@ -176,6 +176,22 @@ def test_a_spoken_timer_is_a_reminder(tmp_path, monkeypatch):
     _close(app, controller, shell)
 
 
+def test_home_shows_the_countdown_for_a_new_reminder(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    from datetime import datetime, timedelta
+
+    from babysitter.deskstore import add_item
+
+    moment = datetime.now().astimezone() + timedelta(minutes=20)
+    add_item("schedule.json", text="stretch", due=moment.isoformat(timespec="seconds"), fired="")
+    shell.window.schedule_page.refresh()
+    shell._show_reminder_clock()
+    assert "stretch" in shell.window.home.countdown.text()
+    assert "—" in shell.window.home.countdown.text()
+    assert "stretch" in shell.window.schedule_page.list.item(0).text()
+    _close(app, controller, shell)
+
+
 def test_a_due_reminder_rings_while_the_ai_is_off(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     assert controller.state == "off"

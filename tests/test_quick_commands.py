@@ -50,6 +50,23 @@ def test_a_clock_reminder_is_saved_here_and_history_is_not_sent_to_the_model():
     assert datetime.fromisoformat(due).hour in {6, 18}
 
 
+def test_a_reminder_counts_down_until_it_rings():
+    from datetime import timedelta
+
+    from babysitter.deskstore import next_reminder_line, remaining_clock, reminder_line
+
+    now = datetime(2026, 11, 16, 12, 0, tzinfo=datetime.now().astimezone().tzinfo)
+    due = (now + timedelta(seconds=90)).isoformat()
+    assert remaining_clock(due, now) == "1:30"
+    assert reminder_line({"text": "stretch", "due": due}, now).endswith("— 1:30")
+    hour = (now + timedelta(hours=1, seconds=1)).isoformat()
+    assert remaining_clock(hour, now) == "1:00:01"
+    assert next_reminder_line([{"text": "stretch", "due": due}], now) == "stretch — 1:30"
+    assert next_reminder_line([], now) == "No reminder is counting down."
+    said = reminder_line({"text": "stretch", "due": due, "fired": "yes"}, now)
+    assert "already said" in said and "1:30" not in said.split("—")[-1]
+
+
 def test_the_voice_keeps_the_rest_and_trims_the_padding():
     from babysitter.deskstore import reminder_line
     from babysitter.plugins.voice.kokoro_voice import trim_edges
