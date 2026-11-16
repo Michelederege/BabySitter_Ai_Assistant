@@ -14,15 +14,19 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
+from babysitter.ui.pinbutton import fill_pinned_list, pin_button
+
 
 class JournalPage(QWidget):
     notice = Signal(str)
+    pin_line = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -84,13 +88,24 @@ class JournalPage(QWidget):
         task_row.addWidget(done)
         root.addLayout(task_row)
 
+        today_row = QHBoxLayout()
         today_label = QLabel("TODAY SO FAR")
         today_label.setObjectName("section")
-        root.addWidget(today_label)
+        today_pin = pin_button()
+        today_pin.setToolTip("Pin today's journal. It stays on this PC.")
+        today_pin.clicked.connect(self._pin_today)
+        today_row.addWidget(today_label)
+        today_row.addStretch(1)
+        today_row.addWidget(today_pin)
+        root.addLayout(today_row)
+        self.lines = QListWidget()
+        self.lines.setToolTip("Each line of today's journal. The pin puts that line on the board.")
+        root.addWidget(self.lines, 1)
         self.body = QPlainTextEdit()
         self.body.setReadOnly(True)
         self.body.setToolTip("Program names and minutes from today's journal file.")
-        root.addWidget(self.body, 1)
+        self.body.hide()
+        root.addWidget(self.body)
 
         wipe_row = QHBoxLayout()
         self.wipe = QPushButton("Wipe the journal")
@@ -108,6 +123,7 @@ class JournalPage(QWidget):
         name = self.task_name.text().strip()
         if not name:
             self.body.setPlainText("Type a task name first. Nothing was started.")
+            fill_pinned_list(self.lines, [("Type a task name first. Nothing was started.", "")], self.pin_line.emit)
             return
         self.task_name.clear()
         self.notice.emit(f"TASK start {name}")
@@ -130,7 +146,15 @@ class JournalPage(QWidget):
             detail = day_detail(record)
         except Exception:
             detail = "Today's journal file could not be read."
-        self.body.setPlainText(detail or "Nothing is in the journal for today yet.")
+        text = detail or "Nothing is in the journal for today yet."
+        self.body.setPlainText(text)
+        rows = [line.strip() for line in text.splitlines() if line.strip()]
+        fill_pinned_list(self.lines, [(line, "") for line in rows], self.pin_line.emit)
+
+    def _pin_today(self) -> None:
+        text = self.body.toPlainText().strip()
+        if text:
+            self.pin_line.emit(text)
 
     def showEvent(self, event) -> None:  # noqa: N802
         self.refresh()
@@ -139,6 +163,7 @@ class JournalPage(QWidget):
 
 class FilesPage(QWidget):
     notice = Signal(str)
+    pin_line = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -175,13 +200,17 @@ class FilesPage(QWidget):
         self.folders_line.setObjectName("hint")
         root.addWidget(self.folders_line)
 
+        self.matches = QListWidget()
+        self.matches.setToolTip("Files that matched. The pin puts one on the board. A program is never started.")
+        root.addWidget(self.matches, 1)
         self.body = QPlainTextEdit()
         self.body.setReadOnly(True)
         self.body.setPlaceholderText(
             "Matches show up here. One match opens by itself. Several make a numbered "
             "list that is good for 10 minutes — say open 2, or type open number 2 on Home."
         )
-        root.addWidget(self.body, 1)
+        self.body.hide()
+        root.addWidget(self.body)
 
         note = QLabel("Add or remove folders under Settings › File search folders.")
         note.setWordWrap(True)
@@ -191,7 +220,7 @@ class FilesPage(QWidget):
     def _find(self) -> None:
         wanted = self.query.text().strip()
         if not wanted:
-            self.body.setPlainText("Type a few words of the file name first. Nothing was searched.")
+            self._show_lines("Type a few words of the file name first. Nothing was searched.")
             return
         self.notice.emit(f"FIND {wanted}")
 
@@ -203,7 +232,15 @@ class FilesPage(QWidget):
 
     def set_results(self, speech: str, detail: str) -> None:
         text = speech if not detail else f"{speech}\n\n{detail}"
-        self.body.setPlainText(text)
+        self._show_lines(text)
 
     def set_busy_line(self, text: str) -> None:
+        self._show_lines(text)
+
+    def _show_lines(self, text: str) -> None:
         self.body.setPlainText(text)
+        rows = [line.strip() for line in (text or "").splitlines() if line.strip()]
+        if not rows:
+            self.matches.clear()
+            return
+        fill_pinned_list(self.matches, [(line, "") for line in rows], self.pin_line.emit)

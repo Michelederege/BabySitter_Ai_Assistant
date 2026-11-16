@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -16,8 +16,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from babysitter.ui.pinbutton import fill_pinned_list
+
 
 class SettingsPage(QWidget):
+    pin_line = Signal(str)
+
     def __init__(self) -> None:
         super().__init__()
         root = QVBoxLayout(self)
@@ -270,10 +274,14 @@ class SettingsPage(QWidget):
         self.smart_turn.setChecked(settings.smart_turn)
         self.echo_cancel.setChecked(settings.echo_cancel)
         self.talk_over.setChecked(settings.talk_over)
-        self.games.clear()
-        self.games.addItems(settings.game_processes)
-        self.search_folders.clear()
-        self.search_folders.addItems(settings.search_folders)
+        games = [str(name) for name in settings.game_processes]
+        folders = [str(name) for name in settings.search_folders]
+        fill_pinned_list(self.games, [(name, name) for name in games], self.pin_line.emit)
+        fill_pinned_list(self.search_folders, [(name, name) for name in folders], self.pin_line.emit)
+        if not games:
+            self.games.addItem("No game names yet.")
+        if not folders:
+            self.search_folders.addItem("No extra folders yet.")
         self.folder.setText(data_folder)
 
     def toggles(self):

@@ -39,6 +39,15 @@ def test_a_clock_reminder_is_saved_here_and_history_is_not_sent_to_the_model():
     history = match_quick_command("read out my history")
     assert history is not None and history.kind == "history"
     assert match_quick_command("set a timer for 30 seconds").kind == "timer"
+    oven = match_quick_command("set a timer for 20 minutes to check the oven")
+    assert oven is not None and oven.kind == "timer" and oven.detail == "check the oven"
+    named = match_quick_command("set a timer to call Mom at 6 pm")
+    assert named is not None and named.kind == "remind" and "Mom" in named.detail and named.when
+    from babysitter.commands import reminder_fields
+
+    note, due = reminder_fields("stretch", "6:00 PM", datetime(2026, 11, 16, 8, 0).astimezone())
+    assert note == "stretch" and due
+    assert datetime.fromisoformat(due).hour in {6, 18}
 
 
 def test_the_voice_keeps_the_rest_and_trims_the_padding():
