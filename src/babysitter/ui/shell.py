@@ -815,9 +815,10 @@ class Shell:
         self._ptt_timer.timeout.connect(self._ptt_tick)
         self._ptt_timer.start(40)
         self._reminder_timer = QTimer(self.window)
-        self._reminder_timer.setInterval(15000)
-        self._reminder_timer.timeout.connect(self._check_reminders)
+        self._reminder_timer.setInterval(1000)
+        self._reminder_timer.timeout.connect(self._tick_reminders)
         self._reminder_timer.start()
+        self._show_reminder_clock()
 
     def _set_social(self, on: bool) -> None:
         self.controller.settings.social_search_enabled = bool(on)
@@ -3054,6 +3055,16 @@ class Shell:
         self._note_local(text, speech)
         self._speak(speech)
         return item
+
+    def _tick_reminders(self) -> None:
+        self._check_reminders()
+        self._show_reminder_clock()
+
+    def _show_reminder_clock(self) -> None:
+        from babysitter.deskstore import next_reminder_line
+
+        self.window.schedule_page.tick()
+        self.window.home.set_countdown(next_reminder_line(load_list("schedule.json")))
 
     def _check_reminders(self) -> None:
         """Say a saved reminder once its clock time has arrived."""

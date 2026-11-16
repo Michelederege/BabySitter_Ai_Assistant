@@ -72,6 +72,11 @@ class HomePage(QWidget):
         self.tray_banner.hide()
 
         root.addWidget(self._controls_strip())
+        self.countdown = QLabel("No reminder is counting down.")
+        self.countdown.setObjectName("word")
+        self.countdown.setWordWrap(True)
+        self.countdown.setToolTip("Time left until the next reminder. It keeps counting while the AI is off.")
+        root.addWidget(self.countdown)
 
         self.detail_host = QWidget()
         self._grid = QGridLayout(self.detail_host)
@@ -94,6 +99,9 @@ class HomePage(QWidget):
         self._place_controls(4)
 
     # ---------- layout ----------
+    def set_countdown(self, text: str) -> None:
+        self.countdown.setText(text or "No reminder is counting down.")
+
     def set_detailed(self, expanded: bool) -> None:
         self._expanded = expanded
         self._fit_to_width()
