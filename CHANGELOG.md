@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — One exe you can move, and a setup for a GitHub visit
+
+The built program is one file, `dist\BabySitter.exe`. Copy it to the desktop or any other folder. The pictures are inside the file, and settings stay in `%LOCALAPPDATA%\BabySitter`, so the file does not need the folder it was built in. `scripts\build-exe.bat` can copy it to the desktop after the build. Start with Windows remembers the path. Move the file first, then turn that switch off and on again.
+
+Someone who downloads the GitHub ZIP does not get Ollama, the models, or that exe. There is still no release file on the page. Double-click `Setup.bat`. It makes the Python folder and downloads the pinned libraries. It then says what is still missing. Python 3.12, the Ollama installer, and the NVIDIA driver are installed by you. After a yes, the same setup asks Ollama to pull `qwen3.5:9b` and `gemma4:12b`. It will not pull any other name.
+
 ## Also in 0.15.0 — The v2 interface: the frog orb, the rail, and two new pages
 
 **The frog orb.** The floating light is now a cartoon pond frog on a lily pad, with the BS pacifier in its mouth, drawn from animation strips that ship with the program. Each state has its own animation: asleep when Off, a firefly while Working, breathing and blinking when On, perked ears while Listening, a croaking throat pouch while Speaking, dozing in blue moonlight in Game, and hopping with a red ring when it Needs you. A short caption sits in a dark pill under the frog, never over it. A plain click opens the window, a drag only moves it, right-click opens the menu, and the animations stop when Windows' "Show animations" is off.
