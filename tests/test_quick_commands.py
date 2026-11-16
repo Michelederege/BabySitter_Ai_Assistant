@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from babysitter.commands import clock_in, match_quick_command, timer_label
+from babysitter.commands import clock_in, match_quick_command, spoken_when, timer_label, when_from
 from babysitter.pictures import benchmark_warning, format_benchmark, image_tokens, room_for_model, scaled_size
 from babysitter.plugins.voice.speech import spell_codes, voice_and_rest
 
@@ -45,9 +45,27 @@ def test_a_clock_reminder_is_saved_here_and_history_is_not_sent_to_the_model():
     assert named is not None and named.kind == "remind" and "Mom" in named.detail and named.when
     from babysitter.commands import reminder_fields
 
-    note, due = reminder_fields("stretch", "6:00 PM", datetime(2026, 11, 16, 8, 0).astimezone())
+    zone = datetime.now().astimezone().tzinfo
+    morning = datetime(2026, 11, 16, 10, 0, tzinfo=zone)
+    note, due = reminder_fields("stretch", "6:00 PM", morning)
     assert note == "stretch" and due
     assert datetime.fromisoformat(due).hour in {6, 18}
+    later = when_from("tomorrow at 6", morning)
+    assert later is not None and spoken_when(later, morning) == "6:00 AM tomorrow"
+    assert later is not None and later.date().day == 17 and later.hour == 6
+    evening = when_from("tomorrow at 6 pm", morning)
+    assert evening is not None and evening.date().day == 17 and evening.hour == 18
+    named_day = when_from("at 6:00 PM tomorrow", morning)
+    assert named_day is not None and named_day.date().day == 17 and named_day.hour == 18
+    bare_day = when_from("tomorrow", morning)
+    assert bare_day is not None and bare_day.date().day == 17 and bare_day.hour == 9
+    tomorrow = match_quick_command("remind me tomorrow")
+    assert tomorrow is not None and tomorrow.kind == "remind" and tomorrow.detail == "Reminder"
+    assert datetime.fromisoformat(tomorrow.when).hour == 9
+    bare = match_quick_command("set a timer")
+    assert bare is not None and bare.kind == "remind" and bare.detail == "Timer"
+    wait = datetime.fromisoformat(bare.when) - datetime.now().astimezone()
+    assert 4 * 60 <= wait.total_seconds() <= 5 * 60 + 2
 
 
 def test_a_reminder_counts_down_until_it_rings():

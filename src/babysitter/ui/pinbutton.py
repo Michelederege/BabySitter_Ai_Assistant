@@ -36,6 +36,27 @@ def pin_button() -> QPushButton:
     return button
 
 
+def list_width(widget: QListWidget) -> int:
+    width = widget.viewport().width()
+    cap = widget.maximumWidth()
+    if 0 < cap < 16777215 and (width < 80 or cap < width):
+        width = cap
+    if width < 80:
+        width = widget.width()
+    return width
+
+
+def fit_pinned_row(item: QListWidgetItem, label: QLabel, list_width: int) -> None:
+    """Give a wrapped line enough height. A countdown no longer stops at 40 pixels."""
+    width = list_width - 48
+    if width < 80:
+        width = 240
+    rect = label.fontMetrics().boundingRect(
+        0, 0, width, 2000, int(Qt.TextFlag.TextWordWrap), label.text()
+    )
+    item.setSizeHint(QSize(0, max(40, rect.height() + 12)))
+
+
 def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
     """Show each line with a pin. The item text stays set for selection.
 
@@ -55,7 +76,6 @@ def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
         item = QListWidgetItem(shown)
         if item_id:
             item.setData(Qt.ItemDataRole.UserRole, item_id)
-        item.setSizeHint(QSize(0, 40))
         widget.addItem(item)
         row = QWidget()
         layout = QHBoxLayout(row)
@@ -70,3 +90,4 @@ def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
         layout.addWidget(label, 1)
         layout.addWidget(button)
         widget.setItemWidget(item, row)
+        fit_pinned_row(item, label, list_width(widget))

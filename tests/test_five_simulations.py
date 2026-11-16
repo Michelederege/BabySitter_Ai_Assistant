@@ -389,7 +389,7 @@ def _feature_remind() -> list[Outcome]:
         ("baby sitter remind me about the dentist", "about the dentist"),
         ("please remind me to water the plant", "to water the plant"),
         ("can you remind me the bins are Thursday", "the bins are Thursday"),
-        ("remind me tomorrow", "tomorrow"),
+        ("remind me tomorrow", "Reminder"),
     )
 
     def one(line, detail):
@@ -1289,6 +1289,51 @@ def _feature_hero() -> list[Outcome]:
     ]
 
 
+def _feature_tomorrow() -> list[Outcome]:
+    from babysitter.commands import when_from
+
+    zone = datetime.now().astimezone().tzinfo
+    morning = datetime(2026, 11, 16, 10, 0, tzinfo=zone)
+
+    def six():
+        moment = when_from("tomorrow at 6", morning)
+        assert moment is not None and moment.date().day == 17 and moment.hour == 6
+        return "6:00 AM tomorrow."
+
+    def six_pm():
+        moment = when_from("tomorrow at 6 pm", morning)
+        assert moment is not None and moment.date().day == 17 and moment.hour == 18
+        return "6:00 PM tomorrow."
+
+    def spoken():
+        found = match_quick_command("remind me tomorrow at 6 to call")
+        assert found is not None and found.detail == "to call"
+        moment = datetime.fromisoformat(found.when)
+        assert moment.hour == 6 and "tomorrow" not in found.detail
+        return "to call at 6:00 AM tomorrow."
+
+    def no_hour():
+        found = match_quick_command("remind me tomorrow")
+        assert found is not None and found.detail == "Reminder"
+        assert datetime.fromisoformat(found.when).hour == 9
+        return "9:00 AM tomorrow."
+
+    def bare_timer():
+        found = match_quick_command("set a timer")
+        assert found is not None and found.kind == "remind" and found.detail == "Timer"
+        wait = datetime.fromisoformat(found.when) - datetime.now().astimezone()
+        assert 4 * 60 <= wait.total_seconds() <= 5 * 60 + 2
+        return "Timer in 5 minutes."
+
+    return [
+        _timed("tomorrow at 6", six),
+        _timed("tomorrow at 6 pm", six_pm),
+        _timed("remind me tomorrow at 6 to call", spoken),
+        _timed("remind me tomorrow", no_hour),
+        _timed("set a timer", bare_timer),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1302,6 +1347,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("remember", _feature_remember()),
         ("remind", _feature_remind()),
         ("clock reminder", _feature_clock_reminder()),
+        ("tomorrow", _feature_tomorrow()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
         ("files", _feature_files()),

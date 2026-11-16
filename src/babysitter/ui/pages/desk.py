@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 
 from babysitter.deskstore import add_item, load_list, reminder_line, remove_item
 from babysitter.models import model_choice
-from babysitter.ui.pinbutton import fill_pinned_list, pin_button
+from babysitter.ui.pinbutton import fill_pinned_list, fit_pinned_row, list_width, pin_button
 
 
 class _Page(QWidget):
@@ -142,6 +142,7 @@ class SchedulePage(_Page):
             label = widget.findChild(QLabel, "pinnedLine")
             if label is not None:
                 label.setText(text)
+                fit_pinned_row(item, label, list_width(self.list))
 
     def _remove(self) -> None:
         current = self.list.currentItem()
