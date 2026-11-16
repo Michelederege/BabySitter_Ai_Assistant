@@ -12,6 +12,8 @@ BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
 **Two new pages.** Journal got its own page: the switch, Say my day and Say yesterday, pause and resume, starting and finishing tasks by button, today's minutes per program, and the wipe. Files got its own page too: type a few words, press Find, and the same search runs that "find my tax pdf" runs by voice — one match opens, several make a numbered list, and programs are listed but never started.
 
+**A desktop icon for the built app.** `scripts\desktop-icon.bat` puts a BabySitter icon on the desktop. It opens `dist\BabySitter\BabySitter.exe`. After a git pull, building again updates the program that icon opens. Reminders and settings stay in the personal folder.
+
 **A countdown on each reminder.** Home shows the next reminder and the time left, in large type. Each row on the Reminders page shows the same countdown, and it ticks every second until the reminder rings. The README, which is the GitHub page, describes that.
 
 **A reminder still rings when the AI is off.** Turning the AI off unloads the voice. A due reminder now says itself with the Windows voice, and still shows the notification, without turning the AI on or asking to download a voice. BabySitter has to be open, including in the tray.
