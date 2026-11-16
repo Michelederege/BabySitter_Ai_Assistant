@@ -272,6 +272,15 @@ QToolTip {
 #appRoot QLineEdit:focus, #appRoot QComboBox:focus, #appRoot QPlainTextEdit:focus {
     border-color: #f5a54a;
 }
+#appRoot QPushButton#pinIcon {
+    background: transparent;
+    border: 1px solid #3b4566;
+    border-radius: 6px;
+    padding: 2px;
+}
+#appRoot QPushButton#pinIcon:hover {
+    border-color: #e7b008;
+}
 #appRoot QComboBox QAbstractItemView {
     background-color: #2a3350;
     color: #e8ecf4;

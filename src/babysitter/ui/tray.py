@@ -18,3 +18,14 @@ class Tray:
 
     def set_tooltip(self, text: str) -> None:
         self.icon.setToolTip(text[:120])
+
+    def notify(self, title: str, body: str) -> None:
+        """A notification on this PC. Nothing leaves the machine."""
+        if not self.available:
+            return
+        self.icon.showMessage(
+            (title or "BabySitter")[:64],
+            (body or "")[:240],
+            QSystemTrayIcon.MessageIcon.Information,
+            10000,
+        )
