@@ -887,6 +887,292 @@ def _feature_shutdown(tmp_path, monkeypatch) -> list[Outcome]:
     return outcomes
 
 
+def _feature_journal() -> list[Outcome]:
+    from babysitter.journal import day_speech, finish_task, start_task
+
+    def today():
+        assert _expect_route("what did i do today", "journal_today")
+        assert _expect_route("baby sitter what have i done today", "journal_today")
+        return "Today's journal is read on this PC."
+
+    def yesterday():
+        assert _expect_route("what did i do yesterday", "journal_yesterday")
+        assert _expect_route("please what did i work on yesterday", "journal_yesterday")
+        return "Yesterday's journal is read on this PC."
+
+    def started():
+        found = match_quick_command("start task sanding the door")
+        assert found is not None and found.kind == "task_start"
+        assert found.detail == "sanding the door"
+        record = {"date": "2026-11-15", "apps": {}, "tasks": []}
+        speech = start_task(record, found.detail, datetime(2026, 11, 15, 9, 0))
+        assert speech.startswith("Started sanding the door")
+        assert record["tasks"][0]["end"] == ""
+        return speech
+
+    def finished():
+        record = {"date": "2026-11-15", "apps": {}, "tasks": []}
+        start_task(record, "sanding the door", datetime(2026, 11, 15, 9, 0))
+        speech = finish_task(record, datetime(2026, 11, 15, 9, 45))
+        assert "took" in speech and "sanding the door" in speech
+        assert record["tasks"][0]["end"]
+        assert "No task is open" in finish_task(record, datetime(2026, 11, 15, 10, 0))
+        return speech
+
+    def empty_day():
+        assert _expect_route("pause the journal", "journal_pause")
+        assert _expect_route("resume the journal", "journal_resume")
+        speech = day_speech({"date": "2026-11-15", "apps": {}, "tasks": []}, "today")
+        assert "Nothing is in the journal" in speech
+        short = day_speech(
+            {"date": "2026-11-15", "apps": {"blender": {"seconds": 20, "first": "", "last": ""}}, "tasks": []},
+            "today",
+        )
+        assert "Under a minute" in short
+        return speech
+
+    return [
+        _timed("today", today),
+        _timed("yesterday", yesterday),
+        _timed("start a task", started),
+        _timed("finish a task", finished),
+        _timed("an empty day", empty_day),
+    ]
+
+
+def _feature_files() -> list[Outcome]:
+    from babysitter.filefind import FoundFile, match_files, open_found, search_reply
+
+    tax = FoundFile("2024-tax.pdf", r"C:\Users\me\Documents\2024-tax.pdf", 10, 0)
+    older = FoundFile("2023-tax.pdf", r"C:\Users\me\Documents\2023-tax.pdf", 5, 0)
+    helmet = FoundFile("helmet.stl", r"C:\Users\me\Documents\prints\helmet.stl", 8, 0)
+    dragon = FoundFile("dragon-head.stl", r"C:\Users\me\Documents\prints\dragon-head.stl", 9, 0)
+    program = FoundFile("setup.exe", r"C:\Users\me\Downloads\setup.exe", 7, 0)
+
+    def routed():
+        assert _expect_route("find my tax pdf", "find")
+        assert _expect_route("pull up my current tax pdf", "find")
+        assert _expect_route("find all stls", "find")
+        assert _route("find out about the tax") == "model"
+        return "A file name stays on this PC."
+
+    def one_match():
+        matches = match_files("tax pdf", [tax])
+        speech, detail, best = search_reply("tax pdf", matches, [r"C:\Users\me\Documents"])
+        assert best == tax
+        assert speech.startswith("Opening 2024-tax.pdf")
+        assert detail == tax.path
+        return speech
+
+    def several():
+        matches = match_files("stl", [helmet, dragon])
+        speech, detail, best = search_reply("stl", matches, [r"C:\Users\me\Documents"])
+        assert best is None
+        assert "Say open number 1 to 2" in speech
+        assert "helmet.stl" in detail and "dragon-head.stl" in detail
+        assert _expect_route("open number 2", "open_number")
+        return speech
+
+    def partial():
+        matches = match_files("dragons", [dragon, helmet])
+        assert [item.name for item in matches] == ["dragon-head.stl"]
+        return "dragon-head.stl"
+
+    def program_stays_closed():
+        matches = match_files("setup", [program, tax])
+        assert [item.name for item in matches] == ["setup.exe"]
+        speech = open_found(program)
+        assert "not started" in speech
+        assert "Opening" not in speech
+        return speech
+
+    return [
+        _timed("the words route here", routed),
+        _timed("one match opens", one_match),
+        _timed("several stay numbered", several),
+        _timed("a partial name matches", partial),
+        _timed("a program is not started", program_stays_closed),
+    ]
+
+
+def _feature_history(tmp_path, monkeypatch) -> list[Outcome]:
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "history-sims"))
+    from babysitter.sessions import append_turn, begin_session, list_sessions, load_session
+
+    def routed(line):
+        def check():
+            assert _expect_route(line, "history")
+            assert _route("tell me a story about history") == "model"
+            return "The saved lines are read on this PC."
+
+        return _timed(line, check)
+
+    def saved():
+        session_id = begin_session()
+        append_turn(session_id, "set a reminder at one thirty", "Reminder set for 1:30 AM.")
+        rows = list_sessions()
+        assert rows and rows[0]["id"] == session_id
+        record = load_session(session_id)
+        assert record["turns"][0]["user"] == "set a reminder at one thirty"
+        return "One saved turn."
+
+    return [
+        routed("read out my history"),
+        routed("read my history"),
+        routed("what did we talk about"),
+        routed("can you read out my conversation"),
+        _timed("a turn is saved", saved),
+    ]
+
+
+def _feature_clock_reminder() -> list[Outcome]:
+    from babysitter.commands import clock_in
+
+    morning = datetime(2026, 11, 15, 10, 0)
+
+    def at_bedtime():
+        found = match_quick_command("can you set a reminder at 1:30 pm to go to bed")
+        assert found is not None and found.kind == "remind"
+        assert found.detail == "to go to bed"
+        moment = datetime.fromisoformat(found.when)
+        assert moment.hour == 13 and moment.minute == 30
+        return f"Reminder set for {moment.strftime('%I:%M %p').lstrip('0')}."
+
+    def one_thirty_this_morning():
+        moment = clock_in("at one thirty to go to bed", morning)
+        assert moment is not None and moment.hour == 13 and moment.minute == 30
+        assert moment.date() == morning.date()
+        return "1:30 PM today."
+
+    def noon():
+        moment = clock_in("at noon", morning)
+        assert moment is not None and moment.hour == 12 and moment.minute == 0
+        return "12:00 PM."
+
+    def already_passed():
+        moment = clock_in("at 9 am", morning)
+        assert moment is not None and moment.hour == 9
+        assert moment.date() == datetime(2026, 11, 16).date()
+        return "9:00 AM tomorrow."
+
+    def no_clock():
+        found = match_quick_command("set a reminder to buy milk")
+        assert found is not None and found.kind == "remind" and found.when == ""
+        assert found.detail == "to buy milk"
+        assert _route("set a timer for 5 minutes") == "timer"
+        return "Saved. to buy milk"
+
+    return [
+        _timed("1:30 pm", at_bedtime),
+        _timed("one thirty later today", one_thirty_this_morning),
+        _timed("noon", noon),
+        _timed("a morning time that passed", already_passed),
+        _timed("a reminder with no clock", no_clock),
+    ]
+
+
+def _feature_games() -> list[Outcome]:
+    from babysitter.games import GameWatch, looks_like_game_path, should_hide_orb
+
+    def steam():
+        path = r"D:\Steam\steamapps\common\Baldurs Gate 3\bg3.exe"
+        assert looks_like_game_path(path)
+        return "bg3.exe"
+
+    def launcher():
+        path = r"D:\Steam\steamapps\common\EasyAntiCheat\EasyAntiCheat.exe"
+        assert not looks_like_game_path(path)
+        return "The anti-cheat helper is left alone."
+
+    def notepad():
+        assert not looks_like_game_path(r"C:\Windows\System32\notepad.exe")
+        assert not looks_like_game_path(r"D:\Games\notes.txt")
+        return "Notepad is not a game."
+
+    def wake_during_a_game():
+        watch = GameWatch()
+        assert watch.auto_switch_target("bg3.exe") == "bg3.exe"
+        watch.suppress("bg3.exe")
+        assert watch.auto_switch_target("bg3.exe") is None
+        assert watch.auto_switch_target(None) is None
+        assert watch.auto_switch_target("bg3.exe") == "bg3.exe"
+        return "Game mode waits until that game closes."
+
+    def orb():
+        assert should_hide_orb(True, "bg3.exe", ["bg3.exe"])
+        assert not should_hide_orb(False, "bg3.exe", ["bg3.exe"])
+        assert not should_hide_orb(True, "notepad.exe", ["bg3.exe"])
+        return "The orb hides for a watched game."
+
+    return [
+        _timed("a store folder counts", steam),
+        _timed("a helper does not", launcher),
+        _timed("a normal program does not", notepad),
+        _timed("waking holds game mode off", wake_during_a_game),
+        _timed("the orb hides", orb),
+    ]
+
+
+def _feature_memory_match() -> list[Outcome]:
+    from babysitter.embedder import rank_texts
+
+    facts = [
+        "My dog is called Biscuit.",
+        "The wifi name is North.",
+        "The spare key is in the tin.",
+        "",
+        "   ",
+    ]
+
+    def dog():
+        found = rank_texts("what is my dog called", facts)
+        assert found and found[0] == "My dog is called Biscuit."
+        return found[0]
+
+    def wifi():
+        found = rank_texts("wifi", facts)
+        assert found == ["The wifi name is North."]
+        return found[0]
+
+    def cap():
+        found = rank_texts("the", ["The wifi name is North.", "The spare key is in the tin.", "The door code is 42."])
+        assert len(found) <= 2
+        return f"{len(found)} facts."
+
+    def unrelated():
+        assert rank_texts("quantum ceramics", facts) == []
+        return "No fact matched."
+
+    def blanks():
+        assert rank_texts("dog", ["", "   ", "My dog is called Biscuit."]) == ["My dog is called Biscuit."]
+        return "Blank facts are skipped."
+
+    return [
+        _timed("the dog fact", dog),
+        _timed("the wifi fact", wifi),
+        _timed("only two facts", cap),
+        _timed("an unrelated question", unrelated),
+        _timed("blank facts", blanks),
+    ]
+
+
+def _feature_followup() -> list[Outcome]:
+    rows = (
+        ("that's all", ""),
+        ("tell me more", "tell me more"),
+        ("read the rest", "read the rest"),
+        ("thanks", None),
+        ("what time is it", "what time is it"),
+    )
+
+    def one(line, expected):
+        def check():
+            assert followup_phrase(line) == expected
+            return expected if expected is not None else "(not a follow-up)"
+
+        return _timed(line, check)
+
+    return [one(*row) for row in rows]
 def _feature_setup() -> list[Outcome]:
     from babysitter.intelligence import MAIN_MODEL, WRITING_MODEL
     from babysitter.setupneed import (
@@ -1015,7 +1301,14 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("calendar", _feature_calendar()),
         ("remember", _feature_remember()),
         ("remind", _feature_remind()),
+        ("clock reminder", _feature_clock_reminder()),
         ("timer", _feature_timer()),
+        ("journal", _feature_journal()),
+        ("files", _feature_files()),
+        ("history", _feature_history(tmp_path, monkeypatch)),
+        ("games", _feature_games()),
+        ("memory match", _feature_memory_match()),
+        ("follow-up", _feature_followup()),
         ("undo", _feature_undo()),
         ("why", _feature_why()),
         ("weekly review", _feature_weekly()),

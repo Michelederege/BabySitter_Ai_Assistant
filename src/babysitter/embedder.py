@@ -81,10 +81,14 @@ def rank_texts(query: str, texts: list[str], k: int = 2, floor: float = HASHED_F
 
 
 def _rank_hashed(query: str, texts: list[str], k: int, floor: float) -> list[str]:
+    """Rank by shared words. A hash bucket can collide, so a fact with no word in common is skipped."""
+    query_tokens = set(_tokens(query))
     scored: list[tuple[float, str]] = []
     for text in texts:
         cleaned = (text or "").strip()
         if not cleaned:
+            continue
+        if query_tokens and not (query_tokens & set(_tokens(cleaned))):
             continue
         score = similarity(query, cleaned)
         if score >= floor:
