@@ -78,6 +78,16 @@ def test_a_longer_answer_keeps_the_rest_for_later():
     assert more_answer("who invented dancing") is None
 
 
+def test_a_reminder_speaks_without_the_ai():
+    from babysitter.plugins.voice.speech import alert_voice
+
+    kokoro = {"engine": "kokoro", "name": "blend", "speed": 105}
+    fallen_back = alert_voice(kokoro, kokoro_ready=False, windows_ok=True)
+    assert fallen_back is not None and fallen_back["engine"] == "windows"
+    assert alert_voice(kokoro, kokoro_ready=True, windows_ok=False)["engine"] == "kokoro"
+    assert alert_voice(kokoro, kokoro_ready=False, windows_ok=False) is None
+
+
 def test_speed_slider_maps_onto_the_windows_rate():
     assert sapi_rate(100) == 0
     assert sapi_rate(80) == -4

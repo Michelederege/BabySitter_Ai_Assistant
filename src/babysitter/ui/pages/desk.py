@@ -64,9 +64,10 @@ class SchedulePage(_Page):
         super().__init__(
             "Reminders",
             "A reminder stays on this PC. When its time arrives, BabySitter says it out loud "
-            "and shows a notification on this PC. That happens while BabySitter is open, "
-            "including in the tray. If BabySitter is quit, it is said the next time the app "
-            "is open and the time has passed. Nothing is sent. Say undo within 10 seconds to remove a new one.",
+            "and shows a notification on this PC, even if the AI is off. BabySitter itself "
+            "has to be open, including in the tray. If you quit BabySitter, it is said the "
+            "next time the app is open and the time has passed. Nothing is sent. "
+            "Say undo within 10 seconds to remove a new one.",
         )
         self.body.hide()
         row = QHBoxLayout()
