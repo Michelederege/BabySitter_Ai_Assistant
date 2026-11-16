@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from babysitter.intelligence import MODES
 from babysitter.ollama import classify_ollama_process
 from babysitter.status import format_bytes, format_mib
+from babysitter.ui.pinbutton import pin_button
 from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
 from babysitter.ui.widgets import BarChart, PowerButton, Sparkline
 
@@ -301,13 +302,15 @@ class HomePage(QWidget):
         self.pin_body = QLineEdit()
         self.pin_body.setPlaceholderText("The note to pin")
         self.pin_body.setToolTip("The words on the card. Nothing here is sent.")
-        pin_button = QPushButton("Pin this")
-        pin_button.setToolTip("Puts this note on the board. It does not ask the model.")
-        pin_button.clicked.connect(self._submit_pin)
+        submit = pin_button()
+        submit.setText("Pin")
+        submit.setFixedSize(72, 28)
+        submit.setToolTip("Puts this note on the board. It does not ask the model.")
+        submit.clicked.connect(self._submit_pin)
         self.pin_body.returnPressed.connect(self._submit_pin)
         layout.addWidget(self.pin_title)
         layout.addWidget(self.pin_body)
-        layout.addWidget(pin_button)
+        layout.addWidget(submit)
         self.pin_host = QWidget()
         self.pin_list = QVBoxLayout(self.pin_host)
         self.pin_list.setContentsMargins(0, 0, 0, 0)
@@ -434,8 +437,8 @@ class HomePage(QWidget):
         copy = QPushButton("Copy reply")
         copy.setToolTip("Copies the reply that is on screen.")
         copy.clicked.connect(self.copy_reply.emit)
-        pin = QPushButton("Pin reply")
-        pin.setToolTip("Pins this reply on the board. It stays on this PC.")
+        pin = pin_button()
+        pin.setToolTip("Pin this reply on the board. It stays on this PC.")
         pin.clicked.connect(self.pin_reply.emit)
         send = QPushButton("Send what I heard")
         send.setToolTip("Sends the line to the local model. Nothing else goes with it.")

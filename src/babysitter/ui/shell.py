@@ -777,6 +777,20 @@ class Shell:
         self.window.voice_page.followup[1].setValue(self.controller.settings.followup_seconds)
         self.window.voice_page.proactivity[1].setValue(self.controller.settings.proactivity)
         self.window.schedule_page.notice.connect(self._on_page_notice)
+        for page in (
+            self.window.schedule_page,
+            self.window.memory_page,
+            self.window.history_page,
+            self.window.screen_page,
+            self.window.health_page,
+            self.window.models_page,
+            self.window.journal_page,
+            self.window.files_page,
+            self.window.tools_page,
+            self.window.voice_page,
+            self.window.settings_page,
+        ):
+            page.pin_line.connect(self._pin_line)
         self.window.memory_page.notice.connect(self._on_page_notice)
         self.window.screen_page.notice.connect(self._on_page_notice)
         self.window.health_page.notice.connect(self._on_page_notice)
@@ -2170,6 +2184,12 @@ class Shell:
         if job is not None:
             job.close_input()
 
+    def _pin_line(self, text: str) -> None:
+        line = " ".join((text or "").split())
+        if not line:
+            return
+        self._pin_note(line[:80], line)
+
     def _pin_note(self, title: str, body: str) -> None:
         title = " ".join((title or "").split())[:80]
         body = " ".join((body or "").split())[:2000]
@@ -2258,9 +2278,16 @@ class Shell:
             self._find_files(f"find {wanted}", wanted)
             return
         if text.startswith("CONFIRM reminder:"):
-            body = text.split(":", 1)[1].strip()
+            from babysitter.commands import reminder_fields
+
+            raw = text.split(":", 1)[1]
+            when = ""
+            if "\nWHEN:" in raw:
+                raw, when = raw.split("\nWHEN:", 1)
+            detail, due = reminder_fields(raw.strip(), when.strip(), datetime.now().astimezone())
             self.window.schedule_page.text.clear()
-            self._save_local("schedule.json", body, "the reminder")
+            self.window.schedule_page.when.clear()
+            self._save_local("schedule.json", detail, "the reminder", due=due)
             return
         if text.startswith("CONFIRM memory:"):
             body = text.split(":", 1)[1].strip()
@@ -2761,7 +2788,7 @@ class Shell:
             self._save_rating(quick.detail)
             return True
         if quick.kind == "timer":
-            self._begin_timer(quick.seconds)
+            self._begin_timer(quick.seconds, quick.detail)
             return True
         if quick.kind == "scan":
             self._begin_scan()
@@ -2904,21 +2931,28 @@ class Shell:
         self.window.home.set_reply(text, speech, found.path)
         self._speak(speech)
 
-    def _begin_timer(self, seconds: int) -> None:
+    def _begin_timer(self, seconds: int, detail: str = "") -> None:
+        """A spoken timer is a reminder due that many seconds from now."""
         previous = getattr(self, "_active_timer", None)
         if previous is not None:
             previous.stop()
+        moment = datetime.now().astimezone() + timedelta(seconds=seconds)
+        text = " ".join((detail or "Timer").split())[:200] or "Timer"
+        item = self._save_local("schedule.json", text, "the reminder", due=moment.isoformat(timespec="seconds"))
+        if not item:
+            return
         label = timer_label(seconds)
         timer = QTimer(self.window)
         timer.setSingleShot(True)
-        timer.timeout.connect(lambda: self._timer_finished(label))
+        timer.timeout.connect(lambda item_id=item["id"], name=text: self._timer_finished(name, item_id))
         timer.start(seconds * 1000)
         self._active_timer = timer
-        self._undo_until = time.time() + 10
-        speech = f"Timer set for {label}. Say undo in the next 10 seconds to cancel it."
-        self.window.home.set_reply("timer", speech, "It stays on this PC. It is not a calendar event.")
-        self._note_local(f"Timer for {label}.", speech)
-        self._speak(speech)
+        self._active_timer_id = item["id"]
+        self.window.home.set_reply(
+            "timer",
+            self.window.home.spoken.text(),
+            f"It is a reminder for {label}. It stays on this PC and rings while BabySitter is open.",
+        )
 
     def _undo_timer(self) -> None:
         now = time.time()
@@ -2939,6 +2973,10 @@ class Shell:
         self._soft_undo = None
         kind = soft.get("kind")
         if kind == "note":
+            timer = getattr(self, "_active_timer", None)
+            if timer is not None and str(soft.get("id") or "") == str(getattr(self, "_active_timer_id", "")):
+                timer.stop()
+                self._active_timer = None
             remove_item(str(soft.get("file") or ""), str(soft.get("id") or ""))
             self.window.schedule_page.refresh()
             self.window.memory_page.refresh()
@@ -2975,13 +3013,20 @@ class Shell:
             moment = datetime.fromisoformat(due)
             speech = (
                 f"Reminder set for {spoken_clock(moment)}. "
-                "I'll say it then. Say undo in the next 10 seconds to remove it."
+                "I'll say it then, and show a notification on this PC, while BabySitter is open. "
+                "Say undo in the next 10 seconds to remove it."
             )
         else:
             speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
+            if filename.startswith("schedule"):
+                speech = (
+                    "Saved the reminder. It has no clock, so it will not ring. "
+                    "Add a time on the Reminders page. Say undo in the next 10 seconds to remove it."
+                )
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
         self._note_local(text, speech)
         self._speak(speech)
+        return item
 
     def _check_reminders(self) -> None:
         """Say a saved reminder once its clock time has arrived."""
@@ -3010,7 +3055,8 @@ class Shell:
         self.window.schedule_page.refresh()
         words = str(pending.get("text") or "Reminder.")
         speech = f"Reminder. {words}"
-        self.window.home.set_reply("reminder", speech, "It was saved on this PC. Nothing was sent.")
+        self.window.home.set_reply("reminder", speech, "Said on this PC. A notification was shown here. Nothing was sent.")
+        self.tray.notify("Reminder", speech)
         self._speak(speech)
 
     def _speak_saved_history(self, text: str) -> None:
@@ -3351,11 +3397,22 @@ class Shell:
         page.set_google_saved(False, self.google_vault.available)
         page.show_google("The token is deleted. Nothing was sent.")
 
-    def _timer_finished(self, label: str) -> None:
+    def _timer_finished(self, label: str, item_id: str = "") -> None:
         self._active_timer = None
         self._undo_until = 0
-        speech = f"Your {label} timer is done."
-        self.window.home.set_reply("timer", speech, "Nothing was sent off this PC.")
+        words = label
+        if item_id:
+            items = load_list("schedule.json")
+            target = next((item for item in items if str(item.get("id") or "") == item_id), None)
+            if target is None or str(target.get("fired") or "") == "yes":
+                return
+            target["fired"] = "yes"
+            save_list("schedule.json", items)
+            self.window.schedule_page.refresh()
+            words = str(target.get("text") or label)
+        speech = f"Reminder. {words}"
+        self.window.home.set_reply("reminder", speech, "Said on this PC. A notification was shown here. Nothing was sent.")
+        self.tray.notify("Reminder", speech)
         self._speak(speech)
 
     def _save_followup(self, text: str) -> None:

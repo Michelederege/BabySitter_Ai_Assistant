@@ -22,9 +22,11 @@ from PySide6.QtWidgets import (
 )
 
 from babysitter.plugins.tools.social import LATER_RECIPES, SEARCH_ACTIONS, SearchAction
+from babysitter.ui.pinbutton import pin_button
 
 
 class ToolsPage(QWidget):
+    pin_line = Signal(str)
     enabled_changed = Signal(bool)
     save_key = Signal(str)
     delete_key = Signal()
@@ -178,6 +180,13 @@ class ToolsPage(QWidget):
         self.search_button.clicked.connect(self._emit_search)
         layout.addWidget(self.search_button)
 
+        pin_row = QHBoxLayout()
+        results_pin = pin_button()
+        results_pin.setToolTip("Pin the search result on the board. It stays on this PC.")
+        results_pin.clicked.connect(self._pin_results)
+        pin_row.addWidget(results_pin)
+        pin_row.addStretch(1)
+        layout.addLayout(pin_row)
         self.results = QPlainTextEdit()
         self.results.setReadOnly(True)
         self.results.setPlaceholderText("Results show up here, with the public link when there is one.")
@@ -198,6 +207,11 @@ class ToolsPage(QWidget):
         outer.addWidget(scroll)
         self._show_action()
         self._apply_enabled(False)
+
+    def _pin_results(self) -> None:
+        text = self.results.toPlainText().strip()
+        if text:
+            self.pin_line.emit(text)
 
     def _on_toggled(self, on: bool) -> None:
         self._apply_enabled(on)

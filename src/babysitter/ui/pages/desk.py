@@ -22,10 +22,12 @@ from PySide6.QtWidgets import (
 
 from babysitter.deskstore import add_item, load_list, reminder_line, remove_item
 from babysitter.models import model_choice
+from babysitter.ui.pinbutton import fill_pinned_list, pin_button
 
 
 class _Page(QWidget):
     notice = Signal(str)
+    pin_line = Signal(str)
 
     def __init__(self, title: str, intro: str) -> None:
         super().__init__()
@@ -42,44 +44,68 @@ class _Page(QWidget):
         self.body.setReadOnly(True)
         self.root.addWidget(self.body)
 
+    def add_page_pin(self) -> None:
+        row = QHBoxLayout()
+        pin = pin_button()
+        pin.setToolTip("Pin what is written on this page. It stays on this PC.")
+        pin.clicked.connect(self._emit_body)
+        row.addWidget(pin)
+        row.addStretch(1)
+        self.root.insertLayout(2, row)
+
+    def _emit_body(self) -> None:
+        text = self.body.toPlainText().strip()
+        if text:
+            self.pin_line.emit(text)
+
 
 class SchedulePage(_Page):
     def __init__(self) -> None:
         super().__init__(
             "Reminders",
-            "Every reminder stays on this PC. A clock time is spoken when it arrives. "
-            "Adding one saves it, and you can say undo within 10 seconds.",
+            "A reminder stays on this PC. When its time arrives, BabySitter says it out loud "
+            "and shows a notification on this PC. That happens while BabySitter is open, "
+            "including in the tray. If BabySitter is quit, it is said the next time the app "
+            "is open and the time has passed. Nothing is sent. Say undo within 10 seconds to remove a new one.",
         )
         self.body.hide()
         row = QHBoxLayout()
         self.text = QLineEdit()
-        self.text.setPlaceholderText("Stretch at 6:00 PM")
+        self.text.setPlaceholderText("Stretch")
+        self.text.setToolTip("What to say when the time arrives.")
+        self.when = QLineEdit()
+        self.when.setPlaceholderText("6:00 PM, or in 20 minutes")
+        self.when.setToolTip("The clock time. You can also write it in the note, as in stretch at 6:00 PM.")
         add = QPushButton("Add reminder")
         add.setObjectName("primary")
-        add.setToolTip("Saves on this PC. Say undo within 10 seconds to remove it.")
+        add.setToolTip("Saves on this PC. A time makes it ring. Say undo within 10 seconds to remove it.")
         add.clicked.connect(self._add)
+        self.text.returnPressed.connect(self._add)
+        self.when.returnPressed.connect(self._add)
         remove = QPushButton("Remove")
         remove.setToolTip("Takes the selected reminder off the list. Nothing else is deleted.")
         remove.clicked.connect(self._remove)
-        row.addWidget(self.text, 1)
+        row.addWidget(self.text, 2)
+        row.addWidget(self.when, 1)
         row.addWidget(add)
         row.addWidget(remove)
         self.root.insertLayout(2, row)
         self.list = QListWidget()
-        self.list.setToolTip("Reminders saved on this PC, including the time they ring.")
+        self.list.setToolTip("Reminders saved on this PC. The pin puts one on the board.")
         self.root.insertWidget(3, self.list)
         self.refresh()
 
     def refresh(self) -> None:
-        self.list.clear()
         items = load_list("schedule.json")
         if not items:
+            self.list.clear()
             self.list.addItem("No reminders yet.")
             return
-        for item in items:
-            row = QListWidgetItem(reminder_line(item))
-            row.setData(Qt.UserRole, str(item.get("id") or ""))
-            self.list.addItem(row)
+        fill_pinned_list(
+            self.list,
+            [(reminder_line(item), str(item.get("id") or "")) for item in items],
+            self.pin_line.emit,
+        )
 
     def _remove(self) -> None:
         current = self.list.currentItem()
@@ -93,10 +119,11 @@ class SchedulePage(_Page):
 
     def _add(self) -> None:
         text = self.text.text().strip()
-        if not text:
+        when = self.when.text().strip()
+        if not text and not when:
             self.notice.emit("Type the reminder first. Nothing was saved.")
             return
-        self.notice.emit(f"CONFIRM reminder: {text}")
+        self.notice.emit(f"CONFIRM reminder: {text}\nWHEN: {when}")
 
 
 class MemoryPage(_Page):
@@ -129,6 +156,10 @@ class MemoryPage(_Page):
         row.addWidget(self.sharper)
         self.refresh_sharper()
         self.root.insertLayout(2, row)
+        self.facts = QListWidget()
+        self.facts.setToolTip("Facts saved on this PC. The pin puts one on the board.")
+        self.root.insertWidget(3, self.facts)
+        self.body.hide()
         self.refresh()
 
     def refresh_sharper(self) -> None:
@@ -140,10 +171,13 @@ class MemoryPage(_Page):
 
     def refresh(self) -> None:
         items = load_list("memory.json")
-        if not items:
-            self.body.setPlainText("Nothing is remembered yet.")
+        lines = [str(item.get("text") or "") for item in items]
+        self.body.setPlainText("\n".join(f"• {line}" for line in lines) if lines else "Nothing is remembered yet.")
+        if not lines:
+            self.facts.clear()
+            self.facts.addItem("Nothing is remembered yet.")
             return
-        self.body.setPlainText("\n".join(f"• {item.get('text', '')}" for item in items))
+        fill_pinned_list(self.facts, [(line, str(item.get("id") or "")) for item, line in zip(items, lines)], self.pin_line.emit)
 
     def _add(self) -> None:
         text = self.text.text().strip()
@@ -179,6 +213,7 @@ class HistoryPage(_Page):
         search_row.addWidget(find)
         self.root.insertLayout(2, search_row)
         self.sessions = QListWidget()
+        self.sessions.setToolTip("Saved conversations. The pin puts one on the board.")
         self.root.insertWidget(3, self.sessions)
         buttons = QHBoxLayout()
         export = QPushButton("Export")
@@ -214,12 +249,12 @@ class HistoryPage(_Page):
             self.body.setPlainText("No saved conversations match.")
             return
         lines = []
+        pinned: list[tuple[str, str]] = []
         for row in rows:
             label = f"{row['started']}  {row['preview']}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, row["id"])
-            self.sessions.addItem(item)
             lines.append(f"{row['started']} ({row['turns']} turns) {row['preview']}")
+            pinned.append((label, row["id"]))
+        fill_pinned_list(self.sessions, pinned, self.pin_line.emit)
         self.body.setPlainText("\n".join(lines))
 
     def _wipe(self) -> None:
@@ -246,6 +281,7 @@ class ScreenPage(_Page):
         look.setToolTip("Takes one picture in memory. It is not saved.")
         look.clicked.connect(lambda: self.notice.emit("CONFIRM screen"))
         self.root.insertWidget(2, look)
+        self.add_page_pin()
 
 
 class HealthPage(_Page):
@@ -269,6 +305,7 @@ class HealthPage(_Page):
         suggest.clicked.connect(lambda: self.notice.emit("SCAN pc"))
         self.root.insertWidget(2, suggest)
         self.root.insertWidget(2, run)
+        self.add_page_pin()
 
 
 class ModelsPage(_Page):
@@ -285,6 +322,7 @@ class ModelsPage(_Page):
         bench.clicked.connect(lambda: self.notice.emit("BENCHMARK"))
         self.root.insertWidget(2, bench)
         self.root.insertWidget(2, ask)
+        self.add_page_pin()
 
 
 def remember(text: str) -> None:
