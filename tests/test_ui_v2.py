@@ -176,6 +176,24 @@ def test_a_spoken_timer_is_a_reminder(tmp_path, monkeypatch):
     _close(app, controller, shell)
 
 
+def test_a_long_reminder_row_grows_when_the_line_wraps(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    from babysitter.deskstore import add_item
+
+    add_item(
+        "schedule.json",
+        text="stretch before the long meeting down the hall and bring the notes",
+        due="2026-11-16T18:00:00",
+        fired="",
+    )
+    page = shell.window.schedule_page
+    page.list.setFixedWidth(180)
+    page.refresh()
+    app.processEvents()
+    assert page.list.item(0).sizeHint().height() > 40
+    _close(app, controller, shell)
+
+
 def test_home_shows_the_countdown_for_a_new_reminder(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     from datetime import datetime, timedelta

@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## Also in 0.15.0 — Tomorrow rings, and a reminder row can wrap
+
+“Tomorrow at 6” is 6:00 on the next day, not later today. With no am or pm, that is 6:00 AM. “Remind me tomorrow,” with no hour, is 9:00 AM tomorrow. “Set a timer,” with no length, is 5 minutes. A long reminder line grows past one row, so the countdown is not cut off.
+
 ## Also in 0.15.0 — The home picture fills the panel
 
 The frog-pond picture on Home fills the assistant panel, cropped so the frog stays in view. Off is grey and dark. On keeps the colour, with a warm corner. The frog, the state word, and the hint sit on the picture, and **Choose my picture** sits in the top corner. Half screen makes the picture a little taller. A picture that will not open leaves the current one in place.
