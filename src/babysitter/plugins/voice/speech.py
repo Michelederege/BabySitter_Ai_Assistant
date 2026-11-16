@@ -308,6 +308,35 @@ def speech_chunks(text: str, limit: int = 400) -> list[str]:
     return chunks
 
 
+def alert_voice(prefs: dict, *, kokoro_ready: bool, windows_ok: bool) -> dict | None:
+    """How to say a reminder without turning the AI on.
+
+    Kokoro is unloaded when the AI turns off. The Windows voice is used then.
+    None means there is no voice, so the notification stands on its own.
+    """
+    chosen = dict(prefs or {})
+    engine = chosen.get("engine")
+    if engine == "kokoro" and kokoro_ready:
+        return chosen
+    if engine == "windows" and windows_ok:
+        return chosen
+    if not windows_ok:
+        return None
+    try:
+        speed = int(chosen.get("speed") or 100)
+    except (TypeError, ValueError):
+        speed = 100
+    return {
+        "engine": "windows",
+        "name": "Windows",
+        "windows_voice": "",
+        "speed": speed,
+        "pitch": 0,
+        "rate": sapi_rate(speed),
+        "label": "Windows",
+    }
+
+
 def sapi_rate(speed_percent: int) -> int:
     """Map the speed slider (80–130) onto the Windows voice rate (−10 to 10)."""
     try:

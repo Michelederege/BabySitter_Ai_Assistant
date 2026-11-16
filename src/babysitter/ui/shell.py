@@ -76,6 +76,7 @@ from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
 from babysitter.plugins.voice.kokoro_voice import release as release_kokoro
 from babysitter.plugins.voice.kokoro_voice import stop as stop_kokoro
 from babysitter.plugins.voice.speech import (
+    alert_voice,
     closed_lead,
     followup_phrase,
     interrupt_note,
@@ -2509,8 +2510,9 @@ class Shell:
             "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
         }
 
-    def _speak(self, text: str, filler: bool = False, hold_open: bool = False) -> None:
+    def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
         self._is_filler = filler
+        self._alert_speech = bool(alert)
         previous = getattr(self, "_speak_job", None)
         if previous is not None:
             previous.close_input()
@@ -2522,15 +2524,34 @@ class Shell:
         if getattr(self, "_listener", None) is not None and not allow_barge:
             self._listener.stop()
         prefs = self._voice_prefs()
-        if filler and prefs["engine"] == "kokoro" and not kokoro_ready():
+        if alert and (prefs.get("engine") != "kokoro" or not kokoro_ready()):
+            from babysitter.plugins.voice.windows_voice import available as windows_voice_available
+
+            prefs = alert_voice(prefs, kokoro_ready=kokoro_ready(), windows_ok=windows_voice_available())
+            if prefs is None:
+                self._alert_speech = False
+                self._speaking = False
+                self.window.home.set_phase(
+                    self.controller.state,
+                    "The reminder is in the notification. No voice is loaded, and the AI stays off.",
+                )
+                return
+        elif filler and prefs["engine"] == "kokoro" and not kokoro_ready():
             self._is_filler = False
             self._speaking = False
             return
-        if prefs["engine"] == "kokoro" and not kokoro_ready():
+        elif prefs["engine"] == "kokoro" and not kokoro_ready():
             self._offer_kokoro()
             return
         if prefs["engine"] == "windows" and sys.platform != "win32":
             self._speaking = False
+            if alert:
+                self._alert_speech = False
+                self.window.home.set_phase(
+                    self.controller.state,
+                    "The reminder is in the notification. The Windows voice is not on this PC, and the AI stays off.",
+                )
+                return
             if not filler:
                 self._end_model_turn()
                 self._release_waiting_scan()
@@ -2620,6 +2641,12 @@ class Shell:
 
     def _speak_done(self) -> None:
         self._speaking = False
+        if getattr(self, "_alert_speech", False):
+            self._alert_speech = False
+            self._show_mode(self.controller.state, "Reminder said.")
+            self.window.home.set_phase(self.controller.state, "Reminder said. The AI was not turned on.")
+            self._sync_keyword()
+            return
         if getattr(self, "_is_filler", False):
             self._is_filler = False
             self._release_waiting_scan()
@@ -3013,7 +3040,7 @@ class Shell:
             moment = datetime.fromisoformat(due)
             speech = (
                 f"Reminder set for {spoken_clock(moment)}. "
-                "I'll say it then, and show a notification on this PC, while BabySitter is open. "
+                "I'll say it then, and show a notification on this PC, even if the AI is off. "
                 "Say undo in the next 10 seconds to remove it."
             )
         else:
@@ -3055,9 +3082,13 @@ class Shell:
         self.window.schedule_page.refresh()
         words = str(pending.get("text") or "Reminder.")
         speech = f"Reminder. {words}"
-        self.window.home.set_reply("reminder", speech, "Said on this PC. A notification was shown here. Nothing was sent.")
+        self.window.home.set_reply(
+            "reminder",
+            speech,
+            "Said on this PC while BabySitter is open. The AI can be off. Nothing was sent.",
+        )
         self.tray.notify("Reminder", speech)
-        self._speak(speech)
+        self._speak(speech, alert=True)
 
     def _speak_saved_history(self, text: str) -> None:
         """Read the saved conversation here. The model is not asked, and the voice gets a short piece."""
@@ -3411,9 +3442,13 @@ class Shell:
             self.window.schedule_page.refresh()
             words = str(target.get("text") or label)
         speech = f"Reminder. {words}"
-        self.window.home.set_reply("reminder", speech, "Said on this PC. A notification was shown here. Nothing was sent.")
+        self.window.home.set_reply(
+            "reminder",
+            speech,
+            "Said on this PC while BabySitter is open. The AI can be off. Nothing was sent.",
+        )
         self.tray.notify("Reminder", speech)
-        self._speak(speech)
+        self._speak(speech, alert=True)
 
     def _save_followup(self, text: str) -> None:
         try:
