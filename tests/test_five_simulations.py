@@ -887,6 +887,68 @@ def _feature_shutdown(tmp_path, monkeypatch) -> list[Outcome]:
     return outcomes
 
 
+def _feature_setup() -> list[Outcome]:
+    from babysitter.intelligence import MAIN_MODEL, WRITING_MODEL
+    from babysitter.setupneed import (
+        GITHUB_ZIP,
+        Machine,
+        commands_for,
+        perform_pulls,
+        pieces,
+        pull_commands,
+        visitor_summary,
+    )
+
+    ollama = r"C:\Ollama\ollama.exe"
+
+    def github():
+        text = visitor_summary()
+        held = {piece.name for piece in pieces() if piece.on_github}
+        assert "program source" in held and "requirements.txt" in held
+        assert MAIN_MODEL not in held and "Ollama" not in held
+        assert "does not hold a finished .exe" in text
+        assert GITHUB_ZIP.endswith("/archive/refs/heads/main.zip")
+        return "GitHub has the source, not the models"
+
+    def fresh():
+        from babysitter.setupneed import report
+
+        machine = Machine(False, False, None, (), False)
+        text = report(machine)
+        assert "Python 3.12" in text and "Ollama" in text
+        assert commands_for(machine) == ()
+        said = perform_pulls(machine, lambda command: 0, confirmed=True)
+        assert "Nothing was downloaded" in said[0]
+        return "a fresh PC is told what is missing"
+
+    def pulls():
+        machine = Machine(True, True, ollama, (), True)
+        ran: list[list[str]] = []
+        perform_pulls(machine, lambda command: ran.append(list(command)) or 0, confirmed=True)
+        assert ran == [[ollama, "pull", MAIN_MODEL], [ollama, "pull", WRITING_MODEL]]
+        return "two pulls, and only those two"
+
+    def already():
+        machine = Machine(True, True, ollama, (MAIN_MODEL + ":latest", WRITING_MODEL), True)
+        assert commands_for(machine) == ()
+        said = perform_pulls(machine, lambda command: 1, confirmed=True)
+        assert said == ("Both models are already downloaded.",)
+        return "models already here, so nothing is downloaded"
+
+    def stranger():
+        with pytest.raises(ValueError):
+            pull_commands(ollama, (MAIN_MODEL, "evil:latest"))
+        return "a model that is not ours is refused"
+
+    return [
+        _timed("github holds source only", github),
+        _timed("a fresh PC pulls nothing", fresh),
+        _timed("ollama pulls the two models", pulls),
+        _timed("models already here", already),
+        _timed("a stranger model is refused", stranger),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -914,6 +976,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("intelligence", _feature_intelligence()),
         ("power", _feature_power()),
         ("shutdown", _feature_shutdown(tmp_path, monkeypatch)),
+        ("setup", _feature_setup()),
     ]
 
 
