@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from babysitter.paths import data_dir
+from babysitter.ui.pinbutton import pin_button
 
 
 VOICES = (
@@ -38,6 +39,7 @@ VOICES = (
 
 class VoicePage(QWidget):
     notice = Signal(str)
+    pin_line = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -66,7 +68,14 @@ class VoicePage(QWidget):
         use = QPushButton("Use this voice")
         use.setToolTip("Saves the choice on this PC. It does not download a voice by itself.")
         use.clicked.connect(self._use)
-        layout.addWidget(use)
+        voice_row = QHBoxLayout()
+        voice_row.addWidget(use)
+        voice_pin = pin_button()
+        voice_pin.setToolTip("Pin the voice you picked. It stays on this PC.")
+        voice_pin.clicked.connect(self._pin_voice)
+        voice_row.addWidget(voice_pin)
+        voice_row.addStretch(1)
+        layout.addLayout(voice_row)
 
         self.speed = self._slider("Speed", 80, 130, 105)
         self.pitch = self._slider("Pitch", -6, 6, -1)
@@ -153,6 +162,11 @@ class VoicePage(QWidget):
         row.addWidget(slider, 1)
         row.addWidget(shown)
         return host, slider
+
+    def _pin_voice(self) -> None:
+        text = self.voice.currentText().strip()
+        if text:
+            self.pin_line.emit(text)
 
     def _use(self) -> None:
         payload = {

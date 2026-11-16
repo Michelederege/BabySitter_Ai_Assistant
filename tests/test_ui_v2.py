@@ -138,6 +138,44 @@ def test_a_typed_note_pins_and_a_reminder_shows_its_clock(tmp_path, monkeypatch)
     _close(app, controller, shell)
 
 
+def test_adding_a_reminder_keeps_the_time_and_a_pin_saves_it(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    monkeypatch.setattr(shell, "_speak", lambda *_args, **_kwargs: None)
+    page = shell.window.schedule_page
+    page.text.setText("stretch")
+    page.when.setText("in 20 minutes")
+    page._add()
+    app.processEvents()
+    from babysitter.deskstore import load_list
+
+    saved = load_list("schedule.json")
+    assert saved[-1]["text"] == "stretch"
+    assert saved[-1]["due"]
+    page.refresh()
+    button = page.list.findChild(type(shell.window.home.hold))
+    pins = page.list.findChildren(type(shell.window.home.hold))
+    assert pins
+    pins[0].click()
+    app.processEvents()
+    cards = load_list("pins.json")
+    assert cards
+    assert "stretch" in (cards[-1]["body"] + cards[-1]["title"]).lower()
+    _close(app, controller, shell)
+
+
+def test_a_spoken_timer_is_a_reminder(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    monkeypatch.setattr(shell, "_speak", lambda *_args, **_kwargs: None)
+    shell._run_quick("set a timer for 5 minutes to check the oven")
+    from babysitter.deskstore import load_list
+
+    saved = load_list("schedule.json")
+    assert saved[-1]["text"] == "check the oven"
+    assert saved[-1]["due"]
+    assert shell._active_timer is not None
+    _close(app, controller, shell)
+
+
 def test_a_clock_answer_stays_in_the_conversation(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     monkeypatch.setattr(shell, "_speak", lambda *_args, **_kwargs: None)

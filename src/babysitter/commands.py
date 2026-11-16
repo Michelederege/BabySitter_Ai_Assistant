@@ -148,12 +148,15 @@ def match_quick_command(text: str) -> QuickCommand | None:
         "what did we talk about",
     }:
         return QuickCommand("history")
+    timer = _timer_command(phrase, original)
+    if timer:
+        return timer
     reminder = _reminder(phrase, original)
     if reminder:
         return reminder
-    timer = _timer_seconds(phrase)
-    if timer:
-        return QuickCommand("timer", seconds=timer)
+    named = _timer_as_reminder(phrase, original)
+    if named:
+        return named
     return None
 
 
@@ -318,6 +321,23 @@ _REMINDER_LABELS = (
 )
 
 
+def reminder_fields(text: str, when_text: str, now: datetime) -> tuple[str, str]:
+    """The words to keep, and the clock time as text. An empty clock means it will not ring."""
+    note = " ".join((text or "").split())
+    clock_text = " ".join((when_text or "").split())
+    moment = when_from(clock_text, now) if clock_text else None
+    if moment is None and note:
+        moment = clock_in(note, now) or when_from(note, now)
+        if moment is not None and not clock_text:
+            stripped = _without_clock(note)
+            if stripped and stripped.lower() != note.lower():
+                note = stripped
+    if not note:
+        note = "Reminder"
+    due = moment.isoformat(timespec="seconds") if moment else ""
+    return note, due
+
+
 def _reminder(phrase: str, original: str) -> QuickCommand | None:
     for label in _REMINDER_LABELS:
         if phrase != label and not phrase.startswith(label + " "):
@@ -404,6 +424,87 @@ def _without_clock(detail: str) -> str:
 
 def spoken_clock(moment: datetime) -> str:
     return moment.strftime("%I:%M %p").lstrip("0")
+
+
+def when_from(text: str, now: datetime) -> datetime | None:
+    """A clock time, a bare '6:00 PM', or 'in 20 minutes'. None when the words name no time."""
+    found = clock_in(text, now)
+    if found:
+        return found
+    lowered = (text or "").lower().replace("a.m.", "am").replace("p.m.", "pm")
+    lowered = lowered.replace("a.m", "am").replace("p.m", "pm").strip()
+    numbered = re.fullmatch(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)", lowered)
+    if numbered:
+        return _next_clock(int(numbered.group(1)), int(numbered.group(2) or 0), numbered.group(3), now)
+    hours = re.fullmatch(r"(\d{1,2}):(\d{2})", lowered)
+    if hours:
+        hour = int(hours.group(1))
+        minute = int(hours.group(2))
+        if 0 <= hour <= 23:
+            return _next_clock(hour, minute, None, now)
+    relative = re.fullmatch(r"(?:in\s+)?(\d+)\s+(seconds|second|minutes|minute|hours|hour)", lowered)
+    if not relative:
+        relative = re.search(r"\bin\s+(\d+)\s+(seconds|second|minutes|minute|hours|hour)\b", lowered)
+    if not relative:
+        return None
+    count = int(relative.group(1))
+    unit = relative.group(2)
+    if unit.startswith("hour"):
+        seconds = count * 3600
+    elif unit.startswith("minute"):
+        seconds = count * 60
+    else:
+        seconds = count
+    if seconds < 1 or seconds > 24 * 3600:
+        return None
+    return now + timedelta(seconds=seconds)
+
+
+def _timer_command(phrase: str, original: str) -> QuickCommand | None:
+    match = re.search(
+        r"\btimer(?:\s+for)?\s+(\d+)\s+(second|seconds|minute|minutes|hour|hours)\b(?:\s+(?:to|for)\s+(.+))?$",
+        phrase,
+    )
+    if not match:
+        return None
+    count = int(match.group(1))
+    unit = match.group(2)
+    if unit.startswith("hour"):
+        seconds = count * 3600
+    elif unit.startswith("minute"):
+        seconds = count * 60
+    else:
+        seconds = count
+    if seconds < 1 or seconds > 24 * 3600:
+        return None
+    purpose = ""
+    raw = re.search(
+        rf"\b{count}\s+{re.escape(unit)}\b(?:\s+(?:to|for)\s+(.+))?$",
+        original,
+        flags=re.IGNORECASE,
+    )
+    if raw and raw.group(1):
+        purpose = raw.group(1).strip(" .")
+    elif match.group(3):
+        purpose = match.group(3).strip(" .")
+    return QuickCommand("timer", seconds=seconds, detail=purpose)
+
+
+def _timer_as_reminder(phrase: str, original: str) -> QuickCommand | None:
+    """'Set a timer' with no countdown is a reminder. A countdown is handled first."""
+    for label in ("set a timer", "set timer", "start a timer", "start timer"):
+        if phrase != label and not phrase.startswith(label + " "):
+            continue
+        detail = _tail(original, label) or "Timer"
+        moment = clock_in(detail, datetime.now().astimezone()) or when_from(detail, datetime.now().astimezone())
+        when = ""
+        if moment is not None:
+            when = moment.isoformat(timespec="seconds")
+            stripped = _without_clock(detail)
+            if stripped and stripped.lower() != detail.lower():
+                detail = stripped
+        return QuickCommand("remind", detail=detail, when=when)
+    return None
 
 
 def _timer_seconds(phrase: str) -> int:
