@@ -1289,6 +1289,66 @@ def _feature_hero() -> list[Outcome]:
     ]
 
 
+def _feature_recognition() -> list[Outcome]:
+    """Five ways of asking that used to miss, or land on the wrong minute."""
+    from babysitter.commands import clock_in, when_from
+
+    zone = datetime.now().astimezone().tzinfo
+    afternoon = datetime(2026, 11, 20, 15, 0, tzinfo=zone)
+
+    def seconds():
+        found = match_quick_command("remind me in 10 seconds to stretch")
+        assert found is not None and found.kind == "remind" and found.detail == "to stretch"
+        moment = datetime.fromisoformat(found.when)
+        assert 0 < (moment - datetime.now().astimezone()).total_seconds() <= 10
+        return "to stretch in 10 seconds."
+
+    def thirty_five():
+        moment = clock_in("at six thirty five", afternoon)
+        assert moment is not None and moment.hour == 18 and moment.minute == 35
+        return "6:35 PM."
+
+    def noon():
+        moment = clock_in("at 12", afternoon)
+        assert moment is not None and moment.hour == 12 and moment.minute == 0
+        assert moment.date().day == 21
+        half = clock_in("half past 12", afternoon)
+        assert half is not None and half.hour == 12 and half.minute == 30
+        return "12:00 PM tomorrow."
+
+    def number_words():
+        found = match_quick_command("set a timer for twenty minutes")
+        assert found is not None and found.kind == "timer" and found.seconds == 20 * 60
+        half = match_quick_command("set a timer for half an hour")
+        assert half is not None and half.seconds == 30 * 60
+        fixed = datetime(2026, 11, 20, 15, 0, 40, tzinfo=zone)
+        soon = when_from("in ten seconds", fixed)
+        assert soon is not None and (soon - fixed).total_seconds() == 10
+        return "20 minutes, or half an hour."
+
+    def wider():
+        assert _expect_route("what's the date", "time")
+        assert _expect_route("what's my next reminder", "next_reminder")
+        assert _expect_route("say that again", "repeat")
+        assert _expect_route("where is my tax pdf", "find")
+        assert _route("where is paris") == "model"
+        opened = match_quick_command("open the second one")
+        assert opened is not None and opened.seconds == 2
+        youtube = match_tool("comment themes https://www.youtube.com/watch?v=abc")
+        assert youtube is not None and youtube.kind == "refuse"
+        tiktok = match_tool("comments on https://www.tiktok.com/@x/video/1")
+        assert tiktok is not None and tiktok.action_id == "tiktok-comments"
+        return "Date, reminder, file, and the right comment site."
+
+    return [
+        _timed("in 10 seconds", seconds),
+        _timed("six thirty five", thirty_five),
+        _timed("at 12 after noon", noon),
+        _timed("twenty minutes", number_words),
+        _timed("wider phrases", wider),
+    ]
+
+
 def _feature_tomorrow() -> list[Outcome]:
     from babysitter.commands import when_from
 
@@ -1348,6 +1408,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("remind", _feature_remind()),
         ("clock reminder", _feature_clock_reminder()),
         ("tomorrow", _feature_tomorrow()),
+        ("recognition", _feature_recognition()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
         ("files", _feature_files()),
