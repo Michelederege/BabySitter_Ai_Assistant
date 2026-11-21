@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.17.0 — The same ear for a keyword and for Hold Talk
+
+A keyword command keeps its audio and, when speech recognition is downloaded, Whisper reads that clip. Vosk still notices the wake words. The reading carries a short hint of the command verbs. A second, slower reading runs only when the first line is not already a command and the model doubts it. A weak line that is not a command is repeated back, and nothing is sent. “Set a time for twenty minutes” and “rewind me” still land on the timer and the reminder. “Fine my tax pdf” finds the file.
+
+Stopping the voice no longer closes the microphone. If the keyword stream goes quiet because it died, listening starts again. A list file that cannot be read is moved aside, so the next save does not erase it. The Voice page says how long the last line took to become text.
+
 ## 0.16.0 — More of what you say is understood
 
 The heard line is matched as a pattern, not only as one exact sentence.

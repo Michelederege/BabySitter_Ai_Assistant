@@ -65,6 +65,9 @@ class ResponsivenessLog:
         prompts = [row["prompt_tokens"] for row in self.rows if "prompt_tokens" in row]
         if prompts:
             line += f" Last reply read {prompts[-1]} prompt tokens."
+        ready = [row["transcript"] for row in self.rows if "transcript" in row]
+        if ready:
+            line += f" Last line became text after {ready[-1]} ms."
         return line
 
     def export_text(self) -> str:

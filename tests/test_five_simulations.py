@@ -1492,6 +1492,59 @@ def _feature_tomorrow() -> list[Outcome]:
     ]
 
 
+def _feature_hearing() -> list[Outcome]:
+    """Five ways a muddy line becomes a command, or stays a question."""
+    from babysitter.commands import loosen_heard, match_quick_command
+    from babysitter.plugins.voice.hearing import Transcript, merge_lines, needs_second_pass, pick_pass
+
+    def timer_slip():
+        found = match_quick_command("set a time for twenty minutes")
+        assert found is not None and found.kind == "timer" and found.seconds == 20 * 60
+        assert match_quick_command("what time is it").kind == "time"
+        return "A timer, and the clock stays the clock."
+
+    def file_slip():
+        found = match_quick_command("fine my tax pdf")
+        assert found is not None and found.kind == "find" and "tax pdf" in found.detail.lower()
+        assert match_quick_command("fine thanks") is None
+        assert loosen_heard("who invented dancing") == ""
+        return "The tax pdf, and thanks stays a question."
+
+    def remind_slip():
+        found = match_quick_command("rewind me in 10 seconds to stretch")
+        assert found is not None and found.kind == "remind" and found.detail == "to stretch"
+        return "to stretch."
+
+    def whisper_or_vosk():
+        vague = Transcript("what is the capital of france", True)
+        assert merge_lines("remind me to stretch", vague).text.startswith("remind me")
+        clear = Transcript("what time is it", True)
+        assert merge_lines("babble", clear).text == "what time is it"
+        weak = Transcript("mumble mumble", False)
+        assert merge_lines("what time is it", weak).text == "what time is it"
+        assert merge_lines("", weak).confident is False
+        return "The command wins, then a sure Whisper line."
+
+    def second_reading():
+        unsure = Transcript("mumble about the garden", False)
+        assert needs_second_pass(unsure) is True
+        sure = Transcript("what time is it", True)
+        assert needs_second_pass(sure) is False
+        picked = pick_pass(unsure, Transcript("set a timer for twenty minutes", True))
+        assert picked.text.startswith("set a timer")
+        kept = pick_pass(sure, Transcript("something else", True))
+        assert kept.text == "what time is it"
+        return "The second reading is only for a miss."
+
+    return [
+        _timed("set a time for twenty minutes", timer_slip),
+        _timed("fine my tax pdf", file_slip),
+        _timed("rewind me", remind_slip),
+        _timed("keyword and whisper", whisper_or_vosk),
+        _timed("a second reading", second_reading),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1507,6 +1560,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("clock reminder", _feature_clock_reminder()),
         ("tomorrow", _feature_tomorrow()),
         ("recognition", _feature_recognition()),
+        ("hearing", _feature_hearing()),
         ("goals", _feature_goals()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
