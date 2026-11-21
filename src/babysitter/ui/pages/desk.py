@@ -68,9 +68,40 @@ class SchedulePage(_Page):
             "has to be open, including in the tray. If you quit BabySitter, it is said the "
             "next time the app is open and the time has passed. Nothing is sent. "
             "Say undo within 10 seconds to remove a new one. "
-            "The time left counts down on this page and on Home.",
+            "The time left counts down on this page and on Home. "
+            "A goal stays here too. Say my goals, and the list is shown and read out.",
         )
         self.body.hide()
+        goal_head = QLabel("Goals")
+        goal_head.setObjectName("word")
+        self.root.insertWidget(2, goal_head)
+        goal_row = QHBoxLayout()
+        self.goal_text = QLineEdit()
+        self.goal_text.setPlaceholderText("Finish the bracket")
+        self.goal_text.setToolTip("A goal stays on this PC. It does not ring.")
+        add_goal = QPushButton("Add goal")
+        add_goal.setObjectName("primary")
+        add_goal.setToolTip("Saves the goal on this PC and shows it in the list below.")
+        add_goal.clicked.connect(self._add_goal)
+        self.goal_text.returnPressed.connect(self._add_goal)
+        done_goal = QPushButton("Done")
+        done_goal.setToolTip("Marks the selected goal done. It stays on the list.")
+        done_goal.clicked.connect(self._done_goal)
+        remove_goal = QPushButton("Remove")
+        remove_goal.setToolTip("Takes the selected goal off the list. Nothing else is deleted.")
+        remove_goal.clicked.connect(self._remove_goal)
+        goal_row.addWidget(self.goal_text, 1)
+        goal_row.addWidget(add_goal)
+        goal_row.addWidget(done_goal)
+        goal_row.addWidget(remove_goal)
+        self.root.insertLayout(3, goal_row)
+        self.goals = QListWidget()
+        self.goals.setMinimumHeight(72)
+        self.goals.setToolTip("Goals saved on this PC. Saying my goals opens this page.")
+        self.root.insertWidget(4, self.goals)
+        remind_head = QLabel("Reminders")
+        remind_head.setObjectName("word")
+        self.root.insertWidget(5, remind_head)
         row = QHBoxLayout()
         self.text = QLineEdit()
         self.text.setPlaceholderText("Stretch")
@@ -91,13 +122,52 @@ class SchedulePage(_Page):
         row.addWidget(self.when, 1)
         row.addWidget(add)
         row.addWidget(remove)
-        self.root.insertLayout(2, row)
+        self.root.insertLayout(6, row)
         self.list = QListWidget()
         self.list.setToolTip("Reminders saved on this PC. The pin puts one on the board.")
-        self.root.insertWidget(3, self.list)
+        self.root.insertWidget(7, self.list)
         self.refresh()
 
     def refresh(self) -> None:
+        self._show_reminders()
+        self.refresh_goals()
+
+    def refresh_goals(self) -> None:
+        from babysitter.goals import goal_rows
+
+        items = load_list("goals.json")
+        if not items:
+            self.goals.clear()
+            self.goals.addItem("No goals yet.")
+            return
+        fill_pinned_list(self.goals, goal_rows(items), self.pin_line.emit)
+
+    def _add_goal(self) -> None:
+        text = self.goal_text.text().strip()
+        if not text:
+            self.notice.emit("Type the goal first. Nothing was saved.")
+            return
+        self.notice.emit(f"CONFIRM goal: {text}")
+
+    def _done_goal(self) -> None:
+        current = self.goals.currentItem()
+        if current is None:
+            return
+        item_id = str(current.data(Qt.UserRole) or "")
+        if not item_id:
+            return
+        self.notice.emit(f"GOAL done: {item_id}")
+
+    def _remove_goal(self) -> None:
+        current = self.goals.currentItem()
+        if current is None:
+            return
+        item_id = str(current.data(Qt.UserRole) or "")
+        if not item_id:
+            return
+        self.notice.emit(f"GOAL drop: {item_id}")
+
+    def _show_reminders(self) -> None:
         items = load_list("schedule.json")
         if not items:
             self.list.clear()
