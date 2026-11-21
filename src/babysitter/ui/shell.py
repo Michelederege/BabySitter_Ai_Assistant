@@ -69,7 +69,6 @@ from babysitter.plugins.voice.hearing import (
     model_ready,
     packages_installed,
     release_model,
-    transcribe,
 )
 from babysitter.plugins.voice.kokoro_voice import KokoroError, download as download_kokoro
 from babysitter.plugins.voice.kokoro_voice import ready as kokoro_ready
@@ -140,7 +139,7 @@ from babysitter.ui.tray import Tray
 
 
 class _KeywordHub(QObject):
-    phrase = Signal(str)
+    phrase = Signal(str, object)
     status = Signal(str)
     failed = Signal(str)
 
@@ -455,7 +454,12 @@ class _HearJob(QThread):
         wav = self._wav
         self._wav = b""
         try:
-            self.heard.emit(transcribe(wav))
+            from babysitter.plugins.voice.hearing import needs_second_pass, pick_pass, read_speech
+
+            first = read_speech(wav, beam_size=1)
+            second = read_speech(wav, beam_size=5) if needs_second_pass(first) else None
+            self.result = pick_pass(first, second)
+            self.heard.emit(self.result.text)
         except HearingError as exc:
             self.failed.emit(str(exc))
         except Exception:
@@ -1660,11 +1664,36 @@ class Shell:
         job.failed.connect(self._hear_failed)
         job.start()
 
-    def _heard(self, text: str) -> None:
+    def _heard(self, text: str, audio: object = None) -> None:
+        wav = bytes(audio) if isinstance(audio, (bytes, bytearray)) and audio else b""
+        if wav and not getattr(self, "_skip_redecode", False):
+            from babysitter.plugins.voice.hearing import model_ready as whisper_ready
+            from babysitter.plugins.voice.hearing import packages_installed as whisper_installed
+
+            if whisper_installed() and whisper_ready():
+                self._vosk_line = text
+                if getattr(self, "_listener", None) is not None:
+                    self._listener.stop()
+                self._show_mode("thinking", "Turning speech into text on this PC.")
+                job = _HearJob(wav)
+                self._hear_job = job
+                job.heard.connect(self._merge_keyword)
+                job.failed.connect(self._hear_failed)
+                job.start()
+                return
+        self._skip_redecode = False
         if getattr(self, "_listener", None) is not None:
             self._listener.stop()
         text = (text or "").strip()
+        result = getattr(getattr(self, "_hear_job", None), "result", None)
+        if result is not None:
+            self._hear_job.result = None
+            from babysitter.plugins.voice.hearing import _matches_local
+
+            if not result.confident and not _matches_local(text):
+                self._line_unsure = True
         if not text:
+            self._line_unsure = False
             self.window.home.set_reply("(nothing caught)", "I didn't catch that.", "Nothing was sent.")
             self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
@@ -1729,9 +1758,32 @@ class Shell:
                 return
             self._clear_more()
         self._pending_line = text
+        if getattr(self, "_line_unsure", False) and match_quick_command(text) is None and match_tool(text) is None:
+            self._line_unsure = False
+            self.window.home.set_reply(
+                text,
+                "I didn't catch that clearly. Say it once more.",
+                "Nothing was sent.",
+            )
+            self._speak("I didn't catch that clearly. Say it once more.")
+            self._sync_keyword()
+            return
+        self._line_unsure = False
         if match_quick_command(text) is None:
             self.window.home.set_reply(text, "Sending it to the model on this PC.", "")
         self._send_heard()
+
+    def _merge_keyword(self, whisper_text: str) -> None:
+        from babysitter.plugins.voice.hearing import Transcript, merge_lines
+
+        whisper = getattr(getattr(self, "_hear_job", None), "result", None)
+        if whisper is None:
+            whisper = Transcript(whisper_text or "", False)
+        merged = merge_lines(getattr(self, "_vosk_line", ""), whisper)
+        if getattr(self, "_hear_job", None) is not None:
+            self._hear_job.result = merged
+        self._skip_redecode = True
+        self._heard(merged.text)
 
     def _hear_failed(self, message: str) -> None:
         self.window.home.set_reply("(no words yet)", "I didn't hear words.", message)
@@ -1828,9 +1880,13 @@ class Shell:
 
     def _keyword_status(self, status: str) -> None:
         word = self.controller.settings.keyword
+        if status == "restart":
+            self._sync_keyword()
+            return
         if status == "talk_over":
             self._cut_off()
             self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
+            self._sync_keyword()
             return
         if status == "capturing":
             self._show_mode("listening", "Listening to the question.")

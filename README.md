@@ -141,10 +141,10 @@ That file is one file, built with no console. Copy it to the desktop, or any oth
 
 A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. A file you copied onto the desktop stays as it was until you copy it again. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
 
-The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.16.0.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
+The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.0.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
 
 ```bat
-BabySitter-Setup-0.16.0.exe /SILENT
+BabySitter-Setup-0.17.0.exe /SILENT
 ```
 
 The installer does not delete `%LOCALAPPDATA%\BabySitter`. The uninstaller asks before it deletes that folder. A silent uninstall does not delete it. Ollama and its downloaded models are never removed.

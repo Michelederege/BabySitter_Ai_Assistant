@@ -44,6 +44,46 @@ def _tail(original: str, label: str) -> str:
 
 
 def match_quick_command(text: str) -> QuickCommand | None:
+    found = _match_quick_command(text)
+    if found is not None:
+        return found
+    alt = loosen_heard(text)
+    if not alt:
+        return None
+    return _match_quick_command(alt)
+
+
+def loosen_heard(text: str) -> str:
+    """A misheard command head, only when the words are a known slip.
+
+    The rest of the line stays as it was heard. A line that is already a
+    command is not rewritten. Callers try the original first.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    lowered = raw.lower()
+    for source, dest in (
+        ("set a time for", "set a timer for"),
+        ("set a time or", "set a timer for"),
+        ("rewind me", "remind me"),
+        ("reminded me", "remind me"),
+        ("say that back", "say that again"),
+    ):
+        if lowered.startswith(source):
+            return dest + raw[len(source):]
+    words = raw.split()
+    if not words:
+        return ""
+    head = words[0].lower().strip(".,")
+    if head == "fine" and any(token in lowered for token in ("pdf", "file", "files", "doc", "docx", "txt")):
+        return "find " + " ".join(words[1:])
+    if head in {"rewind", "reminded"}:
+        return "remind " + " ".join(words[1:])
+    return ""
+
+
+def _match_quick_command(text: str) -> QuickCommand | None:
     original = strip_lead(text)
     words = re.findall(r"[a-z0-9']+", original.lower())
     phrase = " ".join(words)

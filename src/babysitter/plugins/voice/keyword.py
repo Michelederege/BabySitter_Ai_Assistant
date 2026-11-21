@@ -231,38 +231,51 @@ class KeywordListener:
                 callback=on_audio,
             ):
                 recognizer = _recognizer(model)
+                utterance = bytearray()
+                quiet_gaps = 0
                 on_status("armed")
                 while not self._stop.is_set():
                     try:
                         chunk = audio.get(timeout=0.2)
+                        quiet_gaps = 0
                     except queue.Empty:
+                        # The callback delivers silence too. A long gap means the stream died.
+                        quiet_gaps += 1
+                        if quiet_gaps >= 15:
+                            on_status("restart")
+                            break
                         continue
+                    utterance.extend(chunk)
+                    if len(utterance) > 16000 * 2 * 20:
+                        del utterance[: len(utterance) - (16000 * 2 * 20)]
                     chunk, echoed = self._hear(chunk)
                     if echoed and self._barge(chunk):
                         on_status("talk_over")
                         continue
                     if not recognizer.AcceptWaveform(chunk):
                         continue
+                    clip = bytes(utterance)
+                    utterance.clear()
                     heard = json.loads(recognizer.Result()).get("text", "")
                     command = command_after_keyword(heard, keyword)
                     if command is None:
                         if self._followup and _followup_heard(heard):
-                            on_phrase(heard)
+                            on_phrase(heard, _wav_bytes(clip))
                             recognizer = _recognizer(model)
                             if not self._stop.is_set():
                                 on_status("armed")
                             continue
                         if self._yes_no and _yes_or_no(heard):
-                            on_phrase(heard)
+                            on_phrase(heard, _wav_bytes(clip))
                             recognizer = _recognizer(model)
                             if not self._stop.is_set():
                                 on_status("armed")
                         continue
                     if not command:
                         on_status("capturing")
-                        command = self._capture_question(model, audio)
+                        command, clip = self._capture_question(model, audio)
                     if command and not self._stop.is_set():
-                        on_phrase(command)
+                        on_phrase(command, _wav_bytes(clip))
                     recognizer = _recognizer(model)
                     if not self._stop.is_set():
                         on_status("armed")
@@ -302,7 +315,7 @@ class KeywordListener:
         tripped, self._hot = barge_in(rms(chunk), True, self.talk_over, self._hot)
         return tripped
 
-    def _capture_question(self, model, audio: queue.Queue[bytes]) -> str:
+    def _capture_question(self, model, audio: queue.Queue[bytes]) -> tuple[str, bytes]:
         from babysitter.plugins.voice.turntaking import endpoint_delays, finished_by_silence
 
         recognizer = _recognizer(model)
@@ -313,11 +326,13 @@ class KeywordListener:
         deadline = time.time() + 8
         quiet = 0
         heard_words = 0
+        captured = bytearray()
         while time.time() < deadline and not self._stop.is_set():
             try:
                 chunk = audio.get(timeout=0.2)
             except queue.Empty:
                 continue
+            captured.extend(chunk)
             chunk, _echoed = self._hear(chunk)
             if self.vad_enabled or self.smart_turn:
                 if self._speech(chunk):
@@ -327,7 +342,7 @@ class KeywordListener:
             if recognizer.AcceptWaveform(chunk):
                 text = json.loads(recognizer.Result()).get("text", "").strip()
                 if text and text != "[unk]":
-                    return text
+                    return text, bytes(captured)
             partial = ""
             partial_fn = getattr(recognizer, "PartialResult", None)
             if callable(partial_fn):
@@ -344,5 +359,11 @@ class KeywordListener:
                 break
         final = json.loads(recognizer.FinalResult()).get("text", "").strip()
         if final == "[unk]":
-            return ""
-        return final
+            return "", bytes(captured)
+        return final, bytes(captured)
+
+
+def _wav_bytes(pcm: bytes) -> bytes:
+    from babysitter.plugins.voice.hearing import pcm16_to_wav
+
+    return pcm16_to_wav(pcm)

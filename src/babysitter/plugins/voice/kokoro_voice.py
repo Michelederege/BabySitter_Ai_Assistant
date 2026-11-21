@@ -129,13 +129,13 @@ def release() -> None:
 
 
 def stop() -> None:
-    _playback_stop.set()
-    try:
-        import sounddevice as sd
+    """Stop Heart and Sarah. The microphone stream is left open.
 
-        sd.stop()
-    except Exception:
-        return
+    sounddevice.stop() closes every stream in the process, including the
+    keyword listener. The playback loop watches _playback_stop and closes
+    its own output stream.
+    """
+    _playback_stop.set()
 
 
 def render_clip(text: str) -> tuple[bytes, int]:

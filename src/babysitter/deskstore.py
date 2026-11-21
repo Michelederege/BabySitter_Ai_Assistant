@@ -21,10 +21,26 @@ def load_list(name: str) -> list[dict]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeError):
+        _keep_unreadable(path)
         return []
     if not isinstance(raw, list):
+        _keep_unreadable(path)
         return []
     return [item for item in raw if isinstance(item, dict)]
+
+
+def _keep_unreadable(path: Path) -> None:
+    """Move a file that cannot be trusted aside, so the next save does not erase it."""
+    if not path.is_file():
+        return
+    backup = path.with_name(path.name + ".bak")
+    target = backup if not backup.exists() else path.with_name(path.name + ".broken")
+    try:
+        if target.exists():
+            target.unlink()
+        path.replace(target)
+    except OSError:
+        return
 
 
 def save_list(name: str, items: list[dict]) -> None:
