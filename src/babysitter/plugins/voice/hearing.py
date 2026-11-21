@@ -8,6 +8,7 @@ Nothing recorded is sent off this computer.
 from __future__ import annotations
 
 import io
+import re
 import sys
 import threading
 import wave
@@ -117,8 +118,7 @@ class Recorder:
         self._chunks = []
 
         def on_audio(indata, _frames, _time, status) -> None:
-            if status:
-                return
+            del status
             self._chunks.append(indata.copy())
 
         self._stream = sd.InputStream(
@@ -187,6 +187,25 @@ def pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
     return buffer.getvalue()
 
 
+def hallucinated(text: str) -> bool:
+    """A whole line Whisper often invents when the clip is silence."""
+    words = re.findall(r"[a-z0-9']+", (text or "").lower())
+    return " ".join(words) in {
+        "thanks for watching",
+        "thank you for watching",
+        "thanks for listening",
+        "you",
+    }
+
+
+def _plain(text: str) -> str:
+    return " ".join((text or "").lower().split())
+
+
+def _word_count(text: str) -> int:
+    return len(_plain(text).split())
+
+
 def _matches_local(text: str) -> bool:
     from babysitter.commands import match_quick_command
     from babysitter.intents import match_tool
@@ -229,7 +248,7 @@ def read_speech(wav_bytes: bytes, beam_size: int = 1) -> Transcript:
         logprobs.append(float(segment.avg_logprob))
         noise.append(float(segment.no_speech_prob))
     text = " ".join(part for part in texts if part).strip()
-    if not text or not logprobs:
+    if not text or not logprobs or hallucinated(text):
         return Transcript("", False)
     average = sum(logprobs) / len(logprobs)
     loud_noise = max(noise) if noise else 0.0
@@ -265,6 +284,10 @@ def merge_lines(vosk: str, whisper: Transcript) -> Transcript:
     heard = Transcript((whisper.text or "").strip(), whisper.confident)
     whisper_matches = _matches_local(heard.text)
     keyword_matches = _matches_local(keyword)
+    if whisper_matches and keyword_matches and _plain(heard.text) != _plain(keyword):
+        # The hint can make Whisper repeat a short command. The longer line is the request.
+        chosen = heard.text if _word_count(heard.text) > _word_count(keyword) else keyword
+        return Transcript(chosen, True)
     if whisper_matches and not keyword_matches:
         return Transcript(heard.text, True)
     if keyword_matches and not whisper_matches:
