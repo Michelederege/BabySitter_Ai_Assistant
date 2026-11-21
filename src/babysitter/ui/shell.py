@@ -16,7 +16,7 @@ from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThre
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 
-from babysitter.commands import match_quick_command, spoken_clock, spoken_when, timer_label
+from babysitter.commands import QuickCommand, match_quick_command, spoken_clock, spoken_when, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -1698,6 +1698,8 @@ class Shell:
             self.window.home.set_phase("on", "Loading the model. It unloads again two minutes after the answer.")
             return
         if self._followup_left > 0 and followup_phrase(text) == "":
+            self._goals_open = False
+            self._goal_last = ""
             self._close_followup()
             self.window.home.set_phase("on", "Okay. I'm here when you need me.")
             return
@@ -2296,6 +2298,16 @@ class Shell:
             self.window.memory_page.text.clear()
             self._save_local("memory.json", body, "that")
             return
+        if text.startswith("CONFIRM goal:"):
+            body = text.split(":", 1)[1].strip()
+            self.window.schedule_page.goal_text.clear()
+            self._apply_goal(QuickCommand("goal_add", detail=body), body)
+            return
+        if text.startswith("GOAL done:") or text.startswith("GOAL drop:"):
+            item_id = text.split(":", 1)[1].strip()
+            kind = "goal_done" if text.startswith("GOAL done:") else "goal_drop"
+            self._apply_goal_id(kind, item_id, text)
+            return
         if text == "SCAN pc":
             self._begin_scan()
             return
@@ -2514,6 +2526,8 @@ class Shell:
     def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
         self._is_filler = filler
         self._alert_speech = bool(alert)
+        if (text or "").strip() and not filler:
+            self._said = text.strip()
         previous = getattr(self, "_speak_job", None)
         if previous is not None:
             previous.close_input()
@@ -2707,13 +2721,22 @@ class Shell:
         settings = self.controller.settings
         listening = settings.keyword_listening and self.controller.state == "on"
         ready = keyword_packages_installed() and keyword_model_ready()
-        if not listening or not ready or getattr(self, "_listener", None) is None:
-            self._show_mode(self.controller.state, "Say the keyword")
+        heard = listening and ready and getattr(self, "_listener", None) is not None
+        goals = getattr(self, "_goals_open", False)
+        # The goal talk ends when this clock runs out, even with the keyword off.
+        # Otherwise "the second" would still change a goal much later.
+        self._goal_clock_only = bool(goals) and not heard
+        if goals or heard:
+            self._followup_left = max(5, min(20, int(settings.followup_seconds)))
+            self._follow_timer.start()
+        if not heard:
+            if goals:
+                self._show_mode(self.controller.state, "Goals are on the Reminders page")
+            else:
+                self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
         self._listener.expect_followup(True)
-        self._followup_left = max(5, min(20, int(settings.followup_seconds)))
-        self._follow_timer.start()
         self._sync_keyword()
         self._show_followup()
 
@@ -2721,6 +2744,8 @@ class Shell:
         self._followup_left -= 1
         if self._followup_left <= 0:
             self._close_followup()
+            return
+        if getattr(self, "_goal_clock_only", False):
             return
         self._show_followup()
 
@@ -2734,23 +2759,43 @@ class Shell:
         )
 
     def _close_followup(self) -> None:
+        # A new line arrives while the window is still open. That line can
+        # still be about the goal. The window expiring is what ends the talk.
+        still_open = self._followup_left > 0
         self._follow_timer.stop()
         self._followup_left = 0
+        self._goal_clock_only = False
+        if not still_open:
+            self._goals_open = False
         if getattr(self, "_listener", None) is not None:
             self._listener.expect_followup(False)
         self._show_mode(self.controller.state, "Say the keyword")
         self._sync_keyword()
 
     def _run_quick(self, text: str) -> bool:
+        from babysitter.goals import goal_followup
+
+        if getattr(self, "_goals_open", False):
+            followed = goal_followup(text, load_list("goals.json"), getattr(self, "_goal_last", ""))
+            if followed is not None:
+                self._apply_goal(followed, text)
+                return True
         quick = match_quick_command(text)
         if quick is not None and quick.kind == "undo":
             return False
         if quick is None:
             intent = match_tool(text)
             if intent is None:
+                self._goals_open = False
                 return False
+            self._goals_open = False
             self._offer_tool(intent)
             return True
+        if quick.kind in {"goals", "goal_add", "goal_done", "goal_drop", "goal_show"}:
+            self._apply_goal(quick, text)
+            return True
+        if quick.kind not in {"repeat", "hush"}:
+            self._goals_open = False
         if quick.kind == "time":
             now = datetime.now().astimezone()
             speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
@@ -2829,6 +2874,24 @@ class Shell:
             return True
         if quick.kind == "history":
             self._speak_saved_history(text)
+            return True
+        if quick.kind == "next_reminder":
+            self._speak_next_reminder(text)
+            return True
+        if quick.kind == "cancel_reminder":
+            self._cancel_next_reminder(text)
+            return True
+        if quick.kind == "repeat":
+            self._repeat_last(text)
+            return True
+        if quick.kind == "hush":
+            self._hush()
+            return True
+        if quick.kind == "pin":
+            self._pin_reply()
+            spoken = self.window.home.spoken.text().strip()
+            if spoken:
+                self._speak(spoken)
             return True
         if quick.kind in {"remember", "remind"}:
             filename = "memory.json" if quick.kind == "remember" else "schedule.json"
@@ -2959,6 +3022,130 @@ class Shell:
         self.window.home.set_reply(text, speech, found.path)
         self._speak(speech)
 
+    def _reveal_goals(self) -> None:
+        """Open the window on the Reminders page, where the goals are listed."""
+        self.window.showNormal()
+        self.window.raise_()
+        self.window.activateWindow()
+        self.window.show_page(self.window.schedule_page)
+        self.window.schedule_page.refresh_goals()
+
+    def _apply_goal(self, quick: QuickCommand, text: str) -> None:
+        from babysitter.goals import apply_spoken
+
+        turn = apply_spoken(load_list("goals.json"), quick, getattr(self, "_goal_last", ""))
+        save_list("goals.json", turn.items)
+        self._goal_last = turn.last_id
+        self._goals_open = True
+        if turn.added_id:
+            self._soft_undo = {
+                "kind": "note",
+                "until": time.time() + 10,
+                "file": "goals.json",
+                "id": turn.added_id,
+            }
+        self._reveal_goals()
+        self.window.home.set_reply(text[:80] or "goals", turn.speech, turn.detail)
+        self._note_local(text, turn.speech)
+        self._speak(turn.speech)
+
+    def _apply_goal_id(self, kind: str, item_id: str, text: str) -> None:
+        """A button on the Reminders page named the goal by its id."""
+        from babysitter.goals import goals_detail
+
+        items = [dict(item) for item in load_list("goals.json")]
+        found = next((item for item in items if str(item.get("id") or "") == item_id), None)
+        if found is None:
+            self._speak("I don't see that goal.")
+            return
+        name = " ".join(str(found.get("text") or "Goal").split()) or "Goal"
+        if kind == "goal_drop":
+            items = [item for item in items if str(item.get("id") or "") != item_id]
+            speech = f"Dropped {name}."
+            self._goal_last = ""
+        elif str(found.get("done") or "") == "yes":
+            speech = f"{name} is already done."
+            self._goal_last = item_id
+        else:
+            found["done"] = "yes"
+            speech = f"{name} is done. It stays on the Reminders page."
+            self._goal_last = item_id
+        save_list("goals.json", items)
+        self._goals_open = True
+        self._reveal_goals()
+        detail = goals_detail(items)
+        self.window.home.set_reply(text[:80] or "goals", speech, detail)
+        self._note_local(text, speech)
+        self._speak(speech)
+
+    def _speak_next_reminder(self, text: str) -> None:
+        from babysitter.deskstore import next_reminder_line
+
+        speech = next_reminder_line(load_list("schedule.json"))
+        self.window.home.set_reply(text, speech, "Read from this PC. Nothing was sent.")
+        self._note_local(text, speech)
+        self._speak(speech)
+
+    def _cancel_next_reminder(self, text: str) -> None:
+        now = datetime.now().astimezone()
+        far = now + timedelta(days=3650)
+        waiting: list[tuple[datetime, dict]] = []
+        for item in load_list("schedule.json"):
+            if str(item.get("fired") or "") == "yes":
+                continue
+            moment = far
+            due = str(item.get("due") or "").strip()
+            if due:
+                try:
+                    parsed = datetime.fromisoformat(due)
+                except ValueError:
+                    parsed = None
+                if parsed is not None:
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=now.tzinfo)
+                    moment = parsed
+            waiting.append((moment, item))
+        if not waiting:
+            speech = "There isn't a reminder waiting."
+            self.window.home.set_reply(text, speech, "Reminders stay on this PC.")
+            self._speak(speech)
+            return
+        waiting.sort(key=lambda pair: pair[0])
+        target = waiting[0][1]
+        item_id = str(target.get("id") or "")
+        remove_item("schedule.json", item_id)
+        if item_id and item_id == str(getattr(self, "_active_timer_id", "")):
+            timer = getattr(self, "_active_timer", None)
+            if timer is not None:
+                timer.stop()
+            self._active_timer = None
+        self.window.schedule_page.refresh()
+        words = " ".join(str(target.get("text") or "Reminder").split()) or "Reminder"
+        speech = f"Cancelled the reminder. {words}"
+        self.window.home.set_reply(text, speech, "It was removed on this PC. Nothing was sent.")
+        self._note_local(text, speech)
+        self._speak(speech)
+
+    def _repeat_last(self, text: str) -> None:
+        said = str(getattr(self, "_said", "") or "").strip()
+        if not said:
+            speech = "I have not said anything yet."
+            self.window.home.set_reply(text, speech, "A reply has to finish before it can be repeated.")
+            self._speak(speech)
+            return
+        self.window.home.set_reply(text, said, "The same line, said again. Nothing was sent.")
+        self._speak(said)
+
+    def _hush(self) -> None:
+        busy = getattr(self, "_speaking", False) or (
+            getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning()
+        )
+        if busy:
+            self._cut_off()
+            return
+        self.window.home.set_reply("quiet", "Okay.", "Nothing was speaking.")
+        self._speak("Okay.")
+
     def _begin_timer(self, seconds: int, detail: str = "") -> None:
         """A spoken timer is a reminder due that many seconds from now."""
         previous = getattr(self, "_active_timer", None)
@@ -3033,7 +3220,7 @@ class Shell:
             "file": filename,
             "id": item["id"],
         }
-        if filename.startswith("schedule"):
+        if filename.startswith("schedule") or filename.startswith("goals"):
             self.window.schedule_page.refresh()
         else:
             self.window.memory_page.refresh()

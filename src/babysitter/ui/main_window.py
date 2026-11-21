@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
                 "TODAY",
                 [
                     ("Home", self.home, "Power, the assistant, this PC, and what just happened."),
-                    ("Reminders", self.schedule_page, "Reminders that stay on this PC."),
+                    ("Reminders", self.schedule_page, "Reminders and goals that stay on this PC."),
                     ("Journal", self.journal_page, "Program names and minutes, on this PC, for 90 days."),
                     ("Files", self.files_page, "Find a file by a few words. Programs are never started."),
                 ],

@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.16.0 — More of what you say is understood
+
+The heard line is matched as a pattern, not only as one exact sentence.
+
+A clock can be “six thirty five”, “half past six”, or “quarter to seven”. “At 12”, with no am or pm, is noon. “At 12 am” is still midnight. “In 10 seconds” and “in ten seconds” keep the seconds, so a short reminder rings when you asked, and the note keeps the task (“to stretch”) instead of the time words. “Set a timer for twenty minutes” and “set a timer for half an hour” count.
+
+These stay on this PC: “what’s the date”, “what’s my next reminder”, “cancel the reminder”, “say that again”, “stop talking”, “pin that”, “how did my day go”, “any unread mail”, “where is my tax pdf”, and “open the second one”. “Where is Paris” still goes to the model. “Make a note that …” is a memory. “Don’t forget to …” is a reminder.
+
+A goal is not a reminder. It does not ring. “My goal is to finish the bracket”, then “say my goals”, puts the list on the Reminders page and reads it out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. Once that talk ends, “done” finishes a journal task again. “Find my goals” reads the list. “Where is my tax pdf” is still a file search.
+
+“Comment themes” on a YouTube link is no longer sent to Reddit. Comments are read only for a TikTok or Reddit link. Anything else is refused, and nothing is sent.
+
 ## Also in 0.15.0 — Tomorrow rings, and a reminder row can wrap
 
 “Tomorrow at 6” is 6:00 on the next day, not later today. With no am or pm, that is 6:00 AM. “Remind me tomorrow,” with no hour, is 9:00 AM tomorrow. “Set a timer,” with no length, is 5 minutes. A long reminder line grows past one row, so the countdown is not cut off.
