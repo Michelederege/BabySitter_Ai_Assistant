@@ -2514,6 +2514,8 @@ class Shell:
     def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
         self._is_filler = filler
         self._alert_speech = bool(alert)
+        if (text or "").strip() and not filler:
+            self._said = text.strip()
         previous = getattr(self, "_speak_job", None)
         if previous is not None:
             previous.close_input()
@@ -2830,6 +2832,24 @@ class Shell:
         if quick.kind == "history":
             self._speak_saved_history(text)
             return True
+        if quick.kind == "next_reminder":
+            self._speak_next_reminder(text)
+            return True
+        if quick.kind == "cancel_reminder":
+            self._cancel_next_reminder(text)
+            return True
+        if quick.kind == "repeat":
+            self._repeat_last(text)
+            return True
+        if quick.kind == "hush":
+            self._hush()
+            return True
+        if quick.kind == "pin":
+            self._pin_reply()
+            spoken = self.window.home.spoken.text().strip()
+            if spoken:
+                self._speak(spoken)
+            return True
         if quick.kind in {"remember", "remind"}:
             filename = "memory.json" if quick.kind == "remember" else "schedule.json"
             noun = "that" if quick.kind == "remember" else "the reminder"
@@ -2958,6 +2978,74 @@ class Shell:
         speech = open_found(found)
         self.window.home.set_reply(text, speech, found.path)
         self._speak(speech)
+
+    def _speak_next_reminder(self, text: str) -> None:
+        from babysitter.deskstore import next_reminder_line
+
+        speech = next_reminder_line(load_list("schedule.json"))
+        self.window.home.set_reply(text, speech, "Read from this PC. Nothing was sent.")
+        self._note_local(text, speech)
+        self._speak(speech)
+
+    def _cancel_next_reminder(self, text: str) -> None:
+        now = datetime.now().astimezone()
+        far = now + timedelta(days=3650)
+        waiting: list[tuple[datetime, dict]] = []
+        for item in load_list("schedule.json"):
+            if str(item.get("fired") or "") == "yes":
+                continue
+            moment = far
+            due = str(item.get("due") or "").strip()
+            if due:
+                try:
+                    parsed = datetime.fromisoformat(due)
+                except ValueError:
+                    parsed = None
+                if parsed is not None:
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=now.tzinfo)
+                    moment = parsed
+            waiting.append((moment, item))
+        if not waiting:
+            speech = "There isn't a reminder waiting."
+            self.window.home.set_reply(text, speech, "Reminders stay on this PC.")
+            self._speak(speech)
+            return
+        waiting.sort(key=lambda pair: pair[0])
+        target = waiting[0][1]
+        item_id = str(target.get("id") or "")
+        remove_item("schedule.json", item_id)
+        if item_id and item_id == str(getattr(self, "_active_timer_id", "")):
+            timer = getattr(self, "_active_timer", None)
+            if timer is not None:
+                timer.stop()
+            self._active_timer = None
+        self.window.schedule_page.refresh()
+        words = " ".join(str(target.get("text") or "Reminder").split()) or "Reminder"
+        speech = f"Cancelled the reminder. {words}"
+        self.window.home.set_reply(text, speech, "It was removed on this PC. Nothing was sent.")
+        self._note_local(text, speech)
+        self._speak(speech)
+
+    def _repeat_last(self, text: str) -> None:
+        said = str(getattr(self, "_said", "") or "").strip()
+        if not said:
+            speech = "I have not said anything yet."
+            self.window.home.set_reply(text, speech, "A reply has to finish before it can be repeated.")
+            self._speak(speech)
+            return
+        self.window.home.set_reply(text, said, "The same line, said again. Nothing was sent.")
+        self._speak(said)
+
+    def _hush(self) -> None:
+        busy = getattr(self, "_speaking", False) or (
+            getattr(self, "_ask_job", None) is not None and self._ask_job.isRunning()
+        )
+        if busy:
+            self._cut_off()
+            return
+        self.window.home.set_reply("quiet", "Okay.", "Nothing was speaking.")
+        self._speak("Okay.")
 
     def _begin_timer(self, seconds: int, detail: str = "") -> None:
         """A spoken timer is a reminder due that many seconds from now."""

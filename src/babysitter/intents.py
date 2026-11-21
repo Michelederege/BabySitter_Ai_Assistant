@@ -7,6 +7,7 @@ Ad libraries are not offered: this app has no ad-library source.
 from __future__ import annotations
 
 import re
+import urllib.parse
 from dataclasses import dataclass
 
 from babysitter.commands import strip_lead
@@ -71,14 +72,27 @@ def match_tool(text: str) -> ToolIntent | None:
             f"Send a public {social.group(1)} search for {query}? About 1 credit.",
             "Summarize those public results in two or three sentences. Do not guess anyone's age or gender.",
         )
-    if lowered.startswith("comment themes "):
-        target = raw[len("comment themes ") :].strip()
-        action = "tiktok-comments" if "tiktok.com" in lowered else "reddit-comments"
+    comments = re.match(
+        r"(?:comment themes|comments on|read the comments(?: on| at)?)\s+(.+)",
+        lowered,
+    )
+    if comments:
+        target = raw[comments.start(1) :].strip()
+        action = _comment_site(target)
+        if action is None:
+            return ToolIntent(
+                "refuse",
+                "",
+                "",
+                "I can read public comments on a TikTok or Reddit link. "
+                "That link is a different site, so nothing was sent.",
+            )
+        site = "TikTok" if action.startswith("tiktok") else "Reddit"
         return ToolIntent(
             "social",
             action,
             target,
-            f"Read the public comments at that link? About 1 credit.",
+            f"Read the public {site} comments at that link? About 1 credit.",
             "Group the public comments into a few themes. Do not guess anyone's age or gender.",
         )
     recipe = _recipe(raw, lowered)
@@ -86,6 +100,18 @@ def match_tool(text: str) -> ToolIntent | None:
         return recipe
     if lowered in {"check my search credits", "how many credits", "how many credits are left"}:
         return ToolIntent("social", "credits", "", "Ask ScrapeCreators how many credits are left?")
+    return None
+
+
+def _comment_site(target: str) -> str | None:
+    """Which comments search a link belongs to. None for any other site."""
+    host = (urllib.parse.urlsplit((target or "").strip()).hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if host == "tiktok.com" or host.endswith(".tiktok.com"):
+        return "tiktok-comments"
+    if host == "reddit.com" or host.endswith(".reddit.com"):
+        return "reddit-comments"
     return None
 
 

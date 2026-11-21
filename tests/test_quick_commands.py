@@ -102,6 +102,55 @@ def test_the_voice_keeps_the_rest_and_trims_the_padding():
     assert "go to bed" in line and "already said" in line
 
 
+def test_spoken_clocks_keep_the_minute_and_the_seconds():
+    zone = datetime.now().astimezone().tzinfo
+    afternoon = datetime(2026, 11, 20, 15, 0, tzinfo=zone)
+    thirty_five = clock_in("at six thirty five", afternoon)
+    assert thirty_five is not None
+    assert thirty_five.hour == 18 and thirty_five.minute == 35
+    noon = clock_in("at 12", afternoon)
+    assert noon is not None and noon.hour == 12 and noon.date().day == 21
+    half = clock_in("half past six", afternoon)
+    assert half is not None and half.hour == 18 and half.minute == 30
+    quarter = clock_in("quarter to seven", afternoon)
+    assert quarter is not None and quarter.hour == 18 and quarter.minute == 45
+    now = datetime(2026, 11, 20, 15, 0, 40, tzinfo=zone)
+    soon = when_from("in 10 seconds", now)
+    assert soon is not None and (soon - now).total_seconds() == 10
+    stretch = match_quick_command("remind me in 10 seconds to stretch")
+    assert stretch is not None and stretch.detail == "to stretch"
+    moment = datetime.fromisoformat(stretch.when)
+    assert 0 < (moment - datetime.now().astimezone()).total_seconds() <= 10
+    twenty = match_quick_command("set a timer for twenty minutes")
+    assert twenty is not None and twenty.kind == "timer" and twenty.seconds == 1200
+    half_hour = match_quick_command("set a timer for half an hour")
+    assert half_hour is not None and half_hour.seconds == 1800
+
+
+def test_more_phrases_stay_on_this_pc():
+    from babysitter.intents import match_tool
+
+    assert match_quick_command("what's the date").kind == "time"
+    assert match_quick_command("what's my next reminder").kind == "next_reminder"
+    assert match_quick_command("say that again").kind == "repeat"
+    assert match_quick_command("stop talking").kind == "hush"
+    assert match_quick_command("pin that").kind == "pin"
+    assert match_quick_command("how did my day go").kind == "journal_today"
+    assert match_quick_command("any unread mail").kind == "mail"
+    assert match_quick_command("open the second one").seconds == 2
+    found = match_quick_command("where is my tax pdf")
+    assert found is not None and found.kind == "find" and found.detail == "tax pdf"
+    assert match_quick_command("where is paris") is None
+    note = match_quick_command("make a note that the wifi is North")
+    assert note is not None and note.kind == "remember" and note.detail == "the wifi is North"
+    youtube = match_tool("comment themes https://www.youtube.com/watch?v=abc")
+    assert youtube is not None and youtube.kind == "refuse"
+    tiktok = match_tool("comment themes https://www.tiktok.com/@x/video/1")
+    assert tiktok is not None and tiktok.action_id == "tiktok-comments"
+    reddit = match_tool("read the comments on https://www.reddit.com/r/x/comments/abc")
+    assert reddit is not None and reddit.action_id == "reddit-comments"
+
+
 def test_a_long_sentence_is_split_before_the_voice_reads_it():
     from babysitter.plugins.voice.speech import speech_chunks
 
