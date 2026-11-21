@@ -10,6 +10,8 @@ A clock can be “six thirty five”, “half past six”, or “quarter to seve
 
 These stay on this PC: “what’s the date”, “what’s my next reminder”, “cancel the reminder”, “say that again”, “stop talking”, “pin that”, “how did my day go”, “any unread mail”, “where is my tax pdf”, and “open the second one”. “Where is Paris” still goes to the model. “Make a note that …” is a memory. “Don’t forget to …” is a reminder.
 
+A goal is not a reminder. It does not ring. “My goal is to finish the bracket”, then “say my goals”, puts the list on the Reminders page and reads it out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. Once that talk ends, “done” finishes a journal task again. “Find my goals” reads the list. “Where is my tax pdf” is still a file search.
+
 “Comment themes” on a YouTube link is no longer sent to Reddit. Comments are read only for a TikTok or Reddit link. Anything else is refused, and nothing is sent.
 
 ## Also in 0.15.0 — Tomorrow rings, and a reminder row can wrap

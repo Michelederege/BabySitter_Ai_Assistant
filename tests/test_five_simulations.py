@@ -1349,6 +1349,104 @@ def _feature_recognition() -> list[Outcome]:
     ]
 
 
+def _feature_goals() -> list[Outcome]:
+    """Five stretches of one conversation about goals, beside the other commands."""
+    from babysitter.goals import conversation
+
+    def one_goal():
+        turns = conversation([
+            "hey baby sitter my goal is to finish the bracket",
+            "say my goals",
+        ])
+        assert turns[0].items[0]["text"] == "finish the bracket"
+        assert "finish the bracket" in turns[1].speech
+        assert turns[1].detail == "1. finish the bracket"
+        return "finish the bracket."
+
+    def second_done():
+        turns = conversation([
+            "add a goal to finish the bracket",
+            "add another to call Mom",
+            "what are my goals",
+            "the second one is done",
+            "say my goals",
+        ])
+        assert turns[1].items[1]["text"] == "call Mom"
+        assert "finish the bracket" in turns[2].speech and "call Mom" in turns[2].speech
+        assert turns[3].items[1]["done"] == "yes"
+        assert turns[4].speech == "Your goal is finish the bracket."
+        assert "Done. call Mom" in turns[4].detail
+        return "call Mom is done."
+
+    def done_then_a_task():
+        turns = conversation([
+            "add a goal to finish the bracket",
+            "and also check my email",
+            "say my goals",
+            "done",
+            "what time is it",
+            "done",
+        ])
+        assert turns[1].route == "model"
+        assert [item["text"] for item in turns[1].items] == ["finish the bracket"]
+        assert turns[3].route == "goal_done" and turns[3].items[0]["done"] == "yes"
+        assert turns[4].route == "time" and turns[4].goals_open is False
+        assert turns[5].route == "task_done"
+        return "Done finishes the goal, then the task."
+
+    def beside_the_others():
+        turns = conversation([
+            "set a goal to get the shipment done",
+            "find my goals",
+            "where is my tax pdf",
+            "don't forget to lock the door",
+            "remind me in 10 seconds to stretch",
+            "set a timer for twenty minutes",
+            "what's my next reminder",
+            "cancel the reminder",
+            "open the second one",
+        ])
+        assert turns[0].items[0]["text"] == "get the shipment done"
+        assert turns[1].route == "goals" and "get the shipment done" in turns[1].speech
+        assert [turn.route for turn in turns[2:]] == [
+            "find",
+            "remind",
+            "remind",
+            "timer",
+            "next_reminder",
+            "cancel_reminder",
+            "open_number",
+        ]
+        return "The shipment goal stays a goal."
+
+    def drop_and_stop():
+        turns = conversation([
+            "add a goal to finish the bracket",
+            "add another to call Mom",
+            "drop the second goal",
+            "say that again",
+            "stop talking",
+            "that's all",
+            "the second",
+        ])
+        assert [item["text"] for item in turns[2].items] == ["finish the bracket"]
+        assert turns[2].speech.startswith("Dropped call Mom")
+        assert turns[3].route == "repeat" and turns[3].speech == turns[2].speech
+        assert turns[4].route == "hush" and turns[4].goals_open is True
+        assert turns[5].route == "stop" and turns[5].goals_open is False
+        assert turns[6].route == "model"
+        assert [item["text"] for item in turns[6].items] == ["finish the bracket"]
+        return "Dropped call Mom."
+
+    return [
+        _timed("say my goals", one_goal),
+        _timed("the second one is done", second_done),
+        _timed("done, then a task", done_then_a_task),
+        _timed("beside the other commands", beside_the_others),
+        _timed("drop it and stop", drop_and_stop),
+    ]
+
+
 def _feature_tomorrow() -> list[Outcome]:
     from babysitter.commands import when_from
 
@@ -1409,6 +1507,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("clock reminder", _feature_clock_reminder()),
         ("tomorrow", _feature_tomorrow()),
         ("recognition", _feature_recognition()),
+        ("goals", _feature_goals()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
         ("files", _feature_files()),

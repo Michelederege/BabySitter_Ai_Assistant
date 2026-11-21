@@ -181,6 +181,8 @@ The time left is on Home, in large type, and on the reminder’s own row. It tic
 
 Say undo within 10 seconds to remove a new one, or press Remove on the Reminders page. A reminder with no time stays on the list and does not count down.
 
+Goals are on that same page, above the reminders. A goal does not ring. Say “my goal is to finish the bracket”, then “say my goals”, and the list is shown and read out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. After the talk ends, “done” finishes a journal task again.
+
 ## Google mail and calendar
 
 This is off until you turn it on. It reads your own Gmail and Calendar. It does not send mail and does not delete mail.
