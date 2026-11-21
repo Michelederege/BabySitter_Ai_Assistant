@@ -91,6 +91,27 @@ def _yes_or_no(text: str) -> bool:
     return more_answer(text) in {"yes", "no"}
 
 
+def offer_audio(audio: queue.Queue, chunk: bytes) -> None:
+    """Keep the newest samples. A full queue drops the oldest chunk, not this one.
+
+    PortAudio can set a status flag on overflow. The samples in that callback
+    are still the sound, so the caller keeps them.
+    """
+    if not chunk:
+        return
+    try:
+        audio.put_nowait(chunk)
+    except queue.Full:
+        try:
+            audio.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            audio.put_nowait(chunk)
+        except queue.Full:
+            return
+
+
 def model_dir() -> Path:
     return data_dir() / "models" / "vosk" / MODEL_NAME
 
@@ -171,6 +192,7 @@ class KeywordListener:
         self.echo_cancel = False
         self.talk_over = False
         self._hot = 0
+        self._deaths = 0
 
     @property
     def running(self) -> bool:
@@ -210,18 +232,18 @@ class KeywordListener:
         from babysitter.platform import mark_current_thread_efficient
 
         mark_current_thread_efficient()
+        died = False
         try:
             import sounddevice as sd
             from vosk import Model
 
             model = Model(str(model_dir()))
             self._ensure_vad()
-            audio: queue.Queue[bytes] = queue.Queue()
+            audio: queue.Queue[bytes] = queue.Queue(maxsize=600)
 
             def on_audio(indata, _frames, _time, status) -> None:
-                if status:
-                    return
-                audio.put(bytes(indata))
+                del status
+                offer_audio(audio, bytes(indata))
 
             with sd.RawInputStream(
                 samplerate=16000,
@@ -238,11 +260,12 @@ class KeywordListener:
                     try:
                         chunk = audio.get(timeout=0.2)
                         quiet_gaps = 0
+                        self._deaths = 0
                     except queue.Empty:
                         # The callback delivers silence too. A long gap means the stream died.
                         quiet_gaps += 1
                         if quiet_gaps >= 15:
-                            on_status("restart")
+                            died = True
                             break
                         continue
                     utterance.extend(chunk)
@@ -283,6 +306,9 @@ class KeywordListener:
             on_error(str(exc) or "Keyword listening stopped.")
         finally:
             self._thread = None
+            if died and not self._stop.is_set():
+                self._deaths += 1
+                on_status("restart" if self._deaths < 3 else "microphone")
 
     def _ensure_vad(self) -> None:
         if not self.vad_enabled:

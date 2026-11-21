@@ -1545,6 +1545,54 @@ def _feature_hearing() -> list[Outcome]:
     ]
 
 
+def _feature_plain_speech() -> list[Outcome]:
+    """Five ordinary phrases that should land without a second try."""
+    from datetime import datetime, timedelta
+
+    from babysitter.commands import match_quick_command, when_from
+    from babysitter.plugins.voice.hearing import Transcript, hallucinated, merge_lines
+
+    now = datetime(2026, 11, 20, 9, 0, tzinfo=datetime.now().astimezone().tzinfo)
+
+    def hour_and_a_half():
+        found = match_quick_command("set a timer for an hour and a half")
+        assert found is not None and found.kind == "timer" and found.seconds == 90 * 60
+        return "90 minutes."
+
+    def two_and_a_half():
+        found = match_quick_command("set a timer for two and a half hours to bake")
+        assert found is not None and found.kind == "timer" and found.seconds == 9000
+        assert found.detail == "bake"
+        return "bake, in two and a half hours."
+
+    def half_a_minute():
+        found = match_quick_command("set a timer for half a minute")
+        assert found is not None and found.kind == "timer" and found.seconds == 30
+        return "30 seconds."
+
+    def remind_in_an_hour_and_a_half():
+        moment = when_from("in an hour and a half", now)
+        assert moment == now + timedelta(minutes=90)
+        found = match_quick_command("remind me in an hour and a half to stretch")
+        assert found is not None and found.kind == "remind" and found.detail == "to stretch"
+        return "to stretch."
+
+    def keep_the_real_line():
+        assert hallucinated("Thanks for watching.")
+        chosen = merge_lines("remind me to stretch", Transcript("what time is it", True))
+        assert chosen.text == "remind me to stretch"
+        assert merge_lines("babble", Transcript("what time is it", True)).text == "what time is it"
+        return "The reminder stays, and the clock still answers."
+
+    return [
+        _timed("an hour and a half", hour_and_a_half),
+        _timed("two and a half hours", two_and_a_half),
+        _timed("half a minute", half_a_minute),
+        _timed("in an hour and a half", remind_in_an_hour_and_a_half),
+        _timed("the real command", keep_the_real_line),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1561,6 +1609,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("tomorrow", _feature_tomorrow()),
         ("recognition", _feature_recognition()),
         ("hearing", _feature_hearing()),
+        ("plain speech", _feature_plain_speech()),
         ("goals", _feature_goals()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
