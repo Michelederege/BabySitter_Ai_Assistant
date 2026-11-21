@@ -21,6 +21,32 @@ def test_a_bad_list_is_moved_aside_before_a_new_item_is_saved(tmp_path, monkeypa
     assert (tmp_path / "schedule.json.bak").read_text(encoding="utf-8") == "{not a list"
 
 
+def test_a_full_microphone_queue_keeps_the_newest_sound():
+    import queue
+
+    from babysitter.plugins.voice.keyword import offer_audio
+
+    audio = queue.Queue(maxsize=2)
+    offer_audio(audio, b"one")
+    offer_audio(audio, b"two")
+    offer_audio(audio, b"three")
+    assert audio.get_nowait() == b"two"
+    assert audio.get_nowait() == b"three"
+
+
+def test_silence_and_a_short_hint_do_not_replace_the_real_command():
+    from babysitter.plugins.voice.hearing import Transcript, hallucinated, merge_lines
+
+    assert hallucinated("Thanks for watching!")
+    assert hallucinated("you")
+    assert not hallucinated("thank you")
+    vague = Transcript("what time is it", True)
+    chosen = merge_lines("remind me to stretch", vague)
+    assert chosen.text == "remind me to stretch"
+    longer = Transcript("remind me to stretch at noon", True)
+    assert merge_lines("what time is it", longer).text.startswith("remind me to stretch")
+
+
 def test_pcm_becomes_a_wav_and_the_text_time_is_reported():
     wav = pcm16_to_wav((b"\x00\x00") * 160)
     assert wav[:4] == b"RIFF"

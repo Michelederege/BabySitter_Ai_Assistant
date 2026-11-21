@@ -1883,6 +1883,15 @@ class Shell:
         if status == "restart":
             self._sync_keyword()
             return
+        if status == "microphone":
+            self.controller.settings.keyword_listening = False
+            save_settings(self.controller.settings)
+            self._show_keyword()
+            self.window.home.set_phase(
+                "on",
+                "The microphone stopped answering. Keyword listening is off. Turn it on to try again.",
+            )
+            return
         if status == "talk_over":
             self._cut_off()
             self.window.home.set_phase("on", "Stopped. I heard you over the voice.")
