@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.17.1 — A dead microphone comes back, and an hour and a half counts
+
+An overflow on the microphone no longer throws the sound away. When the keyword stream dies, listening starts again only after the old thread has let go. If it dies three times in a row, keyword listening turns off and says so, instead of opening the microphone forever.
+
+“An hour and a half”, “two and a half hours”, and “half a minute” are real lengths. When the keyword ear and Whisper both hear a command and they disagree, the longer line wins, so a short hint does not replace “remind me to stretch”. A clip that Whisper turns into “thanks for watching” or a lone “you” is treated as silence.
+
 ## 0.17.0 — The same ear for a keyword and for Hold Talk
 
 A keyword command keeps its audio and, when speech recognition is downloaded, Whisper reads that clip. Vosk still notices the wake words. The reading carries a short hint of the command verbs. A second, slower reading runs only when the first line is not already a command and the model doubts it. A weak line that is not a command is repeated back, and nothing is sent. “Set a time for twenty minutes” and “rewind me” still land on the timer and the reminder. “Fine my tax pdf” finds the file.

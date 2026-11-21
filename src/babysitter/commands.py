@@ -564,14 +564,18 @@ _AT_RE = re.compile(
     rf"\bat\s+({_HOUR_TOKEN})(?:\s+({_MINUTE_TOKEN}))?(?:\s+(am|pm))?\b"
 )
 _REL_RE = re.compile(
-    r"\bin\s+(half\s+an?\s+hour|an?\s+hour|an?\s+minute|an?\s+second"
-    r"|(?:[a-z]+(?:\s+[a-z]+)?|\d+)\s+(?:seconds|second|minutes|minute|hours|hour))\b"
+    r"\bin\s+(an?\s+hour\s+and\s+a\s+half|hour\s+and\s+a\s+half|a\s+minute\s+and\s+a\s+half"
+    r"|half\s+an?\s+hour|half\s+a\s+minute|an?\s+hour|an?\s+minute|an?\s+second"
+    r"|(?:[a-z]+(?:\s+[a-z]+)?|\d+)(?:\s+and\s+a\s+half)?"
+    r"\s+(?:seconds|second|minutes|minute|hours|hour))\b"
 )
 _BARE_AMPM = re.compile(r"(\d{1,2})(?::(\d{2}))?\s*(am|pm)")
 _BARE_CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 _DURATION_RE = re.compile(
-    r"^(half an hour|half a hour|half hour|an hour|a hour|a minute|a second)"
-    r"|^((?:[a-z]+(?:\s+[a-z]+)?)|\d+)\s+(seconds|second|minutes|minute|hours|hour)\b"
+    r"^(an hour and a half|a hour and a half|hour and a half|a minute and a half"
+    r"|half an hour|half a hour|half hour|half a minute|an hour|a hour|a minute|a second)"
+    r"|^((?:[a-z]+(?:\s+[a-z]+)?)|\d+)(?:\s+and\s+a\s+half)?"
+    r"\s+(seconds|second|minutes|minute|hours|hour)\b"
 )
 
 
@@ -829,9 +833,14 @@ def _from_at(match: re.Match[str], now: datetime, earliest: int) -> datetime | N
 def _relative_seconds(piece: str) -> int | None:
     text = " ".join((piece or "").split())
     named = {
+        "an hour and a half": 90 * 60,
+        "a hour and a half": 90 * 60,
+        "hour and a half": 90 * 60,
+        "a minute and a half": 90,
         "half an hour": 30 * 60,
         "half a hour": 30 * 60,
         "half hour": 30 * 60,
+        "half a minute": 30,
         "an hour": 3600,
         "a hour": 3600,
         "a minute": 60,
@@ -842,7 +851,7 @@ def _relative_seconds(piece: str) -> int | None:
     if text in named:
         return named[text]
     match = re.fullmatch(
-        r"((?:[a-z]+(?:\s+[a-z]+)?)|\d+)\s+(seconds|second|minutes|minute|hours|hour)",
+        r"((?:[a-z]+(?:\s+[a-z]+)?)|\d+)(?:\s+and\s+a\s+half)?\s+(seconds|second|minutes|minute|hours|hour)",
         text,
     )
     if not match:
@@ -851,10 +860,13 @@ def _relative_seconds(piece: str) -> int | None:
     if count is None:
         return None
     unit = match.group(2)
+    half = "and a half" in text
     if unit.startswith("hour"):
-        seconds = count * 3600
+        seconds = count * 3600 + (1800 if half else 0)
     elif unit.startswith("minute"):
-        seconds = count * 60
+        seconds = count * 60 + (30 if half else 0)
+    elif half:
+        return None
     else:
         seconds = count
     if seconds < 1 or seconds > 24 * 3600:
@@ -953,12 +965,8 @@ def _duration_in(tail: str) -> tuple[int, str] | None:
     match = _DURATION_RE.match(text)
     if not match:
         return None
-    if match.group(1):
-        seconds = _relative_seconds(match.group(1))
-        rest = text[match.end() :].strip()
-    else:
-        seconds = _relative_seconds(f"{match.group(2)} {match.group(3)}")
-        rest = text[match.end() :].strip()
+    seconds = _relative_seconds(match.group(1) or match.group(0))
+    rest = text[match.end() :].strip()
     if seconds is None:
         return None
     purpose = ""
