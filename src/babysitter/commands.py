@@ -17,7 +17,7 @@ class QuickCommand:
 
 
 _LEAD = re.compile(
-    r"^(?:baby\s*sitter|please|can you|could you|would you)\b[\s,]*",
+    r"^(?:hey|okay|ok|baby\s*sitter|please|can you|could you|would you)\b[\s,]*",
     re.IGNORECASE,
 )
 _TRAIL = re.compile(r"[\s,]*(?:please|thanks|thank you)\s*$", re.IGNORECASE)
@@ -156,6 +156,11 @@ def match_quick_command(text: str) -> QuickCommand | None:
     search = _search_command(phrase, original)
     if search:
         return search
+    from babysitter.goals import match_goal
+
+    goal = match_goal(text)
+    if goal is not None:
+        return goal
     if phrase.startswith("remember "):
         detail = _tail(original, "remember")
         if detail:
@@ -328,6 +333,19 @@ def _open_index(phrase: str) -> int | None:
     return _OPEN_WORDS.get(token)
 
 
+def _asks_for_goals(detail: str) -> bool:
+    """True when the words name the goals list, not a file."""
+    words = re.findall(r"[a-z0-9']+", (detail or "").lower())
+    return words in (
+        ["goal"],
+        ["goals"],
+        ["my", "goal"],
+        ["my", "goals"],
+        ["the", "goal"],
+        ["the", "goals"],
+    )
+
+
 def _search_command(phrase: str, original: str) -> QuickCommand | None:
     number = _open_index(phrase)
     if number is not None:
@@ -355,6 +373,8 @@ def _search_command(phrase: str, original: str) -> QuickCommand | None:
         # "find out about ..." and "look for news ..." belong to the model.
         first = detail.split()[0].lower() if detail.split() else ""
         if first in {"out", "news", "information", "info"}:
+            return None
+        if _asks_for_goals(detail):
             return None
         return QuickCommand("find", detail=detail)
     return None
