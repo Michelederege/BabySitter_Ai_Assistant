@@ -11,6 +11,7 @@ import io
 import sys
 import threading
 import wave
+from dataclasses import dataclass
 
 from babysitter.paths import data_dir
 from babysitter.platform import run_hidden
@@ -112,6 +113,7 @@ class Recorder:
             raise HearingError("Speech recognition is not installed yet.")
         import sounddevice as sd
 
+        self.close()
         self._chunks = []
 
         def on_audio(indata, _frames, _time, status) -> None:
@@ -160,9 +162,45 @@ class Recorder:
                 return
 
 
-def transcribe(wav_bytes: bytes) -> str:
+# Command words, so a short line is less often heard as something else.
+# One hint only. faster-whisper puts hotwords in this same slot.
+COMMAND_HINT = (
+    "remind me, set a timer, my goals, find the file, cancel the reminder, "
+    "remember that, what time is it."
+)
+
+
+@dataclass(frozen=True)
+class Transcript:
+    text: str
+    confident: bool
+
+
+def pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
+    """int16 mono samples as a wav the speech model can read."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(rate)
+        handle.writeframes(pcm or b"")
+    return buffer.getvalue()
+
+
+def _matches_local(text: str) -> bool:
+    from babysitter.commands import match_quick_command
+    from babysitter.intents import match_tool
+
+    heard = (text or "").strip()
+    if not heard:
+        return False
+    return match_quick_command(heard) is not None or match_tool(heard) is not None
+
+
+def read_speech(wav_bytes: bytes, beam_size: int = 1) -> Transcript:
+    """One reading. confident is false when the model itself doubts the line."""
     if not wav_bytes:
-        return ""
+        return Transcript("", False)
     if not packages_installed():
         raise HearingError("Speech recognition is not installed yet.")
     if not model_ready():
@@ -175,6 +213,72 @@ def transcribe(wav_bytes: bytes) -> str:
         frames = handle.readframes(handle.getnframes())
     audio = np.frombuffer(frames, dtype=np.int16).astype("float32") / 32768.0
     model = load_model()
-    segments, _info = model.transcribe(audio, language="en", beam_size=1, vad_filter=True)
-    text = " ".join(segment.text.strip() for segment in segments).strip()
-    return text
+    segments, _info = model.transcribe(
+        audio,
+        language="en",
+        beam_size=beam_size,
+        vad_filter=True,
+        initial_prompt=COMMAND_HINT,
+        condition_on_previous_text=False,
+    )
+    texts: list[str] = []
+    logprobs: list[float] = []
+    noise: list[float] = []
+    for segment in segments:
+        texts.append(segment.text.strip())
+        logprobs.append(float(segment.avg_logprob))
+        noise.append(float(segment.no_speech_prob))
+    text = " ".join(part for part in texts if part).strip()
+    if not text or not logprobs:
+        return Transcript("", False)
+    average = sum(logprobs) / len(logprobs)
+    loud_noise = max(noise) if noise else 0.0
+    confident = average >= -1.0 and loud_noise < 0.6
+    return Transcript(text, confident)
+
+
+def needs_second_pass(heard: Transcript) -> bool:
+    """A second, slower reading only when the first line is not already a command."""
+    if _matches_local(heard.text):
+        return False
+    return not heard.text or not heard.confident
+
+
+def pick_pass(first: Transcript, second: Transcript | None) -> Transcript:
+    """Prefer a local command, then a confident line, then the first words."""
+    if second is not None and _matches_local(second.text):
+        return Transcript(second.text, True)
+    if _matches_local(first.text) or (first.text and first.confident):
+        return first
+    if second is not None and second.text and second.confident:
+        return second
+    if first.text:
+        return Transcript(first.text, False)
+    if second is not None:
+        return Transcript(second.text, False)
+    return Transcript("", False)
+
+
+def merge_lines(vosk: str, whisper: Transcript) -> Transcript:
+    """Hands-free keeps the line that is a real command. Whisper wins when it is sure."""
+    keyword = (vosk or "").strip()
+    heard = Transcript((whisper.text or "").strip(), whisper.confident)
+    whisper_matches = _matches_local(heard.text)
+    keyword_matches = _matches_local(keyword)
+    if whisper_matches and not keyword_matches:
+        return Transcript(heard.text, True)
+    if keyword_matches and not whisper_matches:
+        return Transcript(keyword, True)
+    if heard.text and heard.confident:
+        return heard
+    if keyword:
+        return Transcript(keyword, True)
+    if heard.text:
+        return Transcript(heard.text, False)
+    return Transcript("", False)
+
+
+def transcribe(wav_bytes: bytes) -> str:
+    first = read_speech(wav_bytes, beam_size=1)
+    second = read_speech(wav_bytes, beam_size=5) if wav_bytes and needs_second_pass(first) else None
+    return pick_pass(first, second).text
