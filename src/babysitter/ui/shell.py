@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
-from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
+from babysitter.ui.jobs import retain_until_finished, take_turn
 
 from babysitter.commands import QuickCommand, match_quick_command, spoken_clock, spoken_when, timer_label
 from babysitter.filefind import (
@@ -900,7 +900,7 @@ class Shell:
             return
         page.show_message("Searching public posts…", busy=True)
         job = _SearchJob(prepared, key)
-        self._search_job = job
+        self._store_job("_search_job", job)
         job.succeeded.connect(self._search_ok)
         job.failed.connect(page.show_message)
         job.start()
@@ -1004,14 +1004,14 @@ class Shell:
                     return
 
         job = _Job()
-        self._hearing_job = job
+        self._store_job("_hearing_job", job)
         job.start()
 
     def _warm_voice(self) -> None:
         if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
             return
         job = _WarmVoiceJob(self.turns.busy)
-        self._warm_job = job
+        self._store_job("_warm_job", job)
         job.start()
 
     def _on_status(self, snap) -> None:
@@ -1372,7 +1372,7 @@ class Shell:
         ):
             return
         job = _EmbedderDownloadJob()
-        self._embedder_job = job
+        self._store_job("_embedder_job", job)
         self.window.home.set_phase(
             self.controller.state, "Downloading the sharper memory onto this PC."
         )
@@ -1666,11 +1666,7 @@ class Shell:
             return
         self._show_mode("thinking", "Turning speech into text on this PC.")
         self.window.home.set_phase("thinking", "The microphone is closed. Nothing has been sent yet.")
-        job = _HearJob(wav)
-        self._hear_job = job
-        job.heard.connect(self._heard)
-        job.failed.connect(self._hear_failed)
-        job.start()
+        self._start_hear(wav, self._heard)
 
     def _heard(self, text: str, audio: object = None) -> None:
         wav = bytes(audio) if isinstance(audio, (bytes, bytearray)) and audio else b""
@@ -1683,11 +1679,7 @@ class Shell:
                 if getattr(self, "_listener", None) is not None:
                     self._listener.stop()
                 self._show_mode("thinking", "Turning speech into text on this PC.")
-                job = _HearJob(wav)
-                self._hear_job = job
-                job.heard.connect(self._merge_keyword)
-                job.failed.connect(self._hear_failed)
-                job.start()
+                self._start_hear(wav, self._merge_keyword)
                 return
         self._skip_redecode = False
         if getattr(self, "_listener", None) is not None:
@@ -1850,7 +1842,7 @@ class Shell:
             self.window.home.set_phase("on", "Keyword listening is off. The microphone is closed.")
             return
         job = _KeywordDownloadJob()
-        self._keyword_job = job
+        self._store_job("_keyword_job", job)
         self.window.home.set_phase("on", "Downloading the keyword model onto this PC.")
         job.succeeded.connect(self._keyword_downloaded)
         job.failed.connect(self._keyword_download_failed)
@@ -2039,7 +2031,7 @@ class Shell:
             personality=getattr(self, "_session_personality", ""),
         )
         job.turn = self._turn_id
-        self._ask_job = job
+        self._store_job("_ask_job", job)
         job.measured.connect(lambda stats, turn=job.turn: self._on_measured(stats, turn))
         job.first_token.connect(lambda turn=job.turn: self._on_first_token(turn))
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
@@ -2109,7 +2101,10 @@ class Shell:
                 play_clip(pcm, rate, self._filler_stop)
 
         job = _Play()
-        self._filler_job = job
+        if take_turn(self._thread_busy(getattr(self, "_filler_job", None))) == "wait":
+            self._retain_thread(self._filler_job)
+            return
+        self._store_job("_filler_job", job)
         job.finished.connect(self._filler_done)
         job.start()
         if clock is not None:
@@ -2506,7 +2501,7 @@ class Shell:
             personality=getattr(self, "_session_personality", ""),
         )
         job.turn = self._turn_id
-        self._ask_job = job
+        self._store_job("_ask_job", job)
         job.measured.connect(lambda stats, turn=job.turn: self._on_measured(stats, turn))
         job.first_token.connect(lambda turn=job.turn: self._on_first_token(turn))
         job.lead_ready.connect(lambda lead, turn=job.turn: self._lead_ready(lead, turn))
@@ -2672,7 +2667,7 @@ class Shell:
             self._release_waiting_scan()
             return
         job = _KokoroDownloadJob()
-        self._kokoro_job = job
+        self._store_job("_kokoro_job", job)
         self.window.home.set_phase("on", "Downloading Heart and Sarah onto this PC. This can take a few minutes.")
         job.succeeded.connect(self._kokoro_ready)
         job.failed.connect(self._kokoro_failed)
@@ -2689,6 +2684,49 @@ class Shell:
         self._sync_keyword()
         self._release_waiting_scan()
 
+    def _thread_busy(self, job) -> bool:
+        try:
+            return job is not None and job.isRunning()
+        except RuntimeError:
+            return False
+
+    def _retain_thread(self, job) -> None:
+        held = getattr(self, "_live_threads", None)
+        if held is None:
+            held = []
+            self._live_threads = held
+        retain_until_finished(job, held)
+
+    def _store_job(self, name: str, job) -> None:
+        previous = getattr(self, name, None)
+        if previous is not None and previous is not job and self._thread_busy(previous):
+            self._retain_thread(previous)
+        setattr(self, name, job)
+        self._retain_thread(job)
+
+    def _start_hear(self, wav: bytes, on_heard) -> None:
+        """One transcription at a time. A second clip waits, and only the newest is kept."""
+        running = getattr(self, "_hear_job", None)
+        if take_turn(self._thread_busy(running)) == "wait":
+            self._retain_thread(running)
+            self._queued_hear = (wav, on_heard)
+            return
+        job = _HearJob(wav)
+        self._hear_job = job
+        self._retain_thread(job)
+        job.heard.connect(on_heard)
+        job.failed.connect(self._hear_failed)
+        job.finished.connect(self._hear_finished)
+        job.start()
+
+    def _hear_finished(self) -> None:
+        queued = getattr(self, "_queued_hear", None)
+        self._queued_hear = None
+        if not queued:
+            return
+        wav, on_heard = queued
+        self._start_hear(wav, on_heard)
+
     def _start_speech(self, text: str, prefs: dict, hold_open: bool = False) -> None:
         if not text:
             self._speaking = False
@@ -2698,7 +2736,15 @@ class Shell:
             self._sync_keyword()
             return
         job = _SpeakJob(text, prefs, self._turn_id)
+        if take_turn(self._thread_busy(getattr(self, "_speak_job", None))) == "wait":
+            self._retain_thread(self._speak_job)
+            self._queued_speech = (text, prefs, hold_open)
+            self._speak_job.close_input()
+            stop_kokoro()
+            speaker.stop()
+            return
         self._speak_job = job
+        self._retain_thread(job)
         self._show_mode("speaking", text)
         self.window.home.set_phase("speaking", f"Speaking with {prefs['label']}.")
         job.started.connect(self._sound_started)
@@ -2732,6 +2778,12 @@ class Shell:
         self.window.home.set_phase(self.controller.state, message)
 
     def _speak_done(self) -> None:
+        queued = getattr(self, "_queued_speech", None)
+        self._queued_speech = None
+        if queued:
+            text, prefs, hold_open = queued
+            self._start_speech(text, prefs, hold_open=hold_open)
+            return
         self._speaking = False
         if getattr(self, "_alert_speech", False):
             self._alert_speech = False
@@ -3052,7 +3104,7 @@ class Shell:
             self._speak(speech)
             return
         job = _FindJob(self._search_places())
-        self._find_job = job
+        self._store_job("_find_job", job)
         self.window.home.set_phase(self.controller.state, "Looking through your folders…")
         self.window.files_page.set_busy_line("Looking through your folders…")
         job.finished_scan.connect(lambda payload: self._scan_arrived(text, wanted, payload))
@@ -3569,11 +3621,11 @@ class Shell:
             return
         if only_new:
             job = _GooglePollJob(token, self._seen_google)
-            self._google_job = job
+            self._store_job("_google_job", job)
             job.ready.connect(self._google_poll_ready)
         else:
             job = _GoogleJob(token, kind)
-            self._google_job = job
+            self._store_job("_google_job", job)
             job.ready.connect(self._google_ready)
             self.window.tools_page.show_google("Checking Google. Only mail and calendar are read.")
         job.start()
@@ -3648,7 +3700,7 @@ class Shell:
         state = verifier[:16]
         url = authorization_url(cleaned, state, challenge)
         job = _SignInJob(cleaned, verifier, state, url)
-        self._sign_in_job = job
+        self._store_job("_sign_in_job", job)
         job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
         job.finished_ok.connect(self._google_signed_in)
         job.failed.connect(page.show_google)
@@ -3786,7 +3838,7 @@ class Shell:
             )
             return
         job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
-        self._bench_job = job
+        self._store_job("_bench_job", job)
         self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
         job.finished_text.connect(self._benchmark_done)
         job.start()
@@ -3856,7 +3908,7 @@ class Shell:
             self.window.voice_page.status.setText("Nothing was downloaded.")
             return
         job = _InstallHearingJob()
-        self._install_job = job
+        self._store_job("_install_job", job)
         self.window.voice_page.status.setText("Downloading. This can take a few minutes. You can leave this window open.")
         job.succeeded.connect(self.window.voice_page.status.setText)
         job.failed.connect(lambda message: self.window.voice_page.status.setText(message))

@@ -92,6 +92,11 @@ def _yes_or_no(text: str) -> bool:
     return more_answer(text) in {"yes", "no"}
 
 
+def should_join_listener(already_requested: bool, alive: bool) -> bool:
+    """A burst of stops waits once. Later stops leave the thread to exit."""
+    return alive and not already_requested
+
+
 def offer_audio(audio: queue.Queue, chunk: bytes) -> None:
     """Keep the newest samples. A full queue drops the oldest chunk, not this one.
 
@@ -234,6 +239,7 @@ class KeywordListener:
         self.talk_over = False
         self._hot = 0
         self._deaths = 0
+        self._stop_requested = False
 
     @property
     def running(self) -> bool:
@@ -245,6 +251,7 @@ class KeywordListener:
         if not packages_installed() or not model_ready():
             raise KeywordError("Keyword listening is not downloaded yet.")
         self._stop.clear()
+        self._stop_requested = False
         self._thread = threading.Thread(
             target=self._run,
             args=(clean_keyword(keyword), on_phrase, on_status, on_error),
@@ -264,10 +271,16 @@ class KeywordListener:
     def stop(self) -> None:
         self._stop.set()
         thread = self._thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=3)
-        if thread is None or not thread.is_alive():
+        if thread is None or thread is threading.current_thread():
+            return
+        alive = thread.is_alive()
+        if should_join_listener(self._stop_requested, alive):
+            self._stop_requested = True
+            thread.join(timeout=0.2)
+            alive = thread.is_alive()
+        if not alive:
             self._thread = None
+            self._stop_requested = False
 
     def _run(self, keyword: str, on_phrase, on_status, on_error) -> None:
         from babysitter.platform import mark_current_thread_efficient
