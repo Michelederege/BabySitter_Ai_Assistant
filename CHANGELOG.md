@@ -4,7 +4,7 @@ BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
 ## 0.17.2 — The window stays open when the keyword libraries are packed wrong
 
-Turning the AI on checks whether keyword listening is installed. In the built exe that check opened Vosk, and Vosk asked Windows for a temp folder that the exe had not unpacked. Windows could not find it, and BabySitter closed with an error. A missing folder now means keyword listening stays off, and the rest of the window stays up. The build also packs the Vosk and microphone libraries into the exe, so the next build can open them.
+Turning the AI on was opening Vosk even when keyword listening was off. In the built exe, Vosk asked Windows for a temp folder that had not been unpacked. Windows could not find it, and BabySitter closed with an error. Keyword listening is the only path that opens Vosk now. A missing folder leaves that feature off, and the window stays up. The build also packs the Vosk and microphone libraries into the exe.
 
 ## 0.17.1 — A dead microphone comes back, and an hour and a half counts
 
