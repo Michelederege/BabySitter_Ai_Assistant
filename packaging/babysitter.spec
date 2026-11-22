@@ -22,16 +22,32 @@ for line in VERSION.splitlines():
 
 block_cipher = None
 
+
+def _bundle(package: str):
+    """Libraries a package loads from its own folder. Empty when it is not installed."""
+    try:
+        from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+
+        return list(collect_dynamic_libs(package)), list(collect_data_files(package))
+    except Exception:
+        return [], []
+
+
+vosk_binaries, vosk_data = _bundle("vosk")
+sound_binaries, sound_data = _bundle("sounddevice")
+
 a = Analysis(
     [str(ROOT / "src" / "babysitter" / "__main__.py")],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=vosk_binaries + sound_binaries,
     datas=[
         (str(ROOT / "assets" / "icon.png"), "assets"),
         (str(ROOT / "assets" / "icon.ico"), "assets"),
         (str(ROOT / "assets" / "hero.jpg"), "assets"),
         (str(ROOT / "assets" / "fonts"), "assets/fonts"),
         (str(ROOT / "assets" / "orb"), "assets/orb"),
+        *vosk_data,
+        *sound_data,
     ],
     hiddenimports=[
         "babysitter",
@@ -40,6 +56,14 @@ a = Analysis(
         "PySide6.QtGui",
         "PySide6.QtWidgets",
         "PySide6.QtNetwork",
+        "vosk",
+        "vosk.vosk_cffi",
+        "sounddevice",
+        "cffi",
+        "_cffi_backend",
+        "srt",
+        "tqdm",
+        "requests",
     ],
     hookspath=[],
     hooksconfig={},

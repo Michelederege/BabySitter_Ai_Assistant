@@ -946,7 +946,15 @@ class Shell:
         self.window.home.set_history(self.controller.history)
         self._show_mode(state, message)
         self.window.set_status_line(message)
-        self._sync_keyword()
+        try:
+            self._sync_keyword()
+        except (ImportError, OSError):
+            try:
+                from babysitter.logsetup import get_logger
+
+                get_logger().exception("Keyword listening did not start")
+            except Exception:
+                pass
         if state == "off":
             release_model()
             release_kokoro()
