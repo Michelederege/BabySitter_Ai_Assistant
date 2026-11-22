@@ -1872,8 +1872,12 @@ class Shell:
         self._apply_listen_policy()
         busy = getattr(self, "_speaking", False) or getattr(self, "_holding", False)
         settings = self.controller.settings
+        # Importing Vosk asks Windows for its folder. Skip that unless keyword listening is on.
+        if busy or not settings.keyword_listening or self.controller.state != "on":
+            self._listener.stop()
+            return
         ready = keyword_packages_installed() and keyword_model_ready()
-        if not busy and settings.keyword_listening and self.controller.state == "on" and ready:
+        if ready:
             try:
                 self._listener.start(
                     settings.keyword,
@@ -2793,8 +2797,8 @@ class Shell:
     def _open_followup(self) -> None:
         settings = self.controller.settings
         listening = settings.keyword_listening and self.controller.state == "on"
-        ready = keyword_packages_installed() and keyword_model_ready()
-        heard = listening and ready and getattr(self, "_listener", None) is not None
+        ready = listening and keyword_packages_installed() and keyword_model_ready()
+        heard = ready and getattr(self, "_listener", None) is not None
         goals = getattr(self, "_goals_open", False)
         # The goal talk ends when this clock runs out, even with the keyword off.
         # Otherwise "the second" would still change a goal much later.
