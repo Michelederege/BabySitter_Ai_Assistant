@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.17.2 — The window stays open when the keyword libraries are packed wrong
+
+Turning the AI on was opening Vosk even when keyword listening was off. In the built exe, Vosk asked Windows for a temp folder that had not been unpacked. Windows could not find it, and BabySitter closed with an error. Keyword listening is the only path that opens Vosk now. A missing folder leaves that feature off, and the window stays up. The build also packs the Vosk and microphone libraries into the exe.
+
+A burst of clicks or typed lines no longer starts a second voice or a second transcription over the one already running. The newest request waits, and the thread that is already going is kept until it finishes. Stopping keyword listening waits once, then leaves the microphone thread to exit. Enter on a reminder or a goal does not save the same line twice.
+
 ## 0.17.1 — A dead microphone comes back, and an hour and a half counts
 
 An overflow on the microphone no longer throws the sound away. When the keyword stream dies, listening starts again only after the old thread has let go. If it dies three times in a row, keyword listening turns off and says so, instead of opening the microphone forever.

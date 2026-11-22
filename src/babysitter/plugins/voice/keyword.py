@@ -7,6 +7,7 @@ on. Audio is checked in memory. It is not saved and it is not sent anywhere.
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import sys
@@ -91,6 +92,11 @@ def _yes_or_no(text: str) -> bool:
     return more_answer(text) in {"yes", "no"}
 
 
+def should_join_listener(already_requested: bool, alive: bool) -> bool:
+    """A burst of stops waits once. Later stops leave the thread to exit."""
+    return alive and not already_requested
+
+
 def offer_audio(audio: queue.Queue, chunk: bytes) -> None:
     """Keep the newest samples. A full queue drops the oldest chunk, not this one.
 
@@ -120,11 +126,51 @@ def model_ready() -> bool:
     return (model_dir() / "conf" / "model.conf").is_file()
 
 
+def vosk_dll_directory(path: str) -> str:
+    """The real folder that holds libvosk.
+
+    The packaged exe reports the vosk folder inside a temp path. That folder
+    is not written to disk unless the libraries were packed beside it. Windows
+    then refuses to open the program. A real install already has the folder.
+    """
+    if os.path.isdir(path):
+        return path
+    root = getattr(sys, "_MEIPASS", "")
+    if root:
+        bundled = os.path.join(root, "vosk")
+        if os.path.isdir(bundled):
+            return bundled
+        if os.path.isdir(root):
+            return root
+    raise FileNotFoundError(path)
+
+
+def _import_vosk():
+    import os
+
+    if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
+        import vosk
+
+        return vosk
+    original = os.add_dll_directory
+
+    def add_dll_directory(path):
+        return original(vosk_dll_directory(os.fspath(path)))
+
+    os.add_dll_directory = add_dll_directory
+    try:
+        import vosk
+    finally:
+        os.add_dll_directory = original
+    return vosk
+
+
 def packages_installed() -> bool:
     try:
         import sounddevice  # noqa: F401
-        import vosk  # noqa: F401
-    except ImportError:
+
+        _import_vosk()
+    except (ImportError, OSError):
         return False
     return True
 
@@ -193,6 +239,7 @@ class KeywordListener:
         self.talk_over = False
         self._hot = 0
         self._deaths = 0
+        self._stop_requested = False
 
     @property
     def running(self) -> bool:
@@ -204,6 +251,7 @@ class KeywordListener:
         if not packages_installed() or not model_ready():
             raise KeywordError("Keyword listening is not downloaded yet.")
         self._stop.clear()
+        self._stop_requested = False
         self._thread = threading.Thread(
             target=self._run,
             args=(clean_keyword(keyword), on_phrase, on_status, on_error),
@@ -223,10 +271,16 @@ class KeywordListener:
     def stop(self) -> None:
         self._stop.set()
         thread = self._thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=3)
-        if thread is None or not thread.is_alive():
+        if thread is None or thread is threading.current_thread():
+            return
+        alive = thread.is_alive()
+        if should_join_listener(self._stop_requested, alive):
+            self._stop_requested = True
+            thread.join(timeout=0.2)
+            alive = thread.is_alive()
+        if not alive:
             self._thread = None
+            self._stop_requested = False
 
     def _run(self, keyword: str, on_phrase, on_status, on_error) -> None:
         from babysitter.platform import mark_current_thread_efficient
