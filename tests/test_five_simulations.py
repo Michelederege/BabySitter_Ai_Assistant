@@ -1593,6 +1593,46 @@ def _feature_plain_speech() -> list[Outcome]:
     ]
 
 
+def _feature_burst() -> list[Outcome]:
+    """Five checks that a burst of clicks does not start a second job."""
+    from babysitter.plugins.voice.keyword import should_join_listener
+    from babysitter.ui.jobs import take_turn
+
+    def one_voice():
+        assert take_turn(False) == "start"
+        assert take_turn(True) == "wait"
+        return "The second line waits."
+
+    def one_transcription():
+        assert take_turn(True) == "wait"
+        return "The second clip waits."
+
+    def one_stop():
+        assert should_join_listener(False, True) is True
+        assert should_join_listener(True, True) is False
+        assert should_join_listener(False, False) is False
+        return "The microphone is asked to stop once."
+
+    def idle_can_start():
+        assert take_turn(False) == "start"
+        assert should_join_listener(False, False) is False
+        return "An idle window can take the next click."
+
+    def newest_waits():
+        action = take_turn(True)
+        assert action == "wait"
+        assert take_turn(False) == "start"
+        return "The newest request runs when the first one finishes."
+
+    return [
+        _timed("one voice", one_voice),
+        _timed("one transcription", one_transcription),
+        _timed("one stop", one_stop),
+        _timed("idle", idle_can_start),
+        _timed("the newest line", newest_waits),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1610,6 +1650,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("recognition", _feature_recognition()),
         ("hearing", _feature_hearing()),
         ("plain speech", _feature_plain_speech()),
+        ("burst", _feature_burst()),
         ("goals", _feature_goals()),
         ("timer", _feature_timer()),
         ("journal", _feature_journal()),
