@@ -6,6 +6,8 @@ yet. Nothing here sends data off this PC.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import Signal
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -43,6 +45,16 @@ class _Page(QWidget):
         self.body = QPlainTextEdit()
         self.body.setReadOnly(True)
         self.root.addWidget(self.body)
+
+    def _fresh(self, key: str) -> bool:
+        """Enter and the button can both fire for one press. The second is ignored."""
+        now = time.monotonic()
+        last = getattr(self, "_press_at", {})
+        if now - last.get(key, 0.0) < 0.25:
+            return False
+        last[key] = now
+        self._press_at = last
+        return True
 
     def add_page_pin(self) -> None:
         row = QHBoxLayout()
@@ -143,6 +155,8 @@ class SchedulePage(_Page):
         fill_pinned_list(self.goals, goal_rows(items), self.pin_line.emit)
 
     def _add_goal(self) -> None:
+        if not self._fresh("goal"):
+            return
         text = self.goal_text.text().strip()
         if not text:
             self.notice.emit("Type the goal first. Nothing was saved.")
@@ -225,6 +239,8 @@ class SchedulePage(_Page):
         self.refresh()
 
     def _add(self) -> None:
+        if not self._fresh("reminder"):
+            return
         text = self.text.text().strip()
         when = self.when.text().strip()
         if not text and not when:
@@ -287,6 +303,8 @@ class MemoryPage(_Page):
         fill_pinned_list(self.facts, [(line, str(item.get("id") or "")) for item, line in zip(items, lines)], self.pin_line.emit)
 
     def _add(self) -> None:
+        if not self._fresh("memory"):
+            return
         text = self.text.text().strip()
         if not text:
             self.notice.emit("Type the fact first. Nothing was saved.")
