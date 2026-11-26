@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.19.1 — Read the Google Doc you are writing
+
+A question to the AI can include the Google Doc in the front window, or the one you changed in the last two hours. BabySitter reads that doc as plain text and keeps it on this PC. Say “what am I writing” to hear the title and the opening. Say “look up …” or “find a source for …” to search, after a yes. A credit line uses only a source that was actually returned. An invented author, title, date, or link is against the instruction. Downloading the file, and any format other than plain text, stays refused.
+
 ## 0.19.0 — Read Gmail, Calendar, Drive, school Google, and Blackboard
 
 Tools can show unread mail, upcoming events, and Drive file names in one list. Sign in with Google asks for read-only mail, calendar, and Drive. Sign in school Google stores a second account separately, so a school Gmail account does not replace the personal one. A failed read of one of those does not hide the others. An expired sign-in says to sign in again instead of quietly reusing a dead token.

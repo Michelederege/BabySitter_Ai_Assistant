@@ -204,6 +204,8 @@ When the AI turns on, BabySitter can speak new mail and events about every 15 mi
 
 Blackboard has no single student sign-in that works at every school. In Blackboard, open the calendar, copy the external calendar link, paste it under **Save Blackboard link**, and turn the feed on. BabySitter only reads that feed. A link to this computer, or to a numeric address, is refused. Say “what’s on blackboard”.
 
+While you are writing a Google Doc, a question to the AI includes that draft. BabySitter reads it as plain text when Google Docs is the front window, or when the doc was changed in the last two hours. Say “what am I writing” to hear the title and the opening. Suggestions stay on this PC. Say “look up …” or “find a source for …” when you want a source. That search still asks before it runs, and a credit line is added only for a source that came back. BabySitter does not invent an author, title, date, or link. A Word file on the PC is not read this way.
+
 ## Scan this PC
 
 Say “scan my PC”, or open PC Health and press **Suggest changes, one at a time**. BabySitter names one heavy app or one program that starts with Windows. Say yes to do that one, or no, deny, or leave it. The next suggestion follows. Games, Windows itself, and security tools are not closed. Turning a startup item off can be undone within 10 seconds. Closing an app cannot be reopened.
@@ -269,7 +271,7 @@ BabySitter does not collect usage data. There is no phone-home. With social sear
 
 If you turn social search on, a search you confirm also goes to `api.scrapecreators.com`. Nothing else is added to that request: not your files, not a screenshot, not what the model said. The key travels with the request and is not printed in the results.
 
-If you turn Google on, a mail, calendar, or Drive check goes to `gmail.googleapis.com` and `www.googleapis.com`. The request is a read. Drive returns file names and modified times, not the files. The token travels in the header and is not printed in the result. A Blackboard feed is a read of the https link you pasted. That link stays encrypted on this PC.
+If you turn Google on, a mail, calendar, or Drive check goes to `gmail.googleapis.com` and `www.googleapis.com`. The request is a read. Drive returns file names and modified times. A Google Doc you are writing is also read as plain text into the question on this PC. The file is not downloaded. The token travels in the header and is not printed in the result. A Blackboard feed is a read of the https link you pasted. That link stays encrypted on this PC.
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 

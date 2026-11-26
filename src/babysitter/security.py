@@ -187,12 +187,19 @@ def require_google_oauth_url(url: str) -> None:
 
 
 def require_google_url(url: str) -> None:
-    """Read-only Gmail and Calendar. No other Google host, and no http."""
+    """Read-only Gmail, Calendar, and Drive. No other Google host, and no http."""
     parsed = urllib.parse.urlsplit(url)
     host = (parsed.hostname or "").lower()
     path = parsed.path or ""
     if parsed.scheme != "https" or parsed.username or parsed.password:
         raise ValueError("That Google address is not allowed.")
+    query = urllib.parse.parse_qs(parsed.query)
+    if any(item.lower() == "media" for item in query.get("alt", [])):
+        raise ValueError("Drive files are not downloaded. A Google Doc is read as plain text.")
+    if path.rstrip("/").endswith("/export"):
+        mime = (query.get("mimeType") or [""])[0].lower()
+        if mime != "text/plain":
+            raise ValueError("A Google Doc is read as plain text.")
     if host == "gmail.googleapis.com" and path.startswith("/gmail/v1/"):
         return
     if host == "www.googleapis.com" and path.startswith("/calendar/v3/"):

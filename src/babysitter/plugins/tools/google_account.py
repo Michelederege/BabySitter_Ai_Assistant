@@ -29,6 +29,7 @@ DRIVE_LIST_URL = (
     "?pageSize=8&orderBy=modifiedTime%20desc&q=trashed%3Dfalse"
     "&fields=files(id,name,modifiedTime)"
 )
+DOCS_LIST_URL = "https://www.googleapis.com/drive/v3/files"
 _TOKEN_DESCRIPTION = "BabySitter Google token"
 
 
@@ -140,6 +141,51 @@ def http_get_json(url: str, token: str, opener=None) -> dict:
     if not isinstance(payload, dict):
         raise GoogleError("Google sent something BabySitter could not read. Nothing was changed.")
     return payload
+
+
+def docs_list_url() -> str:
+    """Recent Google Docs only. Names and times, not the document body."""
+    query = urllib.parse.urlencode(
+        {
+            "pageSize": "10",
+            "orderBy": "modifiedTime desc",
+            "q": "mimeType='application/vnd.google-apps.document' and trashed=false",
+            "fields": "files(id,name,modifiedTime,mimeType)",
+        }
+    )
+    return DOCS_LIST_URL + "?" + query
+
+
+def doc_export_url(file_id: str) -> str:
+    """Plain text of one Google Doc. Other formats are refused."""
+    if not _safe_id(file_id):
+        raise GoogleError("That Google Doc could not be read.")
+    return "https://www.googleapis.com/drive/v3/files/" + file_id + "?mimeType=text/plain"
+
+
+def http_get_text(url: str, token: str, opener=None, limit: int = 80_000) -> str:
+    """GET one allowlisted Google Doc as text. The token stays in the header."""
+    require_google_url(url)
+    if not token or any(character.isspace() for character in token):
+        raise GoogleError("There is no Google token saved.")
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("Authorization", "Bearer " + token)
+    request.add_header("Accept", "text/plain")
+    open_url = opener or urllib.request.urlopen
+    try:
+        with open_url(request, timeout=12) as response:
+            raw = response.read(limit + 1)
+            status = getattr(response, "status", 200)
+    except GoogleError:
+        raise
+    except Exception as exc:
+        raise GoogleError("The Google Doc could not be read. Nothing was changed.") from exc
+    if int(status) >= 400:
+        raise GoogleError("Google refused the document. Nothing was changed.")
+    text = raw[:limit].decode("utf-8", errors="replace")
+    if token in text:
+        raise GoogleError("The Google Doc could not be shown.")
+    return text
 
 
 class GoogleReader:
