@@ -6,6 +6,17 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 ".venv\Scripts\python.exe" -m pip install -r requirements-dev.txt
+if errorlevel 1 (
+  echo The build programs did not install. The exe was not built.
+  pause
+  exit /b 1
+)
+".venv\Scripts\python.exe" -m pip install -r requirements-voice.txt
+if errorlevel 1 (
+  echo The voice programs did not install. The exe was not built.
+  pause
+  exit /b 1
+)
 ".venv\Scripts\python.exe" -m PyInstaller packaging\babysitter.spec --noconfirm
 echo.
 echo The program is one file: dist\BabySitter.exe

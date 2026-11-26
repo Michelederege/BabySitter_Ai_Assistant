@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
 
+## 0.17.3 — The packaged voice no longer closes the window
+
+Previewing Heart and Sarah in the built exe opened Kokoro, and Kokoro asked for `config.json` in the temp folder. That file was never packed, so the error box came up and the window stopped. Keyword listening did the same thing when Vosk's libraries were unpacked at the top of the temp folder instead of in the vosk folder. A missing file or DLL now leaves that feature off. The hearing programs and the sharper memory had the same hole, and they take the same path.
+
+The build installs those programs first, then packs the files they open by path: Kokoro's config, espeak's data and library, PortAudio in its own folder, and Vosk's libraries in the vosk folder. The exe does not try to pip-install into itself. That was starting another copy of BabySitter.
+
 ## 0.17.2 — The window stays open when the keyword libraries are packed wrong
 
 Turning the AI on was opening Vosk even when keyword listening was off. In the built exe, Vosk asked Windows for a temp folder that had not been unpacked. Windows could not find it, and BabySitter closed with an error. Keyword listening is the only path that opens Vosk now. A missing folder leaves that feature off, and the window stays up. The build also packs the Vosk and microphone libraries into the exe.

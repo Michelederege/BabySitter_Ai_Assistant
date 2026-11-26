@@ -23,31 +23,60 @@ for line in VERSION.splitlines():
 block_cipher = None
 
 
-def _bundle(package: str):
-    """Libraries a package loads from its own folder. Empty when it is not installed."""
+def _bundle(package: str, dest: str | None = None):
+    """Libraries and data files a package opens by path.
+
+    Empty when that package is not installed in the Python that builds the exe.
+    PyInstaller follows an import and packs the Python. It does not pack a
+    json file or a DLL that the package opens by path. Those have to be named.
+    dest is the folder inside the exe. Leave it empty to keep the package's
+    own folders. Vosk is the exception: it joins its own folder with
+    libvosk.dll, so every Vosk library has to land in vosk/.
+    """
     try:
         from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
 
-        return list(collect_dynamic_libs(package)), list(collect_data_files(package))
+        binaries = list(collect_dynamic_libs(package, destdir=dest))
+        datas = list(collect_data_files(package))
+        return binaries, datas
     except Exception:
         return [], []
 
 
-vosk_binaries, vosk_data = _bundle("vosk")
-sound_binaries, sound_data = _bundle("sounddevice")
+# (package, destination folder or None to keep the package's own folders)
+_PACKED = (
+    ("vosk", "vosk"),
+    ("sounddevice", None),
+    ("_sounddevice_data", None),
+    ("kokoro_onnx", None),
+    ("espeakng_loader", None),
+    ("phonemizer", None),
+    ("onnxruntime", None),
+    ("ctranslate2", None),
+    ("faster_whisper", None),
+    ("tokenizers", None),
+    ("av", None),
+)
+
+_binaries = []
+_datas = []
+for _package, _dest in _PACKED:
+    _found_binaries, _found_data = _bundle(_package, _dest)
+    _binaries.extend(_found_binaries)
+    _datas.extend(_found_data)
+    print(f"Packing {_package}: {len(_found_binaries)} libraries, {len(_found_data)} data files")
 
 a = Analysis(
     [str(ROOT / "src" / "babysitter" / "__main__.py")],
     pathex=[str(ROOT / "src")],
-    binaries=vosk_binaries + sound_binaries,
+    binaries=_binaries,
     datas=[
         (str(ROOT / "assets" / "icon.png"), "assets"),
         (str(ROOT / "assets" / "icon.ico"), "assets"),
         (str(ROOT / "assets" / "hero.jpg"), "assets"),
         (str(ROOT / "assets" / "fonts"), "assets/fonts"),
         (str(ROOT / "assets" / "orb"), "assets/orb"),
-        *vosk_data,
-        *sound_data,
+        *_datas,
     ],
     hiddenimports=[
         "babysitter",
@@ -59,6 +88,13 @@ a = Analysis(
         "vosk",
         "vosk.vosk_cffi",
         "sounddevice",
+        "_sounddevice_data",
+        "kokoro_onnx",
+        "espeakng_loader",
+        "phonemizer",
+        "onnxruntime",
+        "faster_whisper",
+        "ctranslate2",
         "cffi",
         "_cffi_backend",
         "srt",

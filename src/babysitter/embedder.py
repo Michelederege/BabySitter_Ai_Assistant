@@ -26,6 +26,7 @@ import threading
 from pathlib import Path
 
 from babysitter.paths import data_dir
+from babysitter.platform import libraries_import, missing_from_exe, running_inside_exe
 
 
 DIMS = 64
@@ -162,12 +163,9 @@ def model_ready() -> bool:
 
 
 def packages_installed() -> bool:
-    try:
-        import numpy  # noqa: F401
-        import onnxruntime  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    # onnxruntime opens its own DLLs. A missing one in the packaged exe is
+    # an OSError, and it used to close the window.
+    return libraries_import("numpy", "onnxruntime")
 
 
 def ready() -> bool:
@@ -186,6 +184,8 @@ def download() -> str:
     for url in (MODEL_URL, VOCAB_URL):
         require_embedder_url(url)
     if not packages_installed():
+        if running_inside_exe():
+            raise EmbedderError(missing_from_exe("The sharper memory"))
         completed = run_hidden(install_command(), timeout=900)
         if completed.returncode not in (0, None):
             output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
