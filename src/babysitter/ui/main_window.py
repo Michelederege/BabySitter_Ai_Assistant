@@ -139,23 +139,27 @@ class MainWindow(QMainWindow):
         self.half_button = QPushButton("Half screen")
         self.half_button.setObjectName("windowButton")
         self.half_button.setCheckable(True)
-        self.half_button.setToolTip("Snaps to the left half of the screen, leaving room for a game beside it.")
+        self.half_button.setAccessibleName("Half screen")
+        self.half_button.setToolTip("Snaps to the left half of the screen, leaving room for a game beside it (F11 toggles).")
         self.half_button.clicked.connect(lambda: self._size_clicked(False))
         self.full_button = QPushButton("Full screen")
         self.full_button.setObjectName("windowButton")
         self.full_button.setCheckable(True)
-        self.full_button.setToolTip("Fills the screen. The taskbar stays visible.")
+        self.full_button.setAccessibleName("Full screen")
+        self.full_button.setToolTip("Fills the screen. The taskbar stays visible (F11 toggles).")
         self.full_button.clicked.connect(lambda: self._size_clicked(True))
         self.min_button = QPushButton("—")
         self.min_button.setObjectName("windowButton")
-        self.min_button.setToolTip("Hides the window. The frog orb stays, and a click on it brings the window back.")
+        self.min_button.setAccessibleName("Minimize to the orb")
+        self.min_button.setToolTip("Hides the window without turning the AI off. The frog orb stays, and a click on it brings the window back.")
         self.min_button.clicked.connect(self.hide)
         self.close_button = QPushButton("✕")
         self.close_button.setObjectName("closeButton")
-        self.close_button.setToolTip("Turns the AI off and hides the window. BabySitter stays in the tray; Quit is there.")
+        self.close_button.setAccessibleName("Close window and turn AI off")
+        self.close_button.setToolTip("Turns the AI off and hides the window (Esc). BabySitter stays in the tray; Quit is there.")
         self.close_button.clicked.connect(self.close)
         for button in (self.half_button, self.full_button, self.min_button, self.close_button):
-            button.setFocusPolicy(Qt.NoFocus)
+            button.setFocusPolicy(Qt.TabFocus)
             layout.addWidget(button)
         return bar
 
@@ -254,6 +258,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
         self.pill = QPushButton("Off")
+        self.pill.setAccessibleName("AI state: Off")
         self.pill.setToolTip("The same power switch as everywhere else. While Working, it cancels.")
         self.pill.setCursor(Qt.PointingHandCursor)
         layout.addWidget(self.pill)
@@ -262,6 +267,7 @@ class MainWindow(QMainWindow):
         self.status_line.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.status_line, 1)
         self.emergency = QPushButton("Emergency stop")
+        self.emergency.setAccessibleName("Emergency stop")
         self.emergency.setObjectName("danger")
         self.emergency.setToolTip("The same as Ctrl+Alt+F12. Turns the AI fully off, even when the window is hidden.")
         layout.addWidget(self.emergency)
@@ -296,6 +302,7 @@ class MainWindow(QMainWindow):
         if state in {"off", "error", "game"}:
             ink = "#1a2136"
         self.pill.setText(label)
+        self.pill.setAccessibleName(f"AI state: {label}")
         self.pill.setStyleSheet(
             f"color: {ink}; background: {color}; border: none; border-radius: 13px; "
             "padding: 5px 14px; font-weight: 700;"
@@ -348,8 +355,29 @@ class MainWindow(QMainWindow):
         self.hidden_to_tray.emit()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802
-        if event.key() == Qt.Key_Escape:
-            self.hide()
+        key = event.key()
+        mods = event.modifiers()
+        if key == Qt.Key_Escape:
+            focused = self.focusWidget()
+            if focused is not None and focused.__class__.__name__ in {"QLineEdit", "QComboBox"}:
+                focused.clearFocus()
+                return
+            self.close()
+            return
+        if key == Qt.Key_F11 and not mods:
+            self.toggle_size()
+            return
+        if key == Qt.Key_L and (mods & Qt.ControlModifier):
+            self.show_page(self.home)
+            self.home.typed.setFocus()
+            self.home.typed.selectAll()
+            return
+        if key in (Qt.Key_PageDown, Qt.Key_PageUp) and (mods & Qt.ControlModifier):
+            count = len(self._page_order)
+            if count:
+                step = 1 if key == Qt.Key_PageDown else -1
+                next_index = (self.stack.currentIndex() + step) % count
+                self.show_page(self._page_order[next_index])
             return
         super().keyPressEvent(event)
 

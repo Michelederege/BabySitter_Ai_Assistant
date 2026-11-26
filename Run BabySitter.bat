@@ -12,7 +12,7 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
-".venv\Scripts\python.exe" -c "import babysitter.app"
+".venv\Scripts\python.exe" -c "import babysitter.app, babysitter.ui.shell"
 if errorlevel 1 (
   echo.
   echo BabySitter could not start. Copy the text above.

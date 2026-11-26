@@ -1,6 +1,14 @@
 # Changelog
 
-BabySitter uses version numbers like v1.2.3. The voice loop is not in yet.
+BabySitter uses version numbers like v1.2.3.
+
+## 0.17.4 — Reliable Windows exe build, warmer replies, and keyboard access
+
+Opening BabySitter on Windows was failing inside `Shell.show` because `QApplication`, `QDialog`, `QFileDialog`, and `QMenu` had been dropped from `shell.py`'s imports. Those imports are back, and any startup failure inside the app now writes `%LOCALAPPDATA%\BabySitter\logs\startup-error.txt` before showing the error box. `scripts\build-exe.bat` now checks that `babysitter.ui.shell` imports cleanly, closes a tray-resident `BabySitter.exe` before rebuilding so Windows unlocks `dist\BabySitter.exe`, checks `PyInstaller`'s exit code and output file before reporting success, packs every `babysitter` submodule plus `numpy`, and leaves `pytest` and dev tools out of the exe.
+
+Typing a normal question on Home and pressing Enter or **Run it** now sends the line instead of stopping on “Waiting.” Saying “remember the cat is called Moth” saves the fact without the word “remember”, and saying “remind me at 6 pm to stretch” saves “stretch” with the clock time instead of repeating the time twice. Saying “undo” within 10 seconds of setting a timer now cancels the timer and removes its row from `schedule.json` so it cannot ring later. Store-folder games noticed automatically now also hide the orb when **Hide the orb while a watched game is in front** is on, and PC scans leave them alone too.
+
+Settings now includes the **Programs left out of the journal** list, Models has a **Remove model** control that asks before deleting a model from Ollama, Voice loads your saved voice, speed, and pitch (including pitch 0) on startup and blocks cloud voices that stay off, and Tools describes the spoken research recipes that already work. Local replies vary their phrasing naturally, conversation memory keeps local file, scan, Google, and review turns in context, text hints have higher contrast, and keyboard shortcuts (`Ctrl+L`, `F11`, `Ctrl+PageUp`, `Ctrl+PageDown`, `Esc`, and `Tab` focus rings) work across the window.
 
 ## 0.17.3 — The packaged voice no longer closes the window
 

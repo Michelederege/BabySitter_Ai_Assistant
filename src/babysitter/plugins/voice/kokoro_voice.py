@@ -138,17 +138,28 @@ def stop() -> None:
     _playback_stop.set()
 
 
+def _float_to_pcm16(samples) -> bytes:
+    """Convert float [-1.0, 1.0] samples to signed 16-bit little-endian PCM."""
+    try:
+        import numpy as np
+
+        arr = np.asarray(samples, dtype=np.float32)
+        return np.clip(arr * 32767.0, -32767.0, 32767.0).astype("<i2").tobytes()
+    except ImportError:
+        pcm = bytearray()
+        for value in samples:
+            clamped = max(-1.0, min(1.0, float(value)))
+            pcm += int(clamped * 32767).to_bytes(2, "little", signed=True)
+        return bytes(pcm)
+
+
 def render_clip(text: str) -> tuple[bytes, int]:
     """One int16 clip from Heart and Sarah. Used to pre-render filler lines."""
     if not ready():
         raise KokoroError("Heart and Sarah is not downloaded yet.")
     engine = _loaded_engine()
     samples, rate = _render(engine, text, _style("Heart & Sarah blend"), 1.05, -1)
-    pcm = bytearray()
-    for value in samples:
-        clamped = max(-1.0, min(1.0, float(value)))
-        pcm += int(clamped * 32767).to_bytes(2, "little", signed=True)
-    return bytes(pcm), int(rate)
+    return _float_to_pcm16(samples), int(rate)
 
 
 def speak_sequence(
@@ -249,18 +260,34 @@ def trim_edges(samples, sample_rate: int, lead_ms: int = 40, tail_ms: int = 180,
     window = min(count, int(rate * 0.9))
     start = 0
     found = False
-    for index in range(window):
-        if abs(float(samples[index])) > threshold:
-            start = index
-            found = True
-            break
-    if not found:
-        return samples
     end = count
-    for index in range(count - 1, max(count - window, start) - 1, -1):
-        if abs(float(samples[index])) > threshold:
-            end = index + 1
-            break
+    if hasattr(samples, "dtype"):
+        try:
+            import numpy as np
+
+            head = np.flatnonzero(np.abs(samples[:window]) > threshold)
+            if head.size == 0:
+                return samples
+            start = int(head[0])
+            found = True
+            tail_from = max(count - window, start)
+            tail = np.flatnonzero(np.abs(samples[tail_from:]) > threshold)
+            if tail.size > 0:
+                end = tail_from + int(tail[-1]) + 1
+        except Exception:
+            found = False
+    if not found:
+        for index in range(window):
+            if abs(float(samples[index])) > threshold:
+                start = index
+                found = True
+                break
+        if not found:
+            return samples
+        for index in range(count - 1, max(count - window, start) - 1, -1):
+            if abs(float(samples[index])) > threshold:
+                end = index + 1
+                break
     start = max(0, start - int(rate * lead_ms / 1000))
     end = min(count, end + int(rate * tail_ms / 1000))
     if end - start < max(1, rate // 20):

@@ -132,7 +132,7 @@ QToolTip {
     border-right: 1px solid #38436a;
 }
 #appRoot QLabel#railGroup {
-    color: #a3aec5;
+    color: #bcc6dc;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -230,11 +230,11 @@ QToolTip {
 #appRoot QLabel#gold { font-size: 22px; font-weight: 700; color: #ffe2bd; }
 #appRoot QLabel#section {
     font-size: 11px;
-    color: #a3aec5;
+    color: #bcc6dc;
     font-weight: 700;
     letter-spacing: 1px;
 }
-#appRoot QLabel#hint { color: #a3aec5; font-size: 13px; }
+#appRoot QLabel#hint { color: #bcc6dc; font-size: 13px; }
 #appRoot QLabel#mono { font-family: "JetBrains Mono"; font-size: 12px; }
 #appRoot QLabel#spoken { font-size: 17px; font-weight: 600; color: #ffffff; }
 #appRoot QLabel#bannerText { color: #e8ecf4; font-size: 14px; }
@@ -269,7 +269,7 @@ QToolTip {
     selection-background-color: #f5a54a;
     selection-color: #2a1606;
 }
-#appRoot QLineEdit:focus, #appRoot QComboBox:focus, #appRoot QPlainTextEdit:focus {
+#appRoot QLineEdit:focus, #appRoot QComboBox:focus, #appRoot QPlainTextEdit:focus, #appRoot QListWidget:focus {
     border-color: #f5a54a;
 }
 #appRoot QPushButton#pinIcon {
@@ -297,6 +297,8 @@ QToolTip {
     background: #1f2740;
 }
 #appRoot QCheckBox::indicator:checked { background: #f5a54a; border-color: #f5a54a; }
+#appRoot QCheckBox:focus { color: #ffffff; }
+#appRoot QCheckBox::indicator:focus { border: 2px solid #f6b977; }
 #appRoot QSlider::groove:horizontal {
     height: 6px;
     background: #38436a;
@@ -308,6 +310,10 @@ QToolTip {
     width: 14px;
     margin: -5px 0;
     border-radius: 7px;
+}
+#appRoot QSlider::handle:horizontal:focus {
+    background: #ffe2bd;
+    border: 2px solid #f5a54a;
 }
 #appRoot QProgressBar {
     background-color: #38436a;

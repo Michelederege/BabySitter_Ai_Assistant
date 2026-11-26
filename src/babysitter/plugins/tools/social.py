@@ -229,19 +229,19 @@ SEARCH_ACTIONS: tuple[SearchAction, ...] = (
 
 _BY_ID = {action.id: action for action in SEARCH_ACTIONS}
 
-# Named in our own words. These recipes need the talking assistant, which
-# is not built yet. The Tools tab can already do the search step.
+# Spoken research recipes wired through intents.py (each asks for a yes before
+# sending the cleaned query, then summarizes with the local model). Ad library
+# lookups stay intentionally refused.
 LATER_RECIPES: tuple[tuple[str, str], ...] = (
-    ("Outlier posts", "Find public posts that beat a creator's usual numbers."),
-    ("Comment themes", "Group what people are saying in public comments."),
-    ("Competitor look", "Compare a few public profiles side by side."),
-    ("Ad library", "Read public ads from the Facebook, Google, LinkedIn, or Reddit ad libraries."),
-    ("Trends", "See which public topics are getting attention."),
-    ("Creator search", "Find public creators around a topic."),
-    ("Listening brief", "Follow one topic across public posts."),
-    ("Product demand", "See if people are asking for a product in public posts."),
-    ("Creator notes", "Describe one public creator's recent posts."),
-    ("Repurposing ideas", "Turn one public post into ideas for other posts."),
+    ("Outlier posts", "Say “outlier posts about <topic>” to spot public posts beating usual numbers."),
+    ("Comment themes", "Say “comment themes <public TikTok or Reddit link>” to group what people are saying."),
+    ("Competitor look", "Say “compare the public profile <handle>” to review a public profile."),
+    ("Ad library (off)", "Ad library lookups stay refused — BabySitter only searches organic public posts."),
+    ("Trends", "Say “trends about <topic>” to see which public angles are getting attention."),
+    ("Listening brief", "Say “listening brief for <topic>” to follow one topic across public posts."),
+    ("Product demand", "Say “product demand for <topic>” to check whether people are asking for it."),
+    ("Creator notes", "Say “creator notes for <handle>” to summarize one public creator's page."),
+    ("Repurposing ideas", "Say “repurpose this post <YouTube link or topic>” to draft fresh post angles."),
 )
 
 

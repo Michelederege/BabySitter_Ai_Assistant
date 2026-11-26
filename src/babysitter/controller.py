@@ -134,7 +134,7 @@ class StatusThread(QThread):
                     gpu_error=str(exc),
                 )
             self.snapshot.emit(snap)
-            if self._stop.wait(1):
+            if self._stop.wait(2.0):
                 return
 
 
@@ -389,6 +389,21 @@ class Controller(QObject):
     def remove_game(self, name: str) -> None:
         self.settings.game_processes = [
             item for item in self.settings.game_processes if item.lower() != name.lower()
+        ]
+        save_settings(self.settings)
+
+    def add_journal_excluded(self, name: str) -> str:
+        cleaned = clean_process_name(name)
+        if len(self.settings.journal_excluded) >= 50:
+            raise ValueError("Fifty excluded programs is the limit. Remove one first.")
+        if cleaned.lower() not in {item.lower() for item in self.settings.journal_excluded}:
+            self.settings.journal_excluded.append(cleaned)
+            save_settings(self.settings)
+        return cleaned
+
+    def remove_journal_excluded(self, name: str) -> None:
+        self.settings.journal_excluded = [
+            item for item in self.settings.journal_excluded if item.lower() != name.lower()
         ]
         save_settings(self.settings)
 

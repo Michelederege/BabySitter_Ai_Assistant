@@ -268,6 +268,7 @@ class OllamaClient:
         num_batch=None,
         facts=None,
         personality: str = "",
+        context_note: str = "",
     ):
         """Yield each new piece as Ollama writes it. Nothing is logged."""
         body = chat_body(
@@ -279,6 +280,7 @@ class OllamaClient:
             num_batch=num_batch,
             facts=facts,
             personality=personality,
+            context_note=context_note,
         )
         if images:
             body["messages"][-1]["images"] = list(images)
@@ -319,6 +321,12 @@ class OllamaClient:
     def running_models(self) -> list[LoadedModel]:
         payload = self._request("GET", "/api/ps", timeout=5)
         return models_from_ps(payload)
+
+    def delete_model(self, name: str) -> None:
+        cleaned = (name or "").strip()
+        if not cleaned:
+            raise OllamaError("Type or choose a model name first.")
+        self._request("DELETE", "/api/delete", {"model": cleaned}, timeout=30)
 
     def preload(self, model: str, num_ctx: int, num_batch: int | None = None) -> None:
         """Load a model and leave it in memory.
@@ -486,18 +494,22 @@ def server_environment(base, host: str, port: int, num_ctx: int = 4096) -> dict:
 
 
 STABLE_SYSTEM = (
-    "Role: You are BabySitter, a voice assistant on this one PC. "
-    "Personality: Warm and brief. A little humor is fine, never at the user's expense. "
+    "Role: You are BabySitter, a warm, grounded voice companion living on this one PC. "
+    "Personality: Natural, friendly, and brief, like a thoughtful friend sitting nearby. "
+    "A little dry warmth or light humor is welcome, never at the user's expense. "
     "Drop the humor after a mistake or when something has failed. "
-    "Disagree when the user is wrong. Do not praise ideas by default. "
-    "Do not repeat the same phrase twice. "
+    "Disagree plainly and kindly when the user is wrong. Do not flatter or praise ideas by default. "
+    "Never open with stiff filler like 'Certainly!', 'Of course!', 'Great question!', or 'As an AI'. "
+    "Vary your openings and phrasing from turn to turn; do not repeat the same phrase twice. "
     "Speech: Answer in two or three plain sentences, like a person in the room. "
-    "Use contractions and ordinary spoken rhythm. "
+    "Use contractions and ordinary spoken rhythm that sounds natural read aloud. "
     "Put lists, code, and long detail after those sentences. "
-    "Conversation: Start with the answer. Continue from what was just said. "
+    "Conversation: Start with the answer. Continue from what was just said, weaving in earlier "
+    "details from the conversation naturally when they help. "
     "Do not repeat the whole answer, and do not ask them to confirm a chat. "
     "A yes or a no is for one change to this PC, or for something that leaves it. "
-    "Rules: Use the conversation so far. Do not invent a memory you were not given. "
+    "Rules: Use the conversation so far, including local tool, file, reminder, or scan turns. "
+    "Do not invent a memory you were not given. "
     "Do not paste shell commands, PowerShell, or Task Manager steps. "
     "A scan of this PC is performed before you are asked. Do not invent a scan result. "
     "Reminders, timers, the journal, and file search are saved on this PC before you are asked. "
@@ -514,6 +526,7 @@ def chat_body(
     num_batch=None,
     facts=None,
     personality: str = "",
+    context_note: str = "",
 ) -> dict:
     """The local chat request. Voice turns do not use hidden thinking.
 
@@ -534,7 +547,13 @@ def chat_body(
         options["num_batch"] = int(num_batch)
     return {
         "model": model,
-        "messages": chat_messages(prompt, history, facts=facts, personality=personality),
+        "messages": chat_messages(
+            prompt,
+            history,
+            facts=facts,
+            personality=personality,
+            context_note=context_note,
+        ),
         "stream": True,
         "keep_alive": keep_alive,
         "think": False,
@@ -608,7 +627,14 @@ def system_prompt(personality: str = "") -> str:
     return f"{STABLE_SYSTEM} {extra}"
 
 
-def chat_messages(prompt: str, history=None, now=None, facts=None, personality: str = "") -> list[dict]:
+def chat_messages(
+    prompt: str,
+    history=None,
+    now=None,
+    facts=None,
+    personality: str = "",
+    context_note: str = "",
+) -> list[dict]:
     """The standing instructions stay fixed. The clock is only on the newest line."""
     from datetime import datetime
 
@@ -627,6 +653,9 @@ def chat_messages(prompt: str, history=None, now=None, facts=None, personality: 
     saved = [str(fact).strip() for fact in facts or [] if str(fact).strip()]
     if saved:
         line += " Saved facts from this PC: " + " | ".join(saved[:2])
+    desk = (context_note or "").strip()
+    if desk:
+        line += f" Active desk context on this PC: {desk}"
     messages.append({"role": "user", "content": line})
     return messages
 

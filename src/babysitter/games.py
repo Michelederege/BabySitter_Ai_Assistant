@@ -101,10 +101,17 @@ def clean_process_name(name: str) -> str:
     return base
 
 
-def should_hide_orb(enabled: bool, foreground: str | None, watchlist: list[str]) -> bool:
-    """Hide BabySitter's own orb while a watched game is the front window."""
+def should_hide_orb(
+    enabled: bool,
+    foreground: str | None,
+    watchlist: list[str],
+    detected_game: str | None = None,
+) -> bool:
+    """Hide BabySitter's own orb while a watched or detected game is the front window."""
     if not enabled or not foreground:
         return False
+    if detected_game and foreground.lower() == detected_game.lower():
+        return True
     return first_matching_game(watchlist, {foreground}) is not None
 
 

@@ -74,6 +74,7 @@ class JournalPage(QWidget):
         root.addWidget(task_label)
         task_row = QHBoxLayout()
         self.task_name = QLineEdit()
+        self.task_name.setAccessibleName("Task name")
         self.task_name.setPlaceholderText("wiring the shelf")
         self.task_name.setToolTip("A few words naming what you are working on.")
         start = QPushButton("Start task")
@@ -99,6 +100,7 @@ class JournalPage(QWidget):
         today_row.addWidget(today_pin)
         root.addLayout(today_row)
         self.lines = QListWidget()
+        self.lines.setAccessibleName("Today's journal entries")
         self.lines.setToolTip("Each line of today's journal. The pin puts that line on the board.")
         root.addWidget(self.lines, 1)
         self.body = QPlainTextEdit()
@@ -184,6 +186,7 @@ class FilesPage(QWidget):
 
         row = QHBoxLayout()
         self.query = QLineEdit()
+        self.query.setAccessibleName("File name search")
         self.query.setPlaceholderText("tax pdf, dragon stl, resume…")
         self.query.setToolTip("A few words from the file name. Current or latest picks the one opened most recently.")
         self.query.returnPressed.connect(self._find)
@@ -201,6 +204,7 @@ class FilesPage(QWidget):
         root.addWidget(self.folders_line)
 
         self.matches = QListWidget()
+        self.matches.setAccessibleName("Matching files")
         self.matches.setToolTip("Files that matched. The pin puts one on the board. A program is never started.")
         root.addWidget(self.matches, 1)
         self.body = QPlainTextEdit()

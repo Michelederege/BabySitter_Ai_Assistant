@@ -228,8 +228,8 @@ class PowerService:
         self.state = GAME
         return PowerResult(
             GAME,
-            "Game mode. Models are unloaded. The microphone is still closed "
-            "(voice comes later), and Ollama is left running with nothing loaded.",
+            "Game mode. Models are unloaded so the graphics card is free. "
+            "The microphone stays closed, and Ollama stays running with nothing loaded.",
             True,
         )
 

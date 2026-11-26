@@ -1,8 +1,9 @@
 """The microphone switch.
 
-Phase 1 does not open the microphone. Turning the AI off still calls
-`release`, so the voice code in a later phase has one place to stop
-listening and give the microphone back to other programs.
+Turning the AI off calls `release`, so every listening path has one place
+to stop and hand the microphone back to other programs. Arming marks voice
+as permitted without opening the microphone stream until you hold to talk
+or turn on keyword listening.
 """
 
 from __future__ import annotations
@@ -16,10 +17,10 @@ class AudioGate:
     def release(self) -> str:
         self.listening = False
         self.armed = False
-        return "Microphone is closed. Voice input is not installed yet."
+        return "The microphone is closed."
 
     def arm(self) -> str:
-        """Ready for a later phase. Does not open the microphone."""
+        """Allow voice controls while keeping the microphone closed until asked."""
         self.listening = False
         self.armed = True
-        return "Voice input is not installed yet, so the microphone stays closed."
+        return "Voice is ready. The microphone stays closed until you hold to talk or turn on keyword listening."

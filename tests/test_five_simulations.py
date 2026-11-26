@@ -1732,6 +1732,246 @@ def _feature_packed(monkeypatch) -> list[Outcome]:
     ]
 
 
+def _feature_phrasing() -> list[Outcome]:
+    from babysitter.phrasing import PhraseBook
+
+    def time_varies():
+        book = PhraseBook()
+        moment = datetime(2026, 11, 26, 14, 5)
+        first = book.time_reply(moment)
+        second = book.time_reply(moment)
+        assert "It's" in first and "It's" in second
+        assert "2:05 PM" in first and "2:05 PM" in second
+        assert first != second
+        return first
+
+    def vram_varies():
+        book = PhraseBook()
+        first = book.vram_reply(6400, 12288)
+        second = book.vram_reply(6400, 12288)
+        assert "6,400" in first and "12,288" in second
+        assert first != second
+        return first
+
+    def memory_quotes_short_fact():
+        book = PhraseBook()
+        first = book.memory_saved_reply("the cat is called Moth")
+        second = book.memory_saved_reply("the cat is called Moth")
+        assert "Moth" in first and "10 seconds" in first
+        assert first != second
+        return first
+
+    def reminder_names_task():
+        book = PhraseBook()
+        first = book.reminder_saved_reply("6:00 PM", "stretch")
+        second = book.reminder_saved_reply("6:00 PM", "stretch")
+        assert "6:00 PM" in first and "stretch" in first
+        assert first != second
+        return first
+
+    def timer_names_duration():
+        book = PhraseBook()
+        first = book.timer_saved_reply("5 minutes", "check the oven")
+        second = book.timer_saved_reply("5 minutes", "check the oven")
+        assert "5 minutes" in first and "check the oven" in first
+        assert first != second
+        return first
+
+    return [
+        _timed("time varies", time_varies),
+        _timed("vram varies", vram_varies),
+        _timed("memory quotes fact", memory_quotes_short_fact),
+        _timed("reminder names task", reminder_names_task),
+        _timed("timer names duration", timer_names_duration),
+    ]
+
+
+def _feature_journal_excluded(tmp_path, monkeypatch) -> list[Outcome]:
+    from babysitter.controller import Controller
+    from babysitter.journal import record_sample
+    from babysitter.settings import load_settings
+
+    folder = tmp_path / "journal_excl"
+    folder.mkdir(exist_ok=True)
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(folder))
+    ctrl = Controller()
+
+    def adds_clean_exe():
+        added = ctrl.add_journal_excluded(r"C:\Apps\Signal\Signal.exe")
+        assert added == "Signal.exe"
+        assert "Signal.exe" in load_settings().journal_excluded
+        return f"Left out {added}."
+
+    def deduplicates_case():
+        ctrl.add_journal_excluded("signal.exe")
+        assert len(ctrl.settings.journal_excluded) == 1
+        return "Kept one copy."
+
+    def skips_in_journal():
+        day = {"date": "2026-11-26", "apps": {}, "tasks": []}
+        wrote = record_sample(
+            day,
+            "signal.exe",
+            datetime(2026, 11, 26, 10, 0),
+            excluded=ctrl.settings.journal_excluded,
+        )
+        assert wrote is False and day["apps"] == {}
+        return "Skipped excluded program."
+
+    def removes_cleanly():
+        ctrl.remove_journal_excluded("SIGNAL.EXE")
+        assert ctrl.settings.journal_excluded == []
+        return "Allowed again."
+
+    def rejects_traversal():
+        try:
+            ctrl.add_journal_excluded("..")
+        except ValueError as exc:
+            ctrl.shutdown_threads()
+            return str(exc)
+        ctrl.shutdown_threads()
+        raise AssertionError("Accepted traversal name")
+
+    return [
+        _timed("adds clean name", adds_clean_exe),
+        _timed("deduplicates case", deduplicates_case),
+        _timed("skips in journal", skips_in_journal),
+        _timed("removes cleanly", removes_cleanly),
+        _timed("rejects bad name", rejects_traversal),
+    ]
+
+
+def _feature_model_removal() -> list[Outcome]:
+    from babysitter.ollama import OllamaClient, OllamaError
+
+    def deletes_named_model():
+        calls = []
+        client = OllamaClient()
+        client._request = lambda method, path, body=None, timeout=10: calls.append((method, path, body)) or {}
+        client.delete_model("qwen3.5:4b")
+        assert calls == [("DELETE", "/api/delete", {"model": "qwen3.5:4b"})]
+        return "Removed qwen3.5:4b."
+
+    def trims_spaces():
+        calls = []
+        client = OllamaClient()
+        client._request = lambda method, path, body=None, timeout=10: calls.append(body) or {}
+        client.delete_model("  gemma4:12b  ")
+        assert calls == [{"model": "gemma4:12b"}]
+        return "Trimmed spaces."
+
+    def rejects_empty():
+        client = OllamaClient()
+        try:
+            client.delete_model("   ")
+        except OllamaError as exc:
+            return str(exc)
+        raise AssertionError("Deleted empty model name")
+
+    def surfaces_ollama_error():
+        client = OllamaClient()
+
+        def fail(*_args, **_kwargs):
+            raise OllamaError("Ollama did not find that model.")
+
+        client._request = fail
+        try:
+            client.delete_model("missing:latest")
+        except OllamaError as exc:
+            assert "did not find" in str(exc)
+            return str(exc)
+        raise AssertionError("Swallowed OllamaError")
+
+    def page_has_remove_button():
+        app = QApplication.instance() or QApplication([])
+        from babysitter.ui.pages.desk import ModelsPage
+
+        page = ModelsPage()
+        seen = []
+        page.notice.connect(seen.append)
+        page.remove_name.setText("qwen3.5:4b")
+        page._remove_model()
+        assert seen == ["REMOVE model: qwen3.5:4b"]
+        assert app is not None
+        return seen[0]
+
+    return [
+        _timed("deletes named model", deletes_named_model),
+        _timed("trims spaces", trims_spaces),
+        _timed("rejects empty", rejects_empty),
+        _timed("surfaces error", surfaces_ollama_error),
+        _timed("page emits notice", page_has_remove_button),
+    ]
+
+
+def _feature_accessibility_and_exe() -> list[Outcome]:
+    import ast
+    import builtins
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+
+    def shell_has_qt_imports():
+        import babysitter.ui.shell as shell_mod
+
+        for sym in ("QApplication", "QDialog", "QFileDialog", "QMenu"):
+            assert hasattr(shell_mod, sym), sym
+        tree = ast.parse((root / "src" / "babysitter" / "ui" / "shell.py").read_text(encoding="utf-8"))
+        assert tree is not None
+        assert builtins is not None
+        return "All Qt window classes are imported in shell.py."
+
+    def build_script_checks_errors():
+        script = (root / "scripts" / "build-exe.bat").read_text(encoding="utf-8")
+        assert "PyInstaller" in script
+        assert 'if not exist "dist\\BabySitter.exe"' in script
+        assert "taskkill /IM BabySitter.exe" in script
+        return "build-exe.bat unlocks running exe and checks PyInstaller exit code."
+
+    def spec_packs_submodules_and_excludes_pytest():
+        spec = (root / "packaging" / "babysitter.spec").read_text(encoding="utf-8")
+        assert "collect_submodules" in spec
+        assert '"numpy"' in spec
+        assert '"pytest"' in spec
+        return "babysitter.spec packs submodules and numpy without pytest."
+
+    def titlebar_and_inputs_accessible():
+        app = QApplication.instance() or QApplication([])
+        from PySide6.QtCore import Qt
+        from babysitter.ui.main_window import MainWindow
+
+        win = MainWindow()
+        assert win.min_button.accessibleName() == "Minimize to the orb"
+        assert win.close_button.accessibleName() == "Close window and turn AI off"
+        assert win.close_button.focusPolicy() == Qt.TabFocus
+        assert win.home.typed.accessibleName() == "Type a question or command"
+        assert app is not None
+        return "Titlebar buttons and inputs expose accessible names and Tab focus."
+
+    def escape_emits_hidden_to_tray():
+        app = QApplication.instance() or QApplication([])
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QKeyEvent
+        from babysitter.ui.main_window import MainWindow
+
+        win = MainWindow()
+        hidden = []
+        win.hidden_to_tray.connect(lambda: hidden.append(True))
+        event = QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Escape, Qt.NoModifier)
+        win.keyPressEvent(event)
+        assert hidden == [True]
+        assert app is not None
+        return "Escape closes to tray and turns the AI off."
+
+    return [
+        _timed("shell imports qt widgets", shell_has_qt_imports),
+        _timed("build script checks errors", build_script_checks_errors),
+        _timed("spec excludes pytest", spec_packs_submodules_and_excludes_pytest),
+        _timed("accessible names and tab focus", titlebar_and_inputs_accessible),
+        _timed("escape turns ai off", escape_emits_hidden_to_tray),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1775,6 +2015,10 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("shutdown", _feature_shutdown(tmp_path, monkeypatch)),
         ("setup", _feature_setup()),
         ("hero", _feature_hero()),
+        ("phrasing", _feature_phrasing()),
+        ("journal excluded", _feature_journal_excluded(tmp_path, monkeypatch)),
+        ("model removal", _feature_model_removal()),
+        ("accessibility and exe", _feature_accessibility_and_exe()),
     ]
 
 

@@ -104,8 +104,17 @@ class _NvmlMemory(ctypes.Structure):
     )
 
 
-def read_nvml_devices() -> list[tuple[int, int]] | None:
-    """Used and total MiB from NVML. None when the driver library is missing."""
+_nvml_lib = None
+_nvml_unavailable = False
+
+
+def _load_nvml():
+    """Initialize NVML once per process and reuse the library handle."""
+    global _nvml_lib, _nvml_unavailable
+    if _nvml_lib is not None:
+        return _nvml_lib
+    if _nvml_unavailable:
+        return None
     try:
         if sys.platform == "win32":
             library = ctypes.WinDLL("nvml.dll")
@@ -113,29 +122,39 @@ def read_nvml_devices() -> list[tuple[int, int]] | None:
             library = ctypes.CDLL("libnvidia-ml.so.1")
         library.nvmlInit_v2.restype = ctypes.c_int
         if library.nvmlInit_v2() != 0:
+            _nvml_unavailable = True
             return None
-        count = ctypes.c_uint()
         library.nvmlDeviceGetCount_v2.argtypes = [ctypes.POINTER(ctypes.c_uint)]
         library.nvmlDeviceGetCount_v2.restype = ctypes.c_int
+        library.nvmlDeviceGetHandleByIndex_v2.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)]
+        library.nvmlDeviceGetHandleByIndex_v2.restype = ctypes.c_int
+        library.nvmlDeviceGetMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_NvmlMemory)]
+        library.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
+        _nvml_lib = library
+        return library
+    except (OSError, AttributeError):
+        _nvml_unavailable = True
+        return None
+
+
+def read_nvml_devices() -> list[tuple[int, int]] | None:
+    """Used and total MiB from NVML. None when the driver library is missing."""
+    library = _load_nvml()
+    if library is None:
+        return None
+    try:
+        count = ctypes.c_uint()
         if library.nvmlDeviceGetCount_v2(ctypes.byref(count)) != 0:
             return None
         devices: list[tuple[int, int]] = []
         for index in range(int(count.value)):
             handle = ctypes.c_void_p()
-            library.nvmlDeviceGetHandleByIndex_v2.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_void_p)]
-            library.nvmlDeviceGetHandleByIndex_v2.restype = ctypes.c_int
             if library.nvmlDeviceGetHandleByIndex_v2(index, ctypes.byref(handle)) != 0:
                 continue
             memory = _NvmlMemory()
-            library.nvmlDeviceGetMemoryInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(_NvmlMemory)]
-            library.nvmlDeviceGetMemoryInfo.restype = ctypes.c_int
             if library.nvmlDeviceGetMemoryInfo(handle, ctypes.byref(memory)) != 0:
                 continue
             devices.append((int(memory.used // (1024 * 1024)), int(memory.total // (1024 * 1024))))
-        try:
-            library.nvmlShutdown()
-        except Exception:
-            pass
         return devices or None
     except (OSError, AttributeError):
         return None
@@ -162,6 +181,7 @@ class StatusCollector:
         self.defer_probes = False
         self.nvml_reader = read_nvml_devices
         self._last_gpu: tuple[GpuInfo | None, str | None] = (None, None)
+        self._pid_game_cache: dict[int, tuple[str, bool]] = {}
 
     def snapshot(self) -> StatusSnapshot:
         cpu = self._cpu()
@@ -195,23 +215,51 @@ class StatusCollector:
         )
 
     def _scan_processes(self) -> tuple[set[str], str | None]:
-        """Every process name, and the first one installed where games live."""
+        """Every process name, and the first one installed where games live.
+
+        Caches (name, is_game) per live PID so Windows does not reopen every
+        process handle to inspect its executable path on every poll.
+        """
         from babysitter.games import looks_like_game_path
 
         names: set[str] = set()
         detected: str | None = None
+        seen_pids: set[int] = set()
         try:
-            for proc in psutil.process_iter(["name", "exe"]):
-                name = proc.info.get("name")
-                if not name:
+            for proc in psutil.process_iter(["pid", "name"]):
+                info = getattr(proc, "info", None) or {}
+                raw_name = info.get("name")
+                if not raw_name:
                     continue
-                names.add(str(name))
-                if detected is None:
-                    path = proc.info.get("exe")
+                name = str(raw_name)
+                names.add(name)
+                pid = info.get("pid")
+                if isinstance(pid, int):
+                    seen_pids.add(pid)
+                    cached = self._pid_game_cache.get(pid)
+                    if cached is not None and cached[0] == name:
+                        is_game = cached[1]
+                    else:
+                        path = info.get("exe")
+                        if path is None and hasattr(proc, "exe"):
+                            try:
+                                path = proc.exe()
+                            except (psutil.Error, OSError):
+                                path = ""
+                        is_game = bool(path and looks_like_game_path(str(path)))
+                        self._pid_game_cache[pid] = (name, is_game)
+                    if detected is None and is_game:
+                        detected = name
+                elif detected is None:
+                    path = info.get("exe")
                     if path and looks_like_game_path(str(path)):
-                        detected = str(name)
+                        detected = name
         except (psutil.Error, OSError):
             return names, detected
+        if seen_pids and len(self._pid_game_cache) > len(seen_pids):
+            self._pid_game_cache = {
+                pid: entry for pid, entry in self._pid_game_cache.items() if pid in seen_pids
+            }
         return names, detected
 
     def read_gpu(self) -> tuple[GpuInfo | None, str | None]:
