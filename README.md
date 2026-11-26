@@ -204,7 +204,7 @@ When the AI turns on, BabySitter can speak new mail and events about every 15 mi
 
 Blackboard has no single student sign-in that works at every school. In Blackboard, open the calendar, copy the external calendar link, paste it under **Save Blackboard link**, and turn the feed on. BabySitter only reads that feed. A link to this computer, or to a numeric address, is refused. Say “what’s on blackboard”.
 
-While you are writing a Google Doc, a question to the AI includes that draft. BabySitter reads it as plain text when Google Docs is the front window, or when the doc was changed in the last two hours. Say “what am I writing” to hear the title and the opening. Suggestions stay on this PC. Say “look up …” or “find a source for …” when you want a source. That search still asks before it runs, and a credit line is added only for a source that came back. BabySitter does not invent an author, title, date, or link. A Word file on the PC is not read this way.
+While you are writing a Google Doc, a question to the AI includes that draft. BabySitter reads it as plain text when that Docs tab is the front window, in DuckDuckGo or any other browser, or when the doc was changed in the last two hours. The window title looks like “Essay - Google Docs - DuckDuckGo”. BabySitter uses the essay name and ignores the browser name. Say “what am I writing” to hear the title and the opening. Suggestions stay on this PC. Say “look up …” or “find a source for …” when you want a source. That search still asks before it runs, and a credit line is added only for a source that came back. BabySitter does not invent an author, title, date, or link. A Word file on the PC is not read this way.
 
 ## Scan this PC
 
