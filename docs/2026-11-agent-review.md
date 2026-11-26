@@ -1,5 +1,13 @@
 # November 2026 review: the models, the speed, and the risks
 
+This review was written against 0.14.5. Several of its "fix" items
+are in the app now: the Ollama warning starts at 0.35.0,
+`OLLAMA_NO_CLOUD=1` is set, Low's batch is 256, preload sends an
+empty message list, downloads record a SHA-256, and 0.18.0 can
+install an update after a confirm. Current rules are in
+`docs/agent-memory.md`. The research below is kept so the reasoning
+is not lost.
+
 This is a review pass over what BabySitter is built to do, whether the
 models chosen are still the right ones, where replies can get faster, and
 what could hurt the user. Checked against the code as of 0.14.5 and against
