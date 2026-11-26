@@ -10,6 +10,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import sys
 import threading
 import time
@@ -18,7 +19,7 @@ from pathlib import Path
 from urllib import request as urlrequest
 
 from babysitter.paths import data_dir
-from babysitter.platform import run_hidden
+from babysitter.platform import missing_from_exe, run_hidden, running_inside_exe
 from babysitter.security import require_keyword_model_url, require_matching_file
 
 
@@ -126,6 +127,43 @@ def model_ready() -> bool:
     return (model_dir() / "conf" / "model.conf").is_file()
 
 
+# Vosk opens these by name from its own folder. PyInstaller may unpack them
+# at the top of the temp folder instead.
+_VOSK_DLLS = (
+    "libvosk.dll",
+    "libgcc_s_seh-1.dll",
+    "libstdc++-6.dll",
+    "libwinpthread-1.dll",
+)
+
+
+def stage_vosk_libraries(root: str) -> None:
+    """Put libvosk.dll in the vosk folder Vosk opens.
+
+    The packaged exe can unpack those libraries at the top of the temp
+    folder. Vosk joins its own folder with libvosk.dll. It does not search
+    the temp folder, and Windows then says that vosk folder does not exist.
+    """
+    if not root:
+        return
+    folder = os.path.join(root, "vosk")
+    if os.path.isfile(os.path.join(folder, "libvosk.dll")):
+        return
+    source = ""
+    for candidate in (root, os.path.join(root, "bin")):
+        if os.path.isfile(os.path.join(candidate, "libvosk.dll")):
+            source = candidate
+            break
+    if not source or os.path.normcase(source) == os.path.normcase(folder):
+        return
+    os.makedirs(folder, exist_ok=True)
+    for name in _VOSK_DLLS:
+        src = os.path.join(source, name)
+        dest = os.path.join(folder, name)
+        if os.path.isfile(src) and not os.path.isfile(dest):
+            shutil.copy2(src, dest)
+
+
 def vosk_dll_directory(path: str) -> str:
     """The real folder that holds libvosk.
 
@@ -148,6 +186,9 @@ def vosk_dll_directory(path: str) -> str:
 def _import_vosk():
     import os
 
+    root = getattr(sys, "_MEIPASS", "")
+    if root:
+        stage_vosk_libraries(root)
     if sys.platform != "win32" or not hasattr(os, "add_dll_directory"):
         import vosk
 
@@ -180,6 +221,8 @@ def install_command() -> list[str]:
 
 
 def install_packages() -> None:
+    if running_inside_exe():
+        raise KeywordError(missing_from_exe("Keyword listening"))
     completed = run_hidden(install_command(), timeout=900)
     output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
     if completed.returncode not in (0, None):

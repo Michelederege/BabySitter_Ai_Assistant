@@ -128,8 +128,11 @@ Do this on Windows, after the steps above work:
 
 ```bat
 .venv\Scripts\python -m pip install -r requirements-dev.txt
+.venv\Scripts\python -m pip install -r requirements-voice.txt
 .venv\Scripts\python -m PyInstaller packaging\babysitter.spec --noconfirm
 ```
+
+The voice install is what puts Kokoro, Vosk, and the microphone library on disk for the build. Those programs open a json file or a DLL by path. If those files are not packed, previewing a voice or turning keyword listening on closes the window.
 
 2. Open `dist\BabySitter.exe`.
 
@@ -141,10 +144,10 @@ That file is one file, built with no console. Copy it to the desktop, or any oth
 
 A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. A file you copied onto the desktop stays as it was until you copy it again. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
 
-The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.2.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
+The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.3.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
 
 ```bat
-BabySitter-Setup-0.17.2.exe /SILENT
+BabySitter-Setup-0.17.3.exe /SILENT
 ```
 
 The installer does not delete `%LOCALAPPDATA%\BabySitter`. The uninstaller asks before it deletes that folder. A silent uninstall does not delete it. Ollama and its downloaded models are never removed.

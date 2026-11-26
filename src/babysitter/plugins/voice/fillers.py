@@ -97,7 +97,7 @@ def play_clip(pcm: bytes, rate: int, stop_event: threading.Event) -> bool:
     """Play one clip in short blocks. False if it was stopped or audio is missing."""
     try:
         import sounddevice as sd
-    except ImportError:
+    except (ImportError, OSError):
         return False
     import array
 
