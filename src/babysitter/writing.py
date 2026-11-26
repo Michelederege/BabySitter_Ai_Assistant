@@ -55,15 +55,50 @@ class OpenDraft:
     opening: str
 
 
+# The browser name can sit on either side of the page title. DuckDuckGo,
+# Chrome, and Edge all leave the words "Google Docs" in a Docs tab.
+_BROWSERS = (
+    "duckduckgo browser",
+    "duckduckgo",
+    "google chrome",
+    "microsoft edge",
+    "mozilla firefox",
+    "chrome",
+    "edge",
+    "firefox",
+    "brave",
+    "opera",
+    "vivaldi",
+    "safari",
+)
+
+
 def title_from_window(title: str) -> str:
-    """The document name in a Google Docs window title. Empty for any other window."""
+    """The document name in a Google Docs window title. Empty for any other window.
+
+    "Essay - Google Docs - DuckDuckGo" and "DuckDuckGo — Essay - Google Docs"
+    both mean Essay. The browser name is not part of the document.
+    """
     text = " ".join((title or "").split())
     lowered = text.casefold()
     mark = "google docs"
     if mark not in lowered:
         return ""
-    head = text[: lowered.index(mark)]
-    return head.strip(" -|–—")
+    head = text[: lowered.index(mark)].strip(" -|–—")
+    changed = True
+    while head and changed:
+        changed = False
+        lowered_head = head.casefold()
+        for browser in _BROWSERS:
+            for sep in (" — ", " – ", " - ", " | "):
+                token = browser + sep
+                if lowered_head.startswith(token):
+                    head = head[len(token) :].strip(" -|–—")
+                    changed = True
+                    break
+            if changed:
+                break
+    return head
 
 
 def _loose(value: str) -> str:
