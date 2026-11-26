@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from babysitter.ui.pinbutton import fill_pinned_list
+from babysitter.version import __version__
 
 
 class SettingsPage(QWidget):
@@ -37,6 +38,33 @@ class SettingsPage(QWidget):
         intro.setObjectName("hint")
         root.addWidget(title)
         root.addWidget(intro)
+
+        root.addWidget(self._label("Updates"))
+        update_row = QHBoxLayout()
+        self.check_updates = QPushButton("Check for an update")
+        self.check_updates.setAccessibleName("Check for an update")
+        self.check_updates.setToolTip(
+            "Checks Origin main when your BabySitter folder is on this PC, or GitHub Releases otherwise. "
+            "Nothing is changed until you confirm."
+        )
+        self.install_update = QPushButton("Update BabySitter")
+        self.install_update.setObjectName("primary")
+        self.install_update.setAccessibleName("Update BabySitter")
+        self.install_update.setToolTip(
+            "Pulls the latest BabySitter update from Origin main (or GitHub Releases), "
+            "rebuilds BabySitter.exe when needed, and restarts after you confirm."
+        )
+        update_row.addWidget(self.check_updates)
+        update_row.addWidget(self.install_update)
+        update_row.addStretch(1)
+        root.addLayout(update_row)
+        self.update_status = QLabel(
+            f"Running BabySitter {__version__}. Click Check for an update or Update BabySitter anytime — "
+            "no git push or PowerShell commands needed."
+        )
+        self.update_status.setWordWrap(True)
+        self.update_status.setObjectName("hint")
+        root.addWidget(self.update_status)
 
         self.autostart = QCheckBox("Start BabySitter when I sign in to Windows")
         self.autostart.setToolTip(
@@ -143,12 +171,6 @@ class SettingsPage(QWidget):
         searx_row.addWidget(self.searx_port)
         searx_row.addWidget(self.searx_save)
         root.addLayout(searx_row)
-
-        self.check_updates = QPushButton("Check for an update")
-        self.check_updates.setToolTip(
-            "Asks GitHub if a newer release exists. It does not download or install it."
-        )
-        root.addWidget(self.check_updates)
 
         self.off_game_cores = QCheckBox("Keep BabySitter off the game's processor cores")
         self.off_game_cores.setToolTip(

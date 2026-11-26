@@ -93,7 +93,13 @@ def popen_hidden(args: list[str], **kwargs) -> subprocess.Popen:
     return subprocess.Popen(args, **kwargs)
 
 
-def run_hidden(args: list[str], timeout: float = 8) -> subprocess.CompletedProcess:
+def run_hidden(
+    args: list[str],
+    timeout: float = 8,
+    *,
+    cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess:
     """Run a short program, capture its text, and never open a console."""
     if not args or not isinstance(args, list):
         raise TypeError("Programs are started from a list of strings, never a shell line.")
@@ -104,6 +110,10 @@ def run_hidden(args: list[str], timeout: float = 8) -> subprocess.CompletedProce
         "shell": False,
         "stdin": subprocess.DEVNULL,
     }
+    if cwd is not None:
+        kwargs["cwd"] = str(cwd)
+    if env is not None:
+        kwargs["env"] = env
     if sys.platform == "win32":
         kwargs["creationflags"] = hidden_creation_flags()
         startup = subprocess.STARTUPINFO()

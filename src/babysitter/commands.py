@@ -481,6 +481,26 @@ def _local_extra(phrase: str, original: str) -> QuickCommand | None:
     """Phrases that name one local action and carry no extra words."""
     del original
     if phrase in {
+        "check for updates",
+        "check for an update",
+        "check for update",
+        "are there any updates",
+        "is there an update",
+        "is babysitter up to date",
+        "are you up to date",
+    }:
+        return QuickCommand("check_update")
+    if phrase in {
+        "update babysitter",
+        "update the app",
+        "update the application",
+        "update the software",
+        "update yourself",
+        "install the update",
+        "install updates",
+    }:
+        return QuickCommand("apply_update")
+    if phrase in {
         "what is my next reminder",
         "what's my next reminder",
         "whats my next reminder",
