@@ -186,16 +186,23 @@ Say undo within 10 seconds to remove a new one, or press Remove on the Reminders
 
 Goals are on that same page, above the reminders. A goal does not ring. Say “my goal is to finish the bracket”, then “say my goals”, and the list is shown and read out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. After the talk ends, “done” finishes a journal task again.
 
-## Google mail and calendar
+## Google, school, Drive, and Blackboard
 
-This is off until you turn it on. It reads your own Gmail and Calendar. It does not send mail and does not delete mail.
+This stays off until you connect it. BabySitter reads Gmail, Google Calendar, Drive file names, a second school Google account, and a Blackboard calendar feed. It does not send mail, change the calendar, upload files, or open file contents.
 
-1. Open Tools.
-2. Check **Turn on Google mail and calendar**. Until you do, nothing is sent to Google.
-3. Paste a read-only token from your own Google account and press **Save token**. On your PC the token is encrypted for your Windows user, in its own file. It is not saved in settings.json and it is not written into the log.
-4. Press **Check mail** or **Check calendar**, or say “check my email” or “what’s on my calendar”.
+Google will not sign BabySitter in until you create one OAuth desktop client of your own:
 
-When the AI turns on, BabySitter can speak unread subjects and the next events once. Say the phrase again later to check again.
+1. In Google Cloud, create an OAuth desktop client and add the redirect `http://127.0.0.1:8765/babysitter`.
+2. Open Tools and paste that client id.
+3. Press **Sign in with Google**. The browser asks for read-only mail, calendar, and Drive. The token is encrypted for your Windows user, in its own file. It is not saved in settings.json.
+4. Press **Sign in school Google** and pick the school account in the browser. That token is a second file, so it does not replace the personal one. This works when the school mailbox is Gmail. A Microsoft 365 school mailbox is not connected in this version.
+5. Press **Show linked mail, calendar, and files**. The list shows who wrote, the subject, the date, the next events, and recent Drive file names. Say “check my email”, “what’s on my calendar”, “check my drive”, or “check my school email”.
+
+Sign in again after this version so Drive is included. If you already have a read-only token, **Save token** still stores it. An expired sign-in says to sign in again.
+
+When the AI turns on, BabySitter can speak new mail and events about every 15 minutes. One account failing does not hide the others.
+
+Blackboard has no single student sign-in that works at every school. In Blackboard, open the calendar, copy the external calendar link, paste it under **Save Blackboard link**, and turn the feed on. BabySitter only reads that feed. A link to this computer, or to a numeric address, is refused. Say “what’s on blackboard”.
 
 ## Scan this PC
 
@@ -262,7 +269,7 @@ BabySitter does not collect usage data. There is no phone-home. With social sear
 
 If you turn social search on, a search you confirm also goes to `api.scrapecreators.com`. Nothing else is added to that request: not your files, not a screenshot, not what the model said. The key travels with the request and is not printed in the results.
 
-If you turn Google on, a mail or calendar check goes to `gmail.googleapis.com` and `www.googleapis.com`. The request is a read. The token travels in the header and is not printed in the result.
+If you turn Google on, a mail, calendar, or Drive check goes to `gmail.googleapis.com` and `www.googleapis.com`. The request is a read. Drive returns file names and modified times, not the files. The token travels in the header and is not printed in the result. A Blackboard feed is a read of the https link you pasted. That link stays encrypted on this PC.
 
 If Ollama is listening on the whole network instead of only this computer, BabySitter refuses to turn on and tells you. When BabySitter starts Ollama itself, it forces `127.0.0.1:11434` for that process.
 

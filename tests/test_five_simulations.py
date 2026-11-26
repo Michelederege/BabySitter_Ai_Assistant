@@ -2068,6 +2068,112 @@ def _feature_self_update(tmp_path, monkeypatch) -> list[Outcome]:
     ]
 
 
+def _feature_inbox() -> list[Outcome]:
+    from datetime import timezone
+
+    from babysitter.blackboard import FeedError, blackboard_speech, events_from_ics, require_feed_url
+    from babysitter.plugins.tools.google_account import (
+        DRIVE_LIST_URL,
+        GoogleError,
+        authorization_url,
+        read_account,
+    )
+    from babysitter.security import require_google_url
+    from babysitter.settings import Settings
+
+    def drive_list_is_read_only() -> str:
+        require_google_url(DRIVE_LIST_URL)
+        try:
+            require_google_url("https://www.googleapis.com/upload/drive/v3/files")
+        except ValueError:
+            return "Drive names can be listed. An upload address is refused."
+        raise AssertionError("an upload address was allowed")
+
+    def sign_in_asks_for_drive() -> str:
+        url = authorization_url("client-id.apps.googleusercontent.com", "state", "challenge")
+        assert "gmail.readonly" in url and "calendar.readonly" in url and "drive.readonly" in url
+        school = authorization_url("client-id.apps.googleusercontent.com", "state", "challenge", prompt="select_account consent")
+        assert "select_account" in school
+        return "Sign-in asks for read-only mail, calendar, and Drive."
+
+    def one_failure_leaves_the_rest() -> str:
+        token = "ya29.example-token-value"
+
+        def fetch(url, _token):
+            if "drive" in url:
+                raise GoogleError("Drive refused the read.")
+            if "messages?q=" in url:
+                return {"messages": [{"id": "abc123"}]}
+            if "abc123" in url:
+                return {"payload": {"headers": [
+                    {"name": "Subject", "value": "Lab notes"},
+                    {"name": "From", "value": "Ada"},
+                ]}}
+            if "calendar" in url:
+                return {"items": []}
+            raise AssertionError(url)
+
+        rows, speeches, problems = read_account(
+            token,
+            mail_prefix="Mail",
+            calendar_prefix="Calendar",
+            drive_prefix="Drive",
+            fetch=fetch,
+        )
+        assert any("Lab notes" in row for row in rows)
+        assert any("Drive" in problem for problem in problems)
+        assert token not in " ".join(rows + speeches + problems)
+        return "Mail still shows when Drive cannot be read."
+
+    def blackboard_upcoming() -> str:
+        text = "\n".join([
+            "BEGIN:VEVENT",
+            "SUMMARY:Essay due",
+            "DTSTART:20200101T120000Z",
+            "END:VEVENT",
+            "BEGIN:VEVENT",
+            "SUMMARY:Studio review",
+            "DTSTART:20300102T150000Z",
+            "END:VEVENT",
+        ])
+        events = events_from_ics(text, today=datetime(2026, 11, 26, tzinfo=timezone.utc))
+        assert [summary for summary, _when in events] == ["Studio review"]
+        speech = blackboard_speech(events)
+        assert "Studio review" in speech and "Essay due" not in speech
+        return speech
+
+    def feed_stays_off_the_pc_and_out_of_settings() -> str:
+        for bad in (
+            "http://school.example/calendar.ics",
+            "https://127.0.0.1/webapps/calendar.ics",
+            "https://10.1.2.3/learn/calendar",
+            "https://files.example/notes.txt",
+        ):
+            try:
+                require_feed_url(bad)
+            except FeedError:
+                continue
+            raise AssertionError(bad)
+        good = require_feed_url("https://school.example/webapps/calendar/feed.ics")
+        assert good.startswith("https://school.example/")
+        saved = Settings(blackboard_enabled=True).to_dict()
+        assert saved["blackboard_enabled"] is True
+        assert "http" not in str(saved)
+        assert match_quick_command("check my drive").kind == "drive"
+        assert match_quick_command("check my school email").kind == "school_mail"
+        assert match_quick_command("what's on blackboard").kind == "blackboard"
+        assert match_quick_command("check my email").kind == "mail"
+        return "The Blackboard link has to be the school's https calendar."
+
+    return [
+        _timed("drive list only", drive_list_is_read_only),
+        _timed("read only sign in", sign_in_asks_for_drive),
+        _timed("one failure stays local", one_failure_leaves_the_rest),
+        _timed("blackboard upcoming", blackboard_upcoming),
+        _timed("feed stays private", feed_stays_off_the_pc_and_out_of_settings),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -2116,6 +2222,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("model removal", _feature_model_removal()),
         ("accessibility and exe", _feature_accessibility_and_exe()),
         ("self update", _feature_self_update(tmp_path, monkeypatch)),
+        ("inbox", _feature_inbox()),
     ]
 
 

@@ -89,7 +89,7 @@ def test_google_sign_in_uses_read_only_scopes_and_hides_the_code():
     verifier, challenge = pkce_pair()
     url = authorization_url("client-id-1234567890.apps.googleusercontent.com", "state-value", challenge)
     assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
-    assert "gmail.readonly" in url and "calendar.readonly" in url
+    assert "gmail.readonly" in url and "calendar.readonly" in url and "drive.readonly" in url
     assert "code_challenge=" in url
     assert verifier not in url
     code = code_from_redirect("/babysitter?code=abc123&state=state-value", "state-value")

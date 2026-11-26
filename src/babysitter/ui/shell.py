@@ -115,7 +115,17 @@ from babysitter.pcscan import (
     terminate_pid,
     windows_startup_store,
 )
+from babysitter.blackboard import (
+    FeedError,
+    blackboard_rows,
+    blackboard_speech,
+    default_feed_vault,
+    events_from_ics,
+    fetch_feed,
+)
+from babysitter.paths import google_school_token_path
 from babysitter.plugins.tools.google_account import (
+    DpapiGoogleVault,
     GoogleError,
     GoogleReader,
     authorization_url,
@@ -125,6 +135,7 @@ from babysitter.plugins.tools.google_account import (
     http_get_json,
     listen_for_code,
     pkce_pair,
+    read_account,
     refresh_access,
 )
 from babysitter.plugins.voice.silero_model import SileroError, download_silero
@@ -580,6 +591,92 @@ class _GooglePollJob(QThread):
         self.ready.emit(speech, list(updated))
 
 
+class _InboxJob(QThread):
+    ready = Signal(list, str)
+
+    def __init__(self, personal: str, school: str, feed_url: str, lead: str, notices: list[str] | None = None) -> None:
+        super().__init__()
+        self._personal = personal
+        self._school = school
+        self._feed_url = feed_url
+        self._lead = lead
+        self._notices = list(notices or [])
+
+    def run(self) -> None:
+        personal = self._personal
+        school = self._school
+        feed_url = self._feed_url
+        self._personal = ""
+        self._school = ""
+        self._feed_url = ""
+        rows: list[str] = []
+        speeches: list[str] = []
+        problems: list[str] = list(self._notices)
+        self._notices = []
+        if personal:
+            found, said, failed = read_account(
+                personal,
+                mail_prefix="Mail",
+                calendar_prefix="Calendar",
+                drive_prefix="Drive",
+            )
+            rows.extend(found)
+            speeches.extend(said)
+            problems.extend(failed)
+        if school:
+            found, said, failed = read_account(
+                school,
+                mail_prefix="School mail",
+                calendar_prefix="School calendar",
+                drive_prefix="School Drive",
+            )
+            rows.extend(found)
+            speeches.extend(said)
+            problems.extend(failed)
+        if feed_url:
+            try:
+                events = events_from_ics(fetch_feed(feed_url))
+                rows.extend(blackboard_rows(events))
+                speeches.append(blackboard_speech(events))
+            except FeedError as exc:
+                problems.append(str(exc))
+                rows.append("Blackboard · could not be read")
+        order = {
+            "mail": ("Unread mail", "No unread mail", "School mail"),
+            "calendar": ("Coming up", "Nothing coming up", "School calendar"),
+            "drive": ("Drive:", "No files in Drive", "School Drive"),
+            "school_mail": ("School mail", "No unread school"),
+            "blackboard": ("Blackboard:", "Nothing coming up on Blackboard"),
+        }
+        preferred = order.get(self._lead, ())
+        if preferred:
+            speeches.sort(key=lambda line: 0 if any(bit in line for bit in preferred) else 1)
+        speech = " ".join(speeches[:4]).strip()
+        if problems and not speech:
+            speech = " ".join(problems[:2])
+        elif problems:
+            speech = speech + " " + problems[0]
+        if not rows and not speech:
+            speech = (
+                "Nothing is linked yet. On Tools, paste your Google desktop client id and press Sign in. "
+                "School Google is a second sign-in. Blackboard uses the calendar link from your school."
+            )
+            rows = [speech]
+        secrets = [item for item in (personal, school, feed_url) if item]
+        if any(secret in speech for secret in secrets):
+            speech = "Google did not answer. Mail, the calendar, and Drive were not changed."
+        safe_rows: list[str] = []
+        for row in rows:
+            if any(secret in row for secret in secrets):
+                safe_rows.append("A linked account answered with something BabySitter will not show.")
+            else:
+                safe_rows.append(row)
+        personal = ""
+        school = ""
+        feed_url = ""
+        self.ready.emit(safe_rows, speech)
+
+
 class _SignInJob(QThread):
     open_browser = Signal(str)
     finished_ok = Signal()
@@ -663,6 +760,8 @@ class Shell:
         self.registrar = windows_registrar_or_dummy()
         self.vault = default_vault()
         self.google_vault = default_google_vault()
+        self.google_school_vault = DpapiGoogleVault(google_school_token_path())
+        self.blackboard_vault = default_feed_vault()
         self._startup_store = windows_startup_store()
         self._suggestions: list = []
         self._suggestion_at = 0
@@ -812,8 +911,13 @@ class Shell:
         tools.save_google.connect(self._save_google_token)
         tools.delete_google.connect(self._delete_google_token)
         tools.google_check.connect(self._google_from_button)
-        tools.google_sign_in_requested.connect(self._google_sign_in)
+        tools.google_sign_in_requested.connect(lambda client: self._google_sign_in(client, "personal"))
+        tools.school_sign_in_requested.connect(lambda client: self._google_sign_in(client, "school"))
+        tools.inbox_refresh.connect(self._refresh_inbox)
+        tools.blackboard_save.connect(self._save_blackboard)
+        tools.blackboard_enabled_changed.connect(self._set_blackboard)
         tools.google_client.setText(self.controller.settings.google_client_id)
+        tools.set_blackboard_enabled(self.controller.settings.blackboard_enabled)
         tools.set_enabled(self.controller.settings.social_search_enabled)
         tools.set_google_enabled(self.controller.settings.google_enabled)
         self._refresh_privacy()
@@ -3232,10 +3336,13 @@ class Shell:
             self._begin_scan()
             return True
         if quick.kind == "mail":
-            self._start_google("mail", speak_errors=True)
+            self._refresh_inbox("mail")
             return True
         if quick.kind == "calendar":
-            self._start_google("calendar", speak_errors=True)
+            self._refresh_inbox("calendar")
+            return True
+        if quick.kind in {"drive", "school_mail", "blackboard"}:
+            self._refresh_inbox(quick.kind)
             return True
         if quick.kind == "history":
             self._speak_saved_history(text)
@@ -3880,7 +3987,72 @@ class Shell:
         return "I left it."
 
     def _google_from_button(self, kind: str) -> None:
-        self._start_google(kind or "mail", speak_errors=True)
+        self._refresh_inbox(kind or "mail")
+
+    def _set_blackboard(self, on: bool) -> None:
+        self.controller.settings.blackboard_enabled = bool(on)
+        save_settings(self.controller.settings)
+
+    def _save_blackboard(self, url: str) -> None:
+        page = self.window.tools_page
+        try:
+            self.blackboard_vault.save(url)
+        except (FeedError, SecretsError) as exc:
+            page.show_google(str(exc))
+            return
+        self.controller.settings.blackboard_enabled = True
+        save_settings(self.controller.settings)
+        page.set_blackboard_enabled(True)
+        page.clear_blackboard_box()
+        page.show_google("The Blackboard link is saved. It is encrypted on this PC and it is not in settings.json.")
+        self._refresh_inbox("blackboard")
+
+    def _refresh_inbox(self, lead: str = "all") -> None:
+        page = self.window.tools_page
+        running = getattr(self, "_inbox_job", None)
+        if running is not None and running.isRunning():
+            page.show_google("I'm already reading the linked accounts.")
+            return
+        personal = ""
+        school = ""
+        feed_url = ""
+        notices: list[str] = []
+        if self.controller.settings.google_enabled:
+            try:
+                personal = self._token_for_google(self.google_vault) or ""
+            except (GoogleError, SecretsError) as exc:
+                notices.append(str(exc))
+            try:
+                school = self._token_for_google(self.google_school_vault) or ""
+            except (GoogleError, SecretsError) as exc:
+                notices.append(str(exc))
+        if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
+            try:
+                feed_url = self.blackboard_vault.load() or ""
+            except (FeedError, SecretsError) as exc:
+                page.show_google(str(exc))
+                return
+        if not personal and not school and not feed_url:
+            if notices:
+                page.set_inbox(notices)
+                page.show_google(" ".join(notices[:2]))
+                return
+            page.set_inbox([
+                "Nothing is linked yet. Paste the Google desktop client id, then Sign in with Google.",
+            ])
+            page.show_google(
+                "Nothing is linked yet. The redirect to add on that client is http://127.0.0.1:8765/babysitter."
+            )
+            return
+        page.show_google("Reading linked accounts. Mail, calendar, and Drive names only.")
+        job = _InboxJob(personal, school, feed_url, lead, notices)
+        self._store_job("_inbox_job", job)
+        job.ready.connect(self._inbox_ready)
+        job.start()
+
+    def _inbox_ready(self, rows: list, speech: str) -> None:
+        self.window.tools_page.set_inbox([str(row) for row in rows])
+        self._show_google(speech, speak=not self.turns.busy())
 
     def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
         self._google_speak_errors = speak_errors
@@ -3896,7 +4068,7 @@ class Shell:
             return
         try:
             token = self._token_for_google()
-        except SecretsError as exc:
+        except (SecretsError, GoogleError) as exc:
             self._show_google(str(exc), speak=speak_errors)
             return
         if not token:
@@ -3952,8 +4124,9 @@ class Shell:
         temporary.write_text(json.dumps(kept), encoding="utf-8")
         temporary.replace(path)
 
-    def _token_for_google(self) -> str | None:
-        bundle = self.google_vault.load_bundle()
+    def _token_for_google(self, vault=None) -> str | None:
+        store = self.google_vault if vault is None else vault
+        bundle = store.load_bundle()
         if not bundle:
             return None
         refresh = str(bundle.get("refresh_token") or "")
@@ -3961,9 +4134,9 @@ class Shell:
         if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
             try:
                 refreshed = refresh_access(client_id, refresh)
-            except GoogleError:
-                return str(bundle.get("access_token") or "") or None
-            self.google_vault.save_bundle(refreshed)
+            except GoogleError as exc:
+                raise GoogleError("The Google sign-in expired. Sign in again on Tools.") from exc
+            store.save_bundle(refreshed)
             return str(refreshed.get("access_token") or "") or None
         return str(bundle.get("access_token") or "") or None
 
@@ -3976,7 +4149,7 @@ class Shell:
         if self._google_speak_errors and speech:
             self._show_google(speech, speak=not self.turns.busy())
 
-    def _google_sign_in(self, client_id: str) -> None:
+    def _google_sign_in(self, client_id: str, account: str = "personal") -> None:
         from babysitter.plugins.tools.google_account import clean_client_id
         from babysitter.secrets import SecretsError as _SecretsError
 
@@ -3987,17 +4160,22 @@ class Shell:
             page.show_google(str(exc))
             return
         self.controller.settings.google_client_id = cleaned
+        self.controller.settings.google_enabled = True
         save_settings(self.controller.settings)
+        page.set_google_enabled(True)
+        self._sign_in_account = "school" if account == "school" else "personal"
         verifier, challenge = pkce_pair()
         state = verifier[:16]
-        url = authorization_url(cleaned, state, challenge)
+        prompt = "select_account consent" if account == "school" else "consent"
+        url = authorization_url(cleaned, state, challenge, prompt=prompt)
         job = _SignInJob(cleaned, verifier, state, url)
         self._store_job("_sign_in_job", job)
         job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
         job.finished_ok.connect(self._google_signed_in)
         job.failed.connect(page.show_google)
         job.start()
-        page.show_google("Waiting for Google in your browser. Read-only mail and calendar only.")
+        who = "the school Google account" if account == "school" else "your Google account"
+        page.show_google(f"Waiting for {who} in your browser. Read-only mail, calendar, and Drive.")
 
     def _google_signed_in(self) -> None:
         job = getattr(self, "_sign_in_job", None)
@@ -4007,15 +4185,21 @@ class Shell:
         if not bundle:
             self.window.tools_page.show_google("Google sign-in did not return a token. Nothing was saved.")
             return
+        store = self.google_school_vault if getattr(self, "_sign_in_account", "personal") == "school" else self.google_vault
         try:
-            self.google_vault.save_bundle(bundle)
+            store.save_bundle(bundle)
         except SecretsError as exc:
             self.window.tools_page.show_google(str(exc))
             return
-        self.window.tools_page.set_google_saved(True, self.google_vault.available)
+        self.controller.settings.google_enabled = True
+        save_settings(self.controller.settings)
+        self.window.tools_page.set_google_enabled(True)
+        self.window.tools_page.set_google_saved(True, store.available)
+        who = "School Google" if store is self.google_school_vault else "Google"
         self.window.tools_page.show_google(
-            "Signed in. The token is encrypted on this PC. BabySitter can refresh it. Nothing was sent except the sign-in."
+            f"Signed in to {who}. The token is encrypted on this PC. BabySitter can refresh it."
         )
+        self._refresh_inbox("school_mail" if store is self.google_school_vault else "all")
 
     def _save_google_token(self, raw: str) -> None:
         page = self.window.tools_page

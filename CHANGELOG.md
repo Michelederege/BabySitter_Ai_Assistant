@@ -2,6 +2,14 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.19.0 — Read Gmail, Calendar, Drive, school Google, and Blackboard
+
+Tools can show unread mail, upcoming events, and Drive file names in one list. Sign in with Google asks for read-only mail, calendar, and Drive. Sign in school Google stores a second account separately, so a school Gmail account does not replace the personal one. A failed read of one of those does not hide the others. An expired sign-in says to sign in again instead of quietly reusing a dead token.
+
+Blackboard has no single sign-in BabySitter can use at every school. Paste the external calendar link from Blackboard's calendar. BabySitter reads that feed and lists what is coming up. The link is encrypted on this PC and is not written into settings.json. A link that points at this computer, or at a numeric address, is refused.
+
+You still create one Google desktop client id, once, and add the redirect `http://127.0.0.1:8765/babysitter`. Google does not let BabySitter sign in without that. Say "check my drive", "check my school email", or "what's on blackboard".
+
 ## 0.18.0 — Update BabySitter from inside the window
 
 Settings now starts with **Check for an update** and **Update BabySitter** (and Home accepts “check for updates” or “update babysitter” even while the AI is off). When your BabySitter git folder is on this PC — whether you launched `Run BabySitter.vbs`, `dist\BabySitter.exe`, or a `BabySitter.exe` copied to the desktop — BabySitter checks `origin/main` directly without needing a `git push` to GitHub. After you confirm **Update and restart**, it fast-forwards `main`, updates `.venv` libraries if `requirements.txt` changed, rebuilds `BabySitter.exe` into a staging folder when running from the exe (or when `dist\BabySitter.exe` exists), closes the AI and single-instance lock cleanly, swaps the exe once the old process exits, and reopens on the new version.
