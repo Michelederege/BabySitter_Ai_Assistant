@@ -26,6 +26,54 @@ def hidden_creation_flags() -> int:
     return 0
 
 
+def running_inside_exe() -> bool:
+    """True for BabySitter.exe. False when Python is running this source."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def library_install_command(packages: tuple[str, ...] | list[str]) -> list[str] | None:
+    """pip install for a source run.
+
+    None when this process is the exe. The exe cannot install Python
+    libraries into itself, and starting it with -m pip opens another window.
+    """
+    if running_inside_exe():
+        return None
+    return [sys.executable, "-m", "pip", "install", *packages]
+
+
+def missing_from_exe(feature: str) -> str:
+    return (
+        f"{feature} is not inside this BabySitter.exe. "
+        "Build the exe again from the project folder so those programs are packed in. "
+        "Nothing was downloaded."
+    )
+
+
+def libraries_import(*names: str) -> bool:
+    """True when each library imports.
+
+    A missing file or DLL is not an ImportError. In the packaged exe that
+    used to close the window. Here it means the feature is not available.
+    """
+    try:
+        for name in names:
+            __import__(name)
+    except ImportError:
+        return False
+    except OSError:
+        try:
+            from babysitter.logsetup import get_logger
+
+            logger = get_logger()
+            if logger.handlers:
+                logger.exception("A packed library is missing a file: %s", ", ".join(names))
+        except Exception:
+            pass
+        return False
+    return True
+
+
 def popen_hidden(args: list[str], **kwargs) -> subprocess.Popen:
     """Start a program with no console window and no shell.
 

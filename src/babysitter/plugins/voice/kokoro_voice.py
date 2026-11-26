@@ -11,7 +11,7 @@ import sys
 import threading
 
 from babysitter.paths import data_dir
-from babysitter.platform import run_hidden
+from babysitter.platform import libraries_import, missing_from_exe, run_hidden, running_inside_exe
 from babysitter.security import require_kokoro_model_url
 
 
@@ -45,12 +45,10 @@ def model_ready() -> bool:
 
 
 def packages_installed() -> bool:
-    try:
-        import kokoro_onnx  # noqa: F401
-        import sounddevice  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    # kokoro_onnx opens config.json while it imports. The packaged exe can
+    # contain the Python and not that file. FileNotFoundError is not an
+    # ImportError, and it used to close the window from the Voice page.
+    return libraries_import("kokoro_onnx", "sounddevice")
 
 
 def ready() -> bool:
@@ -66,6 +64,8 @@ def download() -> str:
     for url in (MODEL_URL, VOICES_URL):
         require_kokoro_model_url(url)
     if not packages_installed():
+        if running_inside_exe():
+            raise KokoroError(missing_from_exe("Heart and Sarah"))
         completed = run_hidden(install_command(), timeout=900)
         output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
         if completed.returncode not in (0, None):
@@ -149,7 +149,6 @@ def render_clip(text: str) -> tuple[bytes, int]:
         clamped = max(-1.0, min(1.0, float(value)))
         pcm += int(clamped * 32767).to_bytes(2, "little", signed=True)
     return bytes(pcm), int(rate)
-    speak_sequence([text], voice_name, speed_percent, pitch)
 
 
 def speak_sequence(
