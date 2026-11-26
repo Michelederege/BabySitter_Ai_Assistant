@@ -285,10 +285,18 @@ class OllamaClient:
         if images:
             body["messages"][-1]["images"] = list(images)
         self.last_turn_stats = {}
+        # The watcher closes the stream on a cancel. It also has to stop
+        # when the reply ends without one, or every turn leaves a thread
+        # behind that holds the old connection open.
+        finished = threading.Event()
         try:
             with self._open("POST", "/api/chat", body, timeout=180) as response:
                 if cancel is not None:
-                    threading.Thread(target=_close_when_cancelled, args=(cancel, response), daemon=True).start()
+                    threading.Thread(
+                        target=_close_when_cancelled,
+                        args=(cancel, response, finished),
+                        daemon=True,
+                    ).start()
                 while True:
                     if cancel is not None and cancel.is_set():
                         break
@@ -308,7 +316,16 @@ class OllamaClient:
             detail = exc.read().decode("utf-8", "replace")[:500]
             raise OllamaError(_friendly_http(exc.code, detail, model)) from None
         except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            if cancel is not None and cancel.is_set():
+                return
             raise OllamaError(_friendly_network(exc)) from None
+        except ValueError:
+            # A read on a stream the watcher just closed.
+            if cancel is not None and cancel.is_set():
+                return
+            raise
+        finally:
+            finished.set()
 
     def installed_models(self) -> list[str]:
         payload = self._request("GET", "/api/tags", timeout=8)
@@ -465,8 +482,12 @@ class OllamaClient:
         return closed
 
 
-def _close_when_cancelled(cancel, response) -> None:
-    cancel.wait()
+def _close_when_cancelled(cancel, response, finished=None) -> None:
+    while not cancel.wait(0.25):
+        if finished is not None and finished.is_set():
+            return
+    if finished is not None and finished.is_set():
+        return
     try:
         response.close()
     except Exception:

@@ -60,7 +60,19 @@ def _unfold(text: str) -> list[str]:
 
 
 def _stamp(value: str) -> str:
+    """The event's day on this PC's calendar, as YYYYMMDD.
+
+    A time that ends in Z is in UTC, so 02:00Z on the 27th is still the
+    evening of the 26th in New York. Any other time is already local.
+    """
     raw = (value or "").rsplit(":", 1)[-1].strip()
+    if raw.upper().endswith("Z"):
+        try:
+            moment = datetime.strptime(raw.upper(), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            moment = None
+        if moment is not None:
+            return moment.astimezone().strftime("%Y%m%d")
     digits = "".join(character for character in raw if character.isdigit())
     return digits[:8]
 
@@ -68,7 +80,9 @@ def _stamp(value: str) -> str:
 def events_from_ics(text: str, today: datetime | None = None, limit: int = 8) -> list[tuple[str, str]]:
     """Upcoming events as (summary, when). A feed with no events is an empty list."""
     moment = today or datetime.now(timezone.utc)
-    floor = moment.astimezone(timezone.utc).strftime("%Y%m%d")
+    # Today on this PC's calendar. In UTC, the evening is already
+    # tomorrow, and that hid the rest of today's events.
+    floor = moment.astimezone().strftime("%Y%m%d")
     found: list[tuple[str, str, str]] = []
     summary = ""
     when = ""

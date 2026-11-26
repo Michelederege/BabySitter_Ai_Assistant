@@ -616,7 +616,17 @@ def _prepare_git_update(
         _git_text(repo, ["checkout", "main"], run_cmd=run_cmd, timeout=20)
 
     on_step("Applying latest commits from Origin main…")
-    _git_text(repo, ["merge", "--ff-only", "origin/main"], run_cmd=run_cmd, timeout=30)
+    try:
+        _git_text(repo, ["merge", "--ff-only", "origin/main"], run_cmd=run_cmd, timeout=30)
+    except UpdateError:
+        # Put the folder back on the branch it was on, so a failed update
+        # does not leave someone's work switched away underneath them.
+        if branch not in {"main", "HEAD", ""}:
+            try:
+                _git_text(repo, ["checkout", branch], run_cmd=run_cmd, timeout=20)
+            except UpdateError:
+                pass
+        raise
     new_head = _git_text(repo, ["rev-parse", "HEAD"], run_cmd=run_cmd)
 
     version_file = repo / "src" / "babysitter" / "version.py"

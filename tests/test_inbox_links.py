@@ -111,3 +111,23 @@ def test_blackboard_feed_rejects_this_computer_and_keeps_upcoming_events():
     assert "blackboard" not in str(saved).lower() or saved["blackboard_enabled"] is True
     assert "learn.school" not in str(saved)
     assert "ics" not in str(saved)
+
+
+def test_tonight_on_blackboard_still_counts_as_upcoming():
+    from datetime import timedelta
+
+    # 11:30 PM local tonight, said two ways: as a local time and in UTC.
+    tonight = datetime.now().astimezone().replace(hour=23, minute=30, second=0, microsecond=0)
+    in_utc = tonight.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    local = tonight.strftime("%Y%m%dT%H%M%S")
+    yesterday = (tonight - timedelta(days=1)).strftime("%Y%m%dT%H%M%S")
+    text = "\n".join([
+        "BEGIN:VEVENT", "SUMMARY:Gone", f"DTSTART:{yesterday}", "END:VEVENT",
+        "BEGIN:VEVENT", "SUMMARY:Local tonight", f"DTSTART;TZID=Local:{local}", "END:VEVENT",
+        "BEGIN:VEVENT", "SUMMARY:UTC tonight", f"DTSTART:{in_utc}", "END:VEVENT",
+    ])
+    # Asked at 10 PM, when UTC may already be on tomorrow's date.
+    asked = tonight.replace(hour=22)
+    names = [summary for summary, _when in events_from_ics(text, today=asked)]
+    assert "Local tonight" in names and "UTC tonight" in names
+    assert "Gone" not in names

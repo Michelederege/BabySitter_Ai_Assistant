@@ -307,3 +307,70 @@ def test_quick_commands_settings_buttons_and_single_instance_release(tmp_path, m
     assert reopened.primary is True
     reopened.release()
     assert app is not None
+
+
+def test_a_failed_swap_still_reopens_the_old_version(tmp_path, monkeypatch):
+    import babysitter.selfupdate as selfupdate
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "data"))
+    desktop_exe = tmp_path / "Desktop" / "BabySitter.exe"
+    desktop_exe.parent.mkdir(parents=True)
+    desktop_exe.write_bytes(b"OLD")
+    staged = tmp_path / "data" / "updates" / "BabySitter-new.exe"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    staged.write_bytes(b"NEW")
+
+    def locked(_source, _target, **_kw):
+        raise PermissionError("in use")
+
+    monkeypatch.setattr(selfupdate, "_replace_with_retries", locked)
+    for staged_path in (str(staged), str(tmp_path / "missing.exe")):
+        manifest = write_update_manifest(
+            from_version="0.19.1",
+            to_version="0.19.2",
+            staged_exe=staged_path,
+            targets=[str(desktop_exe)],
+            relaunch_cmd=[str(desktop_exe)],
+            wait_pids=[],
+        )
+        relaunched: list[list[str]] = []
+        rc = run_finish_update(
+            str(manifest),
+            sleep_fn=lambda _s: None,
+            pid_exists_fn=lambda _pid: False,
+            popen_fn=lambda args, **_kw: relaunched.append(args),
+        )
+        assert rc == 1
+        assert relaunched == [[str(desktop_exe)]]
+        assert desktop_exe.read_bytes() == b"OLD"
+        note = consume_completed_update("0.19.1")
+        assert note.startswith("The update did not finish.")
+        assert "old" in note
+
+
+def test_a_failed_pull_puts_the_folder_back_on_its_branch(tmp_path, monkeypatch):
+    from babysitter.updates import UpdateError
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "appdata"))
+    _origin, publisher, local = _make_origin_and_clone(tmp_path)
+    monkeypatch.setenv("BABYSITTER_REPO_DIR", str(local))
+
+    # Local main has a commit Origin does not, so a fast-forward fails.
+    (local / "LOCAL.md").write_text("only here\n", encoding="utf-8")
+    _git(local, "add", "LOCAL.md")
+    _git(local, "commit", "-m", "Local only")
+    _git(local, "checkout", "-b", "my-work")
+    (publisher / "README.md").write_text("New on Origin\n", encoding="utf-8")
+    _git(publisher, "add", "README.md")
+    _git(publisher, "commit", "-m", "New on Origin")
+    _git(publisher, "push", "origin", "main")
+
+    plan = check_for_update(current="0.17.4", frozen=False)
+    assert plan.available is True
+    with pytest.raises(UpdateError):
+        prepare_update(plan, on_step=lambda _s: None, frozen=False)
+    branch = subprocess.run(
+        ["git", "-C", str(local), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert branch == "my-work"

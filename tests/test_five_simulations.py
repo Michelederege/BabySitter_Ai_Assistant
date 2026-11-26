@@ -2253,7 +2253,9 @@ def _feature_writing_draft() -> list[Outcome]:
             return {"files": [essay, older]}
 
         def fetch_text(url, got):
-            assert got == token and url.endswith("?mimeType=text/plain")
+            # /export is the document's text. Without it Drive sends the
+            # file's details as JSON, and the model never sees the draft.
+            assert got == token and url.endswith("/export?mimeType=text/plain")
             return "The armory opened in 1913.\n\nI am still writing the last paragraph."
 
         draft = read_open_draft([token], "Studio essay - Google Docs", fetch_json=fetch_json, fetch_text=fetch_text, now=now)

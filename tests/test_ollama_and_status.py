@@ -175,3 +175,62 @@ def test_intelligence_uses_one_model_per_level():
     again = chat_body(MAIN_MODEL, "again", MODES["low"].num_ctx, num_batch=MODES["low"].num_batch)
     assert low["options"]["num_ctx"] == again["options"]["num_ctx"] == 4096
     assert low["options"]["num_batch"] == again["options"]["num_batch"] == 256
+
+
+def test_a_finished_reply_leaves_no_watcher_thread(monkeypatch):
+    import json
+    import threading
+    import time
+
+    from babysitter.ollama import OllamaClient
+
+    class Stream:
+        def __init__(self, lines):
+            self.lines = [json.dumps(line).encode() + b"\n" for line in lines]
+            self.closed = False
+
+        def readline(self):
+            if self.closed:
+                raise ValueError("readline of closed file")
+            return self.lines.pop(0) if self.lines else b""
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    reply = [{"message": {"content": "Hi."}}, {"done": True, "eval_count": 2}]
+    client = OllamaClient()
+    monkeypatch.setattr(client, "_open", lambda *a, **k: Stream(list(reply)))
+
+    before = threading.active_count()
+    for _ in range(5):
+        cancel = threading.Event()
+        assert "".join(client.iter_reply("m", "hello", 4096, cancel)) == "Hi."
+    deadline = time.monotonic() + 2
+    while threading.active_count() > before and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert threading.active_count() <= before
+
+    # A cancel still closes the stream, and the closed read is not an error.
+    stream = Stream([{"message": {"content": "a"}}] * 50)
+
+    def slow_readline(original=stream.readline):
+        time.sleep(0.02)
+        return original()
+
+    stream.readline = slow_readline
+    monkeypatch.setattr(client, "_open", lambda *a, **k: stream)
+    cancel = threading.Event()
+    pieces = []
+    for piece in client.iter_reply("m", "hello", 4096, cancel):
+        pieces.append(piece)
+        if len(pieces) == 2:
+            cancel.set()
+            time.sleep(0.4)
+    assert stream.closed
+    assert len(pieces) < 50
