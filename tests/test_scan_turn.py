@@ -111,3 +111,46 @@ def test_a_scan_asked_during_a_reply_runs_when_the_reply_is_over(tmp_path, monke
         assert "rest of the model answer" not in shell._said[-1].lower()
     finally:
         _close(shell)
+
+
+def test_the_scan_never_offers_babysitter_itself(monkeypatch):
+    import os
+
+    from babysitter import pcscan
+
+    big = 2 * 1024 ** 3
+    me = os.getpid()
+    rows = [("pythonw.exe", big, me), ("pythonw.exe", big, 424242), ("chrome.exe", big, 7)]
+    startups = [("BabySitter", r'"C:\BabySitter\Run BabySitter.vbs"'), ("Spotify", "spotify.exe")]
+    result = pcscan.scan(rows, startups, memory=(1, 2))
+    offered = [(item.kind, item.name, item.pid) for item in result.suggestions]
+    assert ("close_app", "pythonw.exe", me) not in offered
+    assert ("startup", "BabySitter", 0) not in offered
+    assert any(kind == "startup" and name == "Spotify" for kind, name, _pid in offered)
+    # Closing by name skips this process, even when it has that name.
+    names = pcscan.pids_named(os.path.basename(__import__("sys").executable))
+    assert me not in names
+
+
+def test_every_running_store_game_is_left_alone(monkeypatch):
+    from babysitter import pcscan
+
+    class Proc:
+        def __init__(self, name, exe):
+            self.info = {"name": name, "exe": exe}
+
+    procs = [
+        Proc("bg3.exe", r"D:\Steam\steamapps\common\Baldurs Gate 3\bin\bg3.exe"),
+        Proc("eldenring.exe", r"D:\Steam\steamapps\common\ELDEN RING\Game\eldenring.exe"),
+        Proc("chrome.exe", r"C:\Program Files\Google\Chrome\Application\chrome.exe"),
+    ]
+    import psutil
+
+    monkeypatch.setattr(psutil, "process_iter", lambda _attrs=None: iter(procs))
+    games = pcscan.running_game_names()
+    assert games == ["bg3.exe", "eldenring.exe"]
+    big = 3 * 1024 ** 3
+    rows = [("bg3.exe", big, 11), ("eldenring.exe", big, 12), ("chrome.exe", big, 13)]
+    result = pcscan.scan(rows, [], games=["bg3.exe", *games], memory=(1, 2))
+    assert [item.name for item in result.suggestions] == ["chrome.exe"]
+    assert result.left_games is True

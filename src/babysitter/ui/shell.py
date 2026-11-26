@@ -109,6 +109,7 @@ from babysitter.pcscan import (
     collect_processes,
     collect_startups,
     pids_named,
+    running_game_names,
     scan,
     spoken_reading,
     suggestion_answer,
@@ -569,6 +570,41 @@ class _GoogleJob(QThread):
             speech = "Google did not answer. Mail and the calendar were not changed."
         secret = ""
         self.ready.emit(speech)
+
+
+class _HealthJob(QThread):
+    """The read-only PC check. Get-CimInstance can take seconds, so it runs
+    here instead of freezing the window."""
+
+    finished_text = Signal(str)
+
+    def run(self) -> None:
+        import subprocess
+
+        from babysitter.platform import run_hidden
+
+        script = (
+            "Write-Output '--- Memory ---'; "
+            "Get-Process | Sort-Object WorkingSet64 -Descending | "
+            "Select-Object -First 15 Name, @{n='MB';e={[math]::Round($_.WorkingSet64/1MB)}} | "
+            "Format-Table -AutoSize | Out-String; "
+            "Write-Output '--- Startup ---'; "
+            "Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location | "
+            "Format-Table -AutoSize | Out-String; "
+            "Write-Output '--- RAM ---'; "
+            "Get-CimInstance Win32_PhysicalMemory | "
+            "Select-Object PartNumber, Capacity, ConfiguredClockSpeed | Format-Table -AutoSize | Out-String"
+        )
+        try:
+            completed = run_hidden(
+                ["powershell", "-NoProfile", "-Command", script],
+                timeout=40,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.finished_text.emit(f"The check could not run ({exc}). Nothing was changed.")
+            return
+        text = ((completed.stdout or "") + (completed.stderr or "")).strip()
+        self.finished_text.emit(text or "The check returned nothing. Nothing was changed.")
 
 
 class _GooglePollJob(QThread):
@@ -2945,32 +2981,14 @@ class Shell:
                 "This computer is not Windows, so nothing was run and nothing was changed."
             )
             return
-        import subprocess
-
-        from babysitter.platform import run_hidden
-
-        script = (
-            "Write-Output '--- Memory ---'; "
-            "Get-Process | Sort-Object WorkingSet64 -Descending | "
-            "Select-Object -First 15 Name, @{n='MB';e={[math]::Round($_.WorkingSet64/1MB)}} | "
-            "Format-Table -AutoSize | Out-String; "
-            "Write-Output '--- Startup ---'; "
-            "Get-CimInstance Win32_StartupCommand | Select-Object Name, Command, Location | "
-            "Format-Table -AutoSize | Out-String; "
-            "Write-Output '--- RAM ---'; "
-            "Get-CimInstance Win32_PhysicalMemory | "
-            "Select-Object PartNumber, Capacity, ConfiguredClockSpeed | Format-Table -AutoSize | Out-String"
-        )
-        try:
-            completed = run_hidden(
-                ["powershell", "-NoProfile", "-Command", script],
-                timeout=40,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            self.window.health_page.body.setPlainText(f"The check could not run ({exc}). Nothing was changed.")
+        running = getattr(self, "_health_job", None)
+        if running is not None and running.isRunning():
             return
-        text = ((completed.stdout or "") + (completed.stderr or "")).strip()
-        self.window.health_page.body.setPlainText(text or "The check returned nothing. Nothing was changed.")
+        self.window.health_page.body.setPlainText("Checking this PC. This can take a few seconds…")
+        job = _HealthJob()
+        self._store_job("_health_job", job)
+        job.finished_text.connect(self.window.health_page.body.setPlainText)
+        job.start()
 
     def _list_models(self) -> None:
         try:
@@ -4024,6 +4042,12 @@ class Shell:
             snap = getattr(self.controller, "latest_status", None)
             if snap is not None and settings.detect_games and snap.detected_game:
                 watched_games.append(snap.detected_game)
+            # Every game in a store folder, not only the first one the
+            # status check noticed, so a second open game is never offered.
+            try:
+                watched_games.extend(running_game_names())
+            except Exception:
+                pass
             result = scan(
                 collect_processes(),
                 collect_startups(),
