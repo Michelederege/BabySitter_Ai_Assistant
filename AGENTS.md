@@ -37,3 +37,10 @@ request, even when it continues the same feature.
 CONTRIBUTING.md explains the folders, the one version number, and the
 plain-sentence style. Five simulations for every feature. Tests run
 with `pytest tests/ -q`, offscreen, no desktop needed.
+
+## One place for the old chats
+
+Product decisions from the earlier agent chats live in
+`docs/agent-memory.md`. Read that file instead of opening old chats.
+If a chat and that file disagree, the file is the one to follow, then
+check the code.
