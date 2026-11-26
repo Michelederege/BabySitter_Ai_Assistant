@@ -79,7 +79,7 @@ Colors, on the button and on the orb:
 | Blue | Game |
 | Red | Needs you. Read the reason. |
 
-The window opens compact: power, Normal/Game, and one status line. **Expand** opens the tabs. Orange buttons are actions. The other colors are only for those states.
+Orange buttons are actions. The other colors are only for those states. From the keyboard, **Ctrl+L** jumps to the command box on Home, **F11** switches between Half screen and Full screen, **Ctrl+PageDown** and **Ctrl+PageUp** move through the pages in the left rail, and **Esc** clears an input box or closes the window to the tray (turning the AI off).
 
 **Choose my picture** sits on the frog-pond picture. That picture fills the assistant panel and is cropped so the frog stays in view. Off turns it grey. The button copies a photo into your BabySitter folder. It is not uploaded. Leave social search off when the information is confidential.
 
@@ -89,7 +89,7 @@ The window opens compact: power, Normal/Game, and one status line. **Expand** op
 2. When it works, it turns green and says On.
 3. Click it again. It unloads the model and stops Ollama. The message should say that nothing is listening on port **11434**, and it should tell you the video-memory numbers.
 4. Press **Ctrl+Alt+F12** from anywhere, even if the window is hidden. That is the emergency stop. It turns the AI fully off. **Ctrl+Alt+F11** turns it back on. You can change both keys in Settings.
-5. While the AI is on, click **Switch** under Game mode. The model unloads so a game can use the graphics card. Ollama stays running with nothing loaded. Click **Switch** again to load the model.
+5. While the AI is on, click **Game mode** on Home. The model unloads so a game can use the graphics card. Ollama stays running with nothing loaded. Click **Leave** to load the model again.
 6. Close the window with the X. The window hides in the tray and the AI turns off, so the model leaves memory. **Quit** on the tray icon closes BabySitter. Either way, Ollama does not keep running.
 
 Start with Windows is **off** unless you check it in Settings. Even if you turn that on later, the AI still starts off.
@@ -144,10 +144,10 @@ That file is one file, built with no console. Copy it to the desktop, or any oth
 
 A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. A file you copied onto the desktop stays as it was until you copy it again. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
 
-The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.3.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
+The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.4.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
 
 ```bat
-BabySitter-Setup-0.17.3.exe /SILENT
+BabySitter-Setup-0.17.4.exe /SILENT
 ```
 
 The installer does not delete `%LOCALAPPDATA%\BabySitter`. The uninstaller asks before it deletes that folder. A silent uninstall does not delete it. Ollama and its downloaded models are never removed.
@@ -161,9 +161,9 @@ Send the exact text, not a summary. The best places to copy from:
 - `Show errors.bat`, if the window never opens
 - The log folder, from Settings → **Open the log folder**
 
-Logs do not contain conversations. Phase 1 has no conversations.
+Logs do not contain conversations.
 
-## Choices made in this phase
+## Choices made on purpose
 
 These are on purpose. Say if you want one of them changed.
 
@@ -171,9 +171,9 @@ These are on purpose. Say if you want one of them changed.
 - **Game mode** unloads models but leaves the Ollama program running, so waking the model is faster. **Off** stops Ollama completely. If Ollama's own tray app would restart it, BabySitter asks before closing that app. Emergency stop closes it without asking, then tells you that it did.
 - After a watched game closes, BabySitter **stays** in game mode. It does not load a model by surprise.
 - Automatic game mode is on. A program running from a folder where game stores install (Steam's `steamapps`, Epic Games, GOG, the Xbox app, Riot Games, or a folder simply named `Games`) counts as a game, and game mode switches on by itself. Both switches are in Settings if you want this off. A game installed somewhere unusual still needs its name (for example `bg3.exe`) in the list. Only the file name and its folder are read. It does not read game memory and does not draw anything inside a game.
-- The app itself runs at below-normal priority so it is less likely to steal frames. Ollama stays at normal priority so a reply is not sluggish. Replies are not in this phase yet.
+- The app itself runs at below-normal priority so it is less likely to steal frames. Ollama stays at normal priority so a reply is not sluggish.
 - Low is `qwen3.5:9b`. Medium and High are `gemma4:12b`. Only one model is loaded. A second model would have to kick the first one out.
-- Mouse side buttons cannot use the same safe keyboard method (`RegisterHotKey`). Push-to-talk is Phase 2. If you want a mouse button then, it will be off whenever the AI is off, and off in game mode, so it does not get in the way of a game.
+- Mouse side buttons can be turned on in Settings for push-to-talk while the AI is on. They stay off whenever the AI is off and in Game mode, so they do not get in the way of a game.
 - The orb starts above other windows. You can turn that off in Settings, and you can drag the orb.
 
 ## Reminders
@@ -215,7 +215,7 @@ The Tools tab can search public posts. It follows the same public data API as th
 
 Results list the public text and the link when ScrapeCreators returns one. Each search spends about one credit on your ScrapeCreators account. **Check credits left** asks only for the balance.
 
-This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. The bigger research recipes in that GitHub project (comparing creators, reading ad libraries, and so on) need the talking assistant, which is not built yet. General web search through your own SearXNG is also still later.
+This is not the private Ollama chat. The words you type in that box go to ScrapeCreators, a separate company, and only after you press Send. BabySitter does not pull follower lists and does not guess someone's age or gender. Spoken research recipes (such as outlier posts, comment themes, trends, listening briefs, product demand, creator notes, and repurposing ideas) also ask before sending the cleaned query, then summarize locally; ad library lookups stay refused.
 
 ## The day journal
 
@@ -249,15 +249,12 @@ Quiet hours, hiding the orb while a watched game is in front, and a mouse side b
 
 The updater does not install a release by itself. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
 
-## Ideas I have not built
+## Ideas left optional for later
 
-Say if you want any of these in a later phase:
+Say if you want any of these in a later update:
 
-- Hide the orb while a chosen game is in front. That only hides BabySitter's own window. It still would not draw on top of the game.
-- Quiet hours, when the AI refuses to turn on.
-- Make **High** swap to `gemma4:12b` instead of giving the main model a longer memory. Vision would be unavailable until you switch back.
-- A smooth slider instead of the three buttons.
-- Wake the model automatically when the game closes.
+- A smooth context slider instead of the three Low / Medium / High buttons.
+- Wake the model automatically when a watched game closes (currently Game mode stays on until you click **Leave**).
 
 ## Privacy in this phase
 

@@ -14,6 +14,9 @@ from pathlib import Path
 
 from PySide6.QtCore import QBuffer, QEvent, QIODevice, QObject, QRect, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPixmap
+from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
+
+from babysitter.phrasing import PhraseBook
 from babysitter.ui.jobs import retain_until_finished, take_turn
 
 from babysitter.commands import QuickCommand, match_quick_command, spoken_clock, spoken_when, timer_label
@@ -250,6 +253,7 @@ class _AskJob(QThread):
         num_batch: int = 512,
         facts=None,
         personality: str = "",
+        context_note: str = "",
     ) -> None:
         super().__init__()
         self._ollama = ollama
@@ -262,6 +266,7 @@ class _AskJob(QThread):
         self._num_batch = num_batch
         self._facts = list(facts or [])
         self._personality = personality
+        self._context_note = context_note
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -271,6 +276,7 @@ class _AskJob(QThread):
         parts: list[str] = []
         sent_lead = False
         sent_token = False
+        extra = {"context_note": self._context_note} if self._context_note else {}
         try:
             for piece in self._ollama.iter_reply(
                 self._model,
@@ -283,6 +289,7 @@ class _AskJob(QThread):
                 self._num_batch,
                 self._facts,
                 self._personality,
+                **extra,
             ):
                 self._images = None
                 if self.cancel.is_set():
@@ -636,6 +643,7 @@ class Shell:
         self._power_ready = False
         self._turn_id = 0
         self._responsiveness = ResponsivenessLog()
+        self._phrases = PhraseBook()
         self.turns = TurnGate()
         self._model_turn_open = False
         self._filler_stop = threading.Event()
@@ -736,7 +744,11 @@ class Shell:
         settings.power_change.clicked.connect(self._change_power_key)
         settings.add_game.clicked.connect(self._add_running_game)
         settings.add_typed.clicked.connect(self._add_typed_game)
+        settings.type_game.returnPressed.connect(self._add_typed_game)
         settings.remove_game.clicked.connect(self._remove_game)
+        settings.add_excluded.clicked.connect(self._add_journal_excluded)
+        settings.type_excluded.returnPressed.connect(self._add_journal_excluded)
+        settings.remove_excluded.clicked.connect(self._remove_journal_excluded)
         self.window.journal_page.enabled.toggled.connect(self._set_journal_enabled)
         self.window.journal_page.notice.connect(self._on_page_notice)
         self.window.files_page.notice.connect(self._on_page_notice)
@@ -1168,8 +1180,7 @@ class Shell:
         if chosen.lower() not in {item.lower() for item in folders}:
             folders.append(chosen)
             save_settings(self.controller.settings)
-        self.window.settings_page.search_folders.clear()
-        self.window.settings_page.search_folders.addItems(folders)
+        self._fill_settings()
         self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
@@ -1177,14 +1188,15 @@ class Shell:
         item = self.window.settings_page.search_folders.currentItem()
         if item is None:
             return
-        name = item.text()
+        name = str(item.data(Qt.UserRole) or item.text())
+        if name == "No extra folders yet.":
+            return
         self.controller.settings.search_folders = [
             folder for folder in self.controller.settings.search_folders
             if folder.lower() != name.lower()
         ]
         save_settings(self.controller.settings)
-        self.window.settings_page.search_folders.clear()
-        self.window.settings_page.search_folders.addItems(self.controller.settings.search_folders)
+        self._fill_settings()
         self.window.files_page.set_folders(self._search_places())
         self._scan_cache = None
 
@@ -1253,9 +1265,32 @@ class Shell:
         item = self.window.settings_page.games.currentItem()
         if item is None:
             return
-        self.controller.remove_game(item.text())
+        name = str(item.data(Qt.UserRole) or item.text())
+        if name == "No game names yet.":
+            return
+        self.controller.remove_game(name)
         self._fill_settings()
         self._refresh_game_note()
+
+    def _add_journal_excluded(self) -> None:
+        raw = self.window.settings_page.type_excluded.text()
+        try:
+            self.controller.add_journal_excluded(raw)
+        except ValueError as exc:
+            show_copyable(self.window, "That program was not added", str(exc))
+            return
+        self.window.settings_page.type_excluded.clear()
+        self._fill_settings()
+
+    def _remove_journal_excluded(self) -> None:
+        item = self.window.settings_page.journal_excluded.currentItem()
+        if item is None:
+            return
+        name = str(item.data(Qt.UserRole) or item.text())
+        if name == "No programs left out yet.":
+            return
+        self.controller.remove_journal_excluded(name)
+        self._fill_settings()
 
     def _refresh_game_note(self) -> None:
         settings = self.controller.settings
@@ -1279,10 +1314,13 @@ class Shell:
         if self._orb_hidden_by_user:
             return
         settings = self.controller.settings
+        snap = getattr(self.controller, "latest_status", None)
+        detected = snap.detected_game if (snap is not None and settings.detect_games) else None
         hide = should_hide_orb(
             settings.hide_orb_for_games,
             foreground_process_name(),
             settings.game_processes,
+            detected_game=detected,
         )
         if hide:
             self.orb.hide()
@@ -1968,10 +2006,7 @@ class Shell:
             self._clear_more()
         self.window.home.typed.clear()
         self._pending_line = text
-        if typed_quick is not None:
-            self._send_heard()
-            return
-        self.window.home.set_reply(text, "Waiting.", "Nothing has been sent yet.")
+        self._send_heard()
 
     def _send_heard(self) -> None:
         text = getattr(self, "_pending_line", "").strip()
@@ -2029,6 +2064,7 @@ class Shell:
             num_batch=mode.num_batch,
             facts=facts,
             personality=getattr(self, "_session_personality", ""),
+            context_note=self._desk_context_note(),
         )
         job.turn = self._turn_id
         self._store_job("_ask_job", job)
@@ -2060,6 +2096,29 @@ class Shell:
     def _facts_for(self, text: str) -> list[str]:
         items = [str(item.get("text") or "") for item in load_list("memory.json")]
         return rank_texts(text, items, k=2)
+
+    def _desk_context_note(self) -> str:
+        """Short desk state so conversational replies know about an open task or next reminder."""
+        bits: list[str] = []
+        try:
+            record = load_day(date.today())
+            for task in reversed(record.get("tasks") or []):
+                if isinstance(task, dict) and not task.get("end"):
+                    name = " ".join(str(task.get("name") or "").split())
+                    if name:
+                        bits.append(f"Open journal task: {name}.")
+                    break
+        except Exception:
+            pass
+        try:
+            from babysitter.deskstore import next_reminder_line
+
+            nxt = next_reminder_line(load_list("schedule.json"))
+            if nxt and not nxt.startswith("There isn't"):
+                bits.append(nxt)
+        except Exception:
+            pass
+        return " ".join(bits)[:240]
 
     def _begin_model_turn(self) -> None:
         if self._model_turn_open:
@@ -2404,6 +2463,9 @@ class Shell:
         if text == "LIST models":
             self._list_models()
             return
+        if text.startswith("REMOVE model:"):
+            self._remove_model(text.split(":", 1)[1].strip())
+            return
         if text == "INSTALL hearing":
             self._install_hearing()
             return
@@ -2558,6 +2620,37 @@ class Shell:
             return
         self.window.models_page.body.setPlainText("\n".join(names))
 
+    def _remove_model(self, name: str) -> None:
+        cleaned = (name or "").strip()
+        if not cleaned:
+            self.window.models_page.body.setPlainText("Type a model name first. Nothing was removed.")
+            return
+        if not ask_yes_no(
+            self.window,
+            "Remove this model?",
+            f"Ask Ollama on this PC to delete {cleaned}?\n\n"
+            "You would need to download it again if you want that level later.",
+            "Remove model",
+            "Keep it",
+        ):
+            self.window.models_page.body.setPlainText("Kept the model. Nothing was removed.")
+            return
+        try:
+            self.controller.ollama.delete_model(cleaned)
+        except OllamaError as exc:
+            self.window.models_page.body.setPlainText(str(exc))
+            return
+        self.window.models_page.remove_name.clear()
+        try:
+            remaining = self.controller.ollama.installed_models()
+            tail = "\n".join(remaining) if remaining else "No models remain installed."
+        except OllamaError:
+            tail = ""
+        summary = f"Removed {cleaned} from Ollama on this PC."
+        self.window.models_page.body.setPlainText(f"{summary}\n\n{tail}".strip())
+        self.controller._remember(summary)
+        self.window.home.set_history(self.controller.history)
+
     def _voice_prefs(self) -> dict:
         path = data_dir() / "voice.json"
         saved: dict = {}
@@ -2569,12 +2662,16 @@ class Shell:
             except (OSError, json.JSONDecodeError):
                 saved = {}
         name = str(saved.get("voice") or "Heart & Sarah blend")
+        if name.endswith("Neural"):
+            name = "Heart & Sarah blend"
+        raw_speed = saved.get("speed")
         try:
-            speed = int(saved.get("speed") or 105)
+            speed = int(raw_speed) if raw_speed is not None else 105
         except (TypeError, ValueError):
             speed = 105
+        raw_pitch = saved.get("pitch")
         try:
-            pitch = int(saved.get("pitch") or -1)
+            pitch = int(raw_pitch) if raw_pitch is not None else -1
         except (TypeError, ValueError):
             pitch = -1
         if name.startswith("Microsoft"):
@@ -2836,7 +2933,7 @@ class Shell:
             self._history.append({"role": "user", "content": user})
         if assistant:
             self._history.append({"role": "assistant", "content": assistant})
-        del self._history[:-12]
+        del self._history[:-16]
         self._logged_turn = True
         try:
             if not self._session_id:
@@ -2927,7 +3024,7 @@ class Shell:
             self._goals_open = False
         if quick.kind == "time":
             now = datetime.now().astimezone()
-            speech = now.strftime("It's %A, %B %d, %I:%M %p.").replace(" 0", " ")
+            speech = self._phrases.time_reply(now)
             self.window.home.set_reply(text, speech, "Read from this PC. The model was not asked.")
             self._note_local(text, speech)
             self._speak(speech)
@@ -2936,10 +3033,10 @@ class Shell:
             snap = getattr(self.controller, "latest_status", None)
             gpu = getattr(snap, "gpu", None) if snap is not None else None
             if gpu is None:
-                speech = "I can't see the video memory from here."
+                speech = self._phrases.vram_missing_reply()
                 detail = "nvidia-smi did not report a card."
             else:
-                speech = f"Video memory is using {gpu.used_mib:,} of {gpu.total_mib:,} megabytes."
+                speech = self._phrases.vram_reply(gpu.used_mib, gpu.total_mib)
                 detail = "Read from this PC. The model was not asked."
             self.window.home.set_reply(text, speech, detail)
             self._note_local(text, speech)
@@ -3025,10 +3122,9 @@ class Shell:
         if quick.kind in {"remember", "remind"}:
             filename = "memory.json" if quick.kind == "remember" else "schedule.json"
             noun = "that" if quick.kind == "remember" else "the reminder"
-            shown = text.strip()
-            if quick.kind == "remind" and quick.when:
-                moment = datetime.fromisoformat(quick.when)
-                shown = f"{spoken_clock(moment)} — {quick.detail}".strip(" —")
+            shown = (quick.detail or text).strip()
+            if quick.kind == "remind" and shown.lower().startswith("to ") and len(shown) > 3:
+                shown = shown[3:].strip()
             self._save_local(filename, shown, noun, due=quick.when)
             return True
         if quick.kind in {"journal_today", "journal_yesterday"}:
@@ -3044,6 +3140,7 @@ class Shell:
             speech = self.controller.set_journal_paused(quick.kind == "journal_pause")
             self.window.journal_page.set_paused(quick.kind == "journal_pause")
             self.window.home.set_reply(text, speech, "The journal lives in your BabySitter folder.")
+            self._note_local(text, speech)
             self._speak(speech)
             return True
         if quick.kind == "find":
@@ -3126,6 +3223,7 @@ class Shell:
                 speech = outcome
         self.window.home.set_reply(text, speech, detail)
         self.window.files_page.set_results(speech, detail)
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _open_numbered(self, text: str, number: int) -> None:
@@ -3149,6 +3247,7 @@ class Shell:
         found = matches[number - 1]
         speech = open_found(found)
         self.window.home.set_reply(text, speech, found.path)
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _reveal_goals(self) -> None:
@@ -3258,7 +3357,7 @@ class Shell:
     def _repeat_last(self, text: str) -> None:
         said = str(getattr(self, "_said", "") or "").strip()
         if not said:
-            speech = "I have not said anything yet."
+            speech = self._phrases.repeat_missing_reply()
             self.window.home.set_reply(text, speech, "A reply has to finish before it can be repeated.")
             self._speak(speech)
             return
@@ -3272,8 +3371,9 @@ class Shell:
         if busy:
             self._cut_off()
             return
-        self.window.home.set_reply("quiet", "Okay.", "Nothing was speaking.")
-        self._speak("Okay.")
+        speech = self._phrases.hush_reply()
+        self.window.home.set_reply("quiet", speech, "Nothing was speaking.")
+        self._speak(speech)
 
     def _begin_timer(self, seconds: int, detail: str = "") -> None:
         """A spoken timer is a reminder due that many seconds from now."""
@@ -3282,19 +3382,27 @@ class Shell:
             previous.stop()
         moment = datetime.now().astimezone() + timedelta(seconds=seconds)
         text = " ".join((detail or "Timer").split())[:200] or "Timer"
-        item = self._save_local("schedule.json", text, "the reminder", due=moment.isoformat(timespec="seconds"))
+        label = timer_label(seconds)
+        speech = self._phrases.timer_saved_reply(label, text)
+        item = self._save_local(
+            "schedule.json",
+            text,
+            "the reminder",
+            due=moment.isoformat(timespec="seconds"),
+            speech_override=speech,
+        )
         if not item:
             return
-        label = timer_label(seconds)
         timer = QTimer(self.window)
         timer.setSingleShot(True)
         timer.timeout.connect(lambda item_id=item["id"], name=text: self._timer_finished(name, item_id))
         timer.start(seconds * 1000)
         self._active_timer = timer
         self._active_timer_id = item["id"]
+        self._undo_until = time.time() + 10
         self.window.home.set_reply(
             "timer",
-            self.window.home.spoken.text(),
+            speech,
             f"It is a reminder for {label}. It stays on this PC and rings while BabySitter is open.",
         )
 
@@ -3304,14 +3412,27 @@ class Shell:
             self._active_timer.stop()
             self._active_timer = None
             self._undo_until = 0
-            self.window.home.set_reply("undo", "Cancelled the timer.", "Nothing else was changed.")
-            self._speak("Cancelled the timer.")
+            timer_id = str(getattr(self, "_active_timer_id", "") or "")
+            self._active_timer_id = ""
+            if timer_id:
+                remove_item("schedule.json", timer_id)
+                self.window.schedule_page.refresh()
+                self._show_reminder_clock()
+            soft = getattr(self, "_soft_undo", None)
+            if soft and str(soft.get("id") or "") == timer_id:
+                self._soft_undo = None
+            speech = "Cancelled the timer."
+            self.window.home.set_reply("undo", speech, "Nothing else was changed.")
+            self._note_local("undo", speech)
+            self._speak(speech)
             return
         soft = getattr(self, "_soft_undo", None)
         if soft and now <= float(soft.get("until") or 0):
             self._undo_soft(soft)
             return
-        self._speak("Nothing to undo.")
+        speech = self._phrases.undo_empty_reply()
+        self.window.home.set_reply("undo", speech, "Nothing was changed.")
+        self._speak(speech)
 
     def _undo_soft(self, soft: dict) -> None:
         self._soft_undo = None
@@ -3321,10 +3442,13 @@ class Shell:
             if timer is not None and str(soft.get("id") or "") == str(getattr(self, "_active_timer_id", "")):
                 timer.stop()
                 self._active_timer = None
+                self._active_timer_id = ""
+                self._undo_until = 0
             remove_item(str(soft.get("file") or ""), str(soft.get("id") or ""))
             self.window.schedule_page.refresh()
             self.window.memory_page.refresh()
-            speech = "Removed that."
+            self._show_reminder_clock()
+            speech = self._phrases.undo_note_reply()
         elif kind == "close":
             speech = "I can't reopen it. It is already closed."
         elif kind == "startup":
@@ -3334,11 +3458,19 @@ class Shell:
             except Exception:
                 speech = "I could not put that startup item back."
         else:
-            speech = "Nothing to undo."
+            speech = self._phrases.undo_empty_reply()
         self.window.home.set_reply("undo", speech, "Nothing else was changed.")
+        self._note_local("undo", speech)
         self._speak(speech)
 
-    def _save_local(self, filename: str, text: str, noun: str, due: str = "") -> None:
+    def _save_local(
+        self,
+        filename: str,
+        text: str,
+        noun: str,
+        due: str = "",
+        speech_override: str = "",
+    ) -> dict:
         fields = {"text": text}
         if due:
             fields["due"] = due
@@ -3351,22 +3483,18 @@ class Shell:
         }
         if filename.startswith("schedule") or filename.startswith("goals"):
             self.window.schedule_page.refresh()
+            self._show_reminder_clock()
         else:
             self.window.memory_page.refresh()
-        if due:
+        if speech_override:
+            speech = speech_override
+        elif due:
             moment = datetime.fromisoformat(due)
-            speech = (
-                f"Reminder set for {spoken_when(moment)}. "
-                "I'll say it then, and show a notification on this PC, even if the AI is off. "
-                "Say undo in the next 10 seconds to remove it."
-            )
+            speech = self._phrases.reminder_saved_reply(spoken_when(moment), text)
+        elif filename.startswith("schedule"):
+            speech = self._phrases.untimed_reminder_reply()
         else:
-            speech = f"Saved {noun}. Say undo in the next 10 seconds to remove it."
-            if filename.startswith("schedule"):
-                speech = (
-                    "Saved the reminder. It has no clock, so it will not ring. "
-                    "Add a time on the Reminders page. Say undo in the next 10 seconds to remove it."
-                )
+            speech = self._phrases.memory_saved_reply(text if noun == "that" else "")
         self.window.home.set_reply(text[:80], speech, "It stays on this PC. Nothing was sent.")
         self._note_local(text, speech)
         self._speak(speech)
@@ -3453,6 +3581,7 @@ class Shell:
             speech = " ".join(lines)
         detail = "\n".join(lines) if lines else "Nothing was read."
         self.window.home.set_reply(text, speech, detail)
+        self._note_local(text, speech)
         self._speak(speech)
 
     def _model_still_running(self) -> bool:
@@ -3507,10 +3636,15 @@ class Shell:
         self._scan_when_free = False
         self._pending_offer = ""
         try:
+            settings = self.controller.settings
+            watched_games = list(settings.game_processes)
+            snap = getattr(self.controller, "latest_status", None)
+            if snap is not None and settings.detect_games and snap.detected_game:
+                watched_games.append(snap.detected_game)
             result = scan(
                 collect_processes(),
                 collect_startups(),
-                games=self.controller.settings.game_processes,
+                games=watched_games,
             )
         except Exception as exc:
             speech = "I couldn't read this PC just now. I did not change anything."
@@ -3537,6 +3671,7 @@ class Shell:
             self._arm_yes_no(False)
             self.window.health_page.body.setPlainText(speech)
             self.window.home.set_reply("scan", speech, "Nothing was changed.")
+            self._note_local("scan", speech)
             self._speak(speech)
             return
         self._speak_current_suggestion()
@@ -3547,6 +3682,7 @@ class Shell:
         self._scan_prefix = ""
         self.window.health_page.body.setPlainText(speech + "\n\nSay yes, or say no.")
         self.window.home.set_reply("scan", speech, "Nothing changes until you say yes.")
+        self._note_local("scan", speech)
         self._arm_yes_no(True)
         self._speak(speech)
 
@@ -3569,6 +3705,7 @@ class Shell:
             self._arm_yes_no(bool(getattr(self, "_awaiting_more", False)))
         self.window.health_page.body.setPlainText(speech)
         self.window.home.set_reply(answer, speech, detail)
+        self._note_local(answer, speech)
         self._speak(speech)
 
     def _apply_suggestion(self, item) -> str:
@@ -3639,6 +3776,8 @@ class Shell:
         self.window.tools_page.show_google(speech)
         detail = "Nothing was sent." if "Nothing was sent" in speech else "Read only. The token stays out of the log."
         self.window.home.set_reply("google", speech, detail)
+        if not getattr(self, "_google_only_new", False):
+            self._note_local("google", speech)
         if speak:
             self._speak(speech)
 
@@ -3820,6 +3959,7 @@ class Shell:
         self.controller.settings.last_weekly_review = date.today().isoformat()
         save_settings(self.controller.settings)
         self.window.home.set_reply("weekly review", speech, "Written on this PC. The model was not asked.")
+        self._note_local("weekly review", speech)
         self._speak(speech)
 
     def _benchmark(self) -> None:

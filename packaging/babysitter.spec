@@ -43,6 +43,15 @@ def _bundle(package: str, dest: str | None = None):
         return [], []
 
 
+def _submodules(package: str) -> list[str]:
+    try:
+        from PyInstaller.utils.hooks import collect_submodules
+
+        return list(collect_submodules(package))
+    except Exception:
+        return [package]
+
+
 # (package, destination folder or None to keep the package's own folders)
 _PACKED = (
     ("vosk", "vosk"),
@@ -79,12 +88,14 @@ a = Analysis(
         *_datas,
     ],
     hiddenimports=[
+        *_submodules("babysitter"),
         "babysitter",
         "babysitter.app",
         "PySide6.QtCore",
         "PySide6.QtGui",
         "PySide6.QtWidgets",
         "PySide6.QtNetwork",
+        "numpy",
         "vosk",
         "vosk.vosk_cffi",
         "sounddevice",
@@ -104,7 +115,19 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "unittest"],
+    excludes=[
+        "tkinter",
+        "unittest",
+        "pytest",
+        "_pytest",
+        "pluggy",
+        "iniconfig",
+        "pygments",
+        "pip",
+        "pip_tools",
+        "build",
+        "wheel",
+    ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,

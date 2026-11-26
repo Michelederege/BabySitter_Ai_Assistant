@@ -25,12 +25,13 @@ def pin_icon() -> QIcon:
     return QIcon(pixmap)
 
 
-def pin_button() -> QPushButton:
+def pin_button(accessible_name: str = "Pin on board") -> QPushButton:
     button = QPushButton()
     button.setObjectName("pinIcon")
     button.setIcon(pin_icon())
     button.setIconSize(QSize(16, 16))
     button.setFixedSize(28, 28)
+    button.setAccessibleName(accessible_name)
     button.setToolTip("Pin this on the board. It stays on this PC.")
     button.setCursor(Qt.CursorShape.PointingHandCursor)
     return button
@@ -74,6 +75,7 @@ def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
         if not shown:
             continue
         item = QListWidgetItem(shown)
+        item.setForeground(QColor(0, 0, 0, 0))
         if item_id:
             item.setData(Qt.ItemDataRole.UserRole, item_id)
         widget.addItem(item)
@@ -85,7 +87,7 @@ def fill_pinned_list(widget: QListWidget, rows: list[tuple], on_pin) -> None:
         label.setObjectName("pinnedLine")
         label.setWordWrap(True)
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        button = pin_button()
+        button = pin_button(f"Pin: {pinned[:60]}")
         button.clicked.connect(lambda _checked=False, line=pinned: on_pin(line))
         layout.addWidget(label, 1)
         layout.addWidget(button)

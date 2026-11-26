@@ -6,7 +6,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QFrame, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
-from babysitter.ui.theme import STATE_COLORS
+from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
 
 
 class PowerButton(QPushButton):
@@ -16,13 +16,15 @@ class PowerButton(QPushButton):
         self._phase = 0
         self.setFixedSize(64, 64)
         self.setCursor(Qt.PointingHandCursor)
-        self.setAccessibleName("AI power")
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAccessibleName("AI power: Off")
         timer = QTimer(self)
         timer.timeout.connect(self._tick)
         timer.start(50)
 
     def set_state(self, state: str) -> None:
         self.state = state if state in STATE_COLORS else "error"
+        self.setAccessibleName(f"AI power: {STATE_WORDS.get(self.state, 'Needs you')}")
         self.update()
 
     def _tick(self) -> None:
@@ -53,6 +55,9 @@ class PowerButton(QPushButton):
         painter.setBrush(Qt.NoBrush)
         painter.setPen(QPen(ink, max(3, rect.width() // 12), Qt.SolidLine, Qt.RoundCap))
         painter.drawArc(rect.adjusted(6, 6, -6, -6), 50 * 16, 280 * 16)
+        if self.hasFocus():
+            painter.setPen(QPen(QColor("#f6b977"), 2))
+            painter.drawEllipse(self.rect().adjusted(3, 3, -3, -3))
 
 
 class Card(QFrame):

@@ -31,15 +31,18 @@ def clear_playback() -> None:
 
 def preview_pcm(samples, limit: int = 1600) -> bytes:
     """A short int16 view of float samples, for the echo reference."""
-    out = bytearray()
-    count = 0
-    for value in samples:
-        if count >= limit:
-            break
-        clamped = max(-1.0, min(1.0, float(value)))
-        out += int(clamped * 32767).to_bytes(2, "little", signed=True)
-        count += 1
-    return bytes(out)
+    sliced = samples[:limit]
+    try:
+        import numpy as np
+
+        arr = np.asarray(sliced, dtype=np.float32)
+        return np.clip(arr * 32767.0, -32767.0, 32767.0).astype("<i2").tobytes()
+    except ImportError:
+        out = bytearray()
+        for value in sliced:
+            clamped = max(-1.0, min(1.0, float(value)))
+            out += int(clamped * 32767).to_bytes(2, "little", signed=True)
+        return bytes(out)
 
 
 def play_pcm_blocks(samples, sample_rate: int, stop_event, write, block_ms: int = 10, publish=None) -> bool:

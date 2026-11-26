@@ -27,7 +27,9 @@ def main(argv: list[str] | None = None) -> int:
             get_logger().error("Startup failed:\n%s", text)
         except Exception:
             pass
-        panic(text)
+        from babysitter.startup_error import show_startup_failure
+
+        show_startup_failure(text)
         return 1
 
 
@@ -54,10 +56,17 @@ def _run(argv: list[str]) -> int:
 
     controller = Controller()
     shell = Shell(controller)
-    instance.asked_to_raise.connect(shell.show_window)
-    shell.show()
-    sys.excepthook = _hook
-    return app.exec()
+    try:
+        instance.asked_to_raise.connect(shell.show_window)
+        shell.show()
+        sys.excepthook = _hook
+        return app.exec()
+    finally:
+        try:
+            shell.registrar.clear()
+        except Exception:
+            pass
+        controller.shutdown_threads()
 
 
 def _hook(exc_type, value, tb) -> None:

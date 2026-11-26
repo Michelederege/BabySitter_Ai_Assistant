@@ -60,6 +60,7 @@ class VoicePage(QWidget):
         layout.addWidget(preview)
 
         self.voice = QComboBox()
+        self.voice.setAccessibleName("Voice selection")
         for accent, name, engine, where in VOICES:
             self.voice.addItem(f"{accent} · {name} · {engine} · {where}", name)
         self.voice.setToolTip("Pick a voice. Australian Windows voices have to be added in Windows first.")
@@ -83,6 +84,8 @@ class VoicePage(QWidget):
         layout.addWidget(self.speed[0])
         layout.addWidget(self.pitch[0])
         layout.addWidget(self.followup[0])
+        self.speed[1].sliderReleased.connect(self._save_sliders)
+        self.pitch[1].sliderReleased.connect(self._save_sliders)
         self.followup[1].sliderReleased.connect(
             lambda: self.notice.emit(f"FOLLOWUP {self.followup[1].value()}")
         )
@@ -145,6 +148,7 @@ class VoicePage(QWidget):
         export.clicked.connect(lambda: self.notice.emit("EXPORT timings"))
         layout.addWidget(export)
         layout.addStretch(1)
+        self.load_saved()
 
     def set_responsiveness(self, text: str) -> None:
         self.responsiveness.setText(text)
@@ -155,6 +159,7 @@ class VoicePage(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(QLabel(label))
         slider = QSlider(Qt.Horizontal)
+        slider.setAccessibleName(label)
         slider.setRange(low, high)
         slider.setValue(value)
         shown = QLabel(str(value))
@@ -168,7 +173,69 @@ class VoicePage(QWidget):
         if text:
             self.pin_line.emit(text)
 
+    def load_saved(self) -> None:
+        """Sync the dropdown and sliders with voice.json when it exists."""
+        path = data_dir() / "voice.json"
+        if not path.is_file():
+            return
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(saved, dict):
+            return
+        voice_name = str(saved.get("voice") or "")
+        if voice_name:
+            index = self.voice.findData(voice_name)
+            if index >= 0:
+                self.voice.setCurrentIndex(index)
+        if saved.get("speed") is not None:
+            try:
+                self.speed[1].setValue(int(saved["speed"]))
+            except (TypeError, ValueError):
+                pass
+        if saved.get("pitch") is not None:
+            try:
+                self.pitch[1].setValue(int(saved["pitch"]))
+            except (TypeError, ValueError):
+                pass
+
+    def _selected_is_cloud_off(self) -> bool:
+        index = self.voice.currentIndex()
+        return 0 <= index < len(VOICES) and VOICES[index][3] == "Cloud, off"
+
+    def _save_sliders(self) -> None:
+        if self._selected_is_cloud_off():
+            return
+        path = data_dir() / "voice.json"
+        voice_name = self.voice.currentData()
+        if path.is_file():
+            try:
+                existing = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(existing, dict) and existing.get("voice"):
+                    voice_name = existing["voice"]
+            except (OSError, json.JSONDecodeError):
+                pass
+        payload = {
+            "voice": voice_name,
+            "speed": self.speed[1].value(),
+            "pitch": self.pitch[1].value(),
+        }
+        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        self.status.setText(
+            f"Saved {payload['voice']} (speed {payload['speed']}, pitch {payload['pitch']}) on this PC."
+        )
+        self.notice.emit(self.status.text())
+
     def _use(self) -> None:
+        if self._selected_is_cloud_off():
+            choice = self.voice.currentData() or "That voice"
+            self.status.setText(
+                f"{choice} is a cloud voice and stays off so your words stay on this PC. "
+                "Choose a local Kokoro or Windows voice."
+            )
+            self.notice.emit(self.status.text())
+            return
         payload = {
             "voice": self.voice.currentData(),
             "speed": self.speed[1].value(),

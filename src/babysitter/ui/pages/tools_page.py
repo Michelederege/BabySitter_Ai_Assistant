@@ -78,6 +78,7 @@ class ToolsPage(QWidget):
         layout.addWidget(self.google_status)
         google_row = QHBoxLayout()
         self.google_input = QLineEdit()
+        self.google_input.setAccessibleName("Google read-only token")
         self.google_input.setEchoMode(QLineEdit.Password)
         self.google_input.setPlaceholderText("Paste a read-only Gmail and Calendar token")
         self.google_input.setToolTip(
@@ -106,6 +107,7 @@ class ToolsPage(QWidget):
         check_row.addStretch(1)
         layout.addLayout(check_row)
         self.google_client = QLineEdit()
+        self.google_client.setAccessibleName("Google OAuth desktop client ID")
         self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
         self.google_client.setToolTip(
             "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
@@ -136,6 +138,7 @@ class ToolsPage(QWidget):
         layout.addWidget(self.key_status)
         key_row = QHBoxLayout()
         self.key_input = QLineEdit()
+        self.key_input.setAccessibleName("ScrapeCreators API key")
         self.key_input.setEchoMode(QLineEdit.Password)
         self.key_input.setPlaceholderText("Paste the key from scrapecreators.com")
         self.key_input.setToolTip(
@@ -157,6 +160,7 @@ class ToolsPage(QWidget):
         kind_label.setObjectName("section")
         layout.addWidget(kind_label)
         self.kind = QComboBox()
+        self.kind.setAccessibleName("Social lookup kind")
         for action in SEARCH_ACTIONS:
             self.kind.addItem(action.label, action.id)
         self.kind.setToolTip("Public posts, a public profile, comments, or a transcript.")
@@ -168,6 +172,7 @@ class ToolsPage(QWidget):
         layout.addWidget(self.action_note)
 
         self.query = QLineEdit()
+        self.query.setAccessibleName("Social search query")
         self.query.setToolTip("Only this text is sent, after you confirm.")
         self.query.returnPressed.connect(self._emit_search)
         layout.addWidget(self.query)
@@ -189,11 +194,12 @@ class ToolsPage(QWidget):
         layout.addLayout(pin_row)
         self.results = QPlainTextEdit()
         self.results.setReadOnly(True)
+        self.results.setAccessibleName("Tool results")
         self.results.setPlaceholderText("Results show up here, with the public link when there is one.")
         self.results.setMinimumHeight(180)
         layout.addWidget(self.results)
 
-        later = QLabel("Research recipes that wait for the talking assistant")
+        later = QLabel("Spoken research recipes")
         later.setObjectName("section")
         layout.addWidget(later)
         later_body = QLabel(_later_text())
@@ -308,9 +314,10 @@ class ToolsPage(QWidget):
 
 def _later_text() -> str:
     lines = [
-        "These come from the social-media research skills. BabySitter does not "
-        "run them on its own yet, because they need the assistant to talk and "
-        "summarize. Age and gender guesses are not included.",
+        "When social search and the local AI are both on, you can speak or type these "
+        "recipes on Home. BabySitter still shows what will be sent and waits for a yes "
+        "before contacting ScrapeCreators, then summarizes locally. Follower lists and "
+        "age or gender guesses are never included.",
         "",
     ]
     for name, sentence in LATER_RECIPES:

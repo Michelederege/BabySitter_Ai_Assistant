@@ -115,6 +115,7 @@ def _clean_games(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     cleaned: list[str] = []
+    seen: set[str] = set()
     for item in value[:50]:
         if not isinstance(item, str):
             continue
@@ -122,7 +123,9 @@ def _clean_games(value: object) -> list[str]:
             name = clean_process_name(item)
         except ValueError:
             continue
-        if name.lower() not in {existing.lower() for existing in cleaned}:
+        key = name.lower()
+        if key not in seen:
+            seen.add(key)
             cleaned.append(name)
     return cleaned
 
@@ -132,11 +135,14 @@ def _clean_names(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     cleaned: list[str] = []
+    seen: set[str] = set()
     for item in value[:50]:
         if not isinstance(item, str):
             continue
         name = " ".join(item.split())[:120]
-        if name and name.lower() not in {existing.lower() for existing in cleaned}:
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
             cleaned.append(name)
     return cleaned
 
@@ -146,11 +152,14 @@ def _clean_folders(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     cleaned: list[str] = []
+    seen: set[str] = set()
     for item in value[:20]:
         if not isinstance(item, str):
             continue
         path = item.strip()[:500]
-        if path and path.lower() not in {existing.lower() for existing in cleaned}:
+        key = path.lower()
+        if path and key not in seen:
+            seen.add(key)
             cleaned.append(path)
     return cleaned
 

@@ -67,8 +67,9 @@ def load_session(session_id: str) -> dict:
     return raw
 
 
-def list_sessions() -> list[dict]:
-    found: list[dict] = []
+def _iter_session_records() -> list[tuple[dict, dict]]:
+    """Read valid session files once, newest first, as (summary_row, full_record)."""
+    found: list[tuple[dict, dict]] = []
     for path in sessions_dir().glob("*.json"):
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -80,35 +81,36 @@ def list_sessions() -> list[dict]:
         preview = ""
         if turns and isinstance(turns[0], dict):
             preview = str(turns[0].get("user") or "")[:80]
-        found.append(
-            {
-                "id": str(raw.get("id") or path.stem),
-                "started": str(raw.get("started") or ""),
-                "preview": preview,
-                "turns": len(turns),
-            }
-        )
-    found.sort(key=lambda item: item["started"], reverse=True)
+        summary = {
+            "id": str(raw.get("id") or path.stem),
+            "started": str(raw.get("started") or ""),
+            "preview": preview,
+            "turns": len(turns),
+        }
+        found.append((summary, raw))
+    found.sort(key=lambda pair: pair[0]["started"], reverse=True)
     return found
+
+
+def list_sessions() -> list[dict]:
+    return [summary for summary, _raw in _iter_session_records()]
 
 
 def search_sessions(query: str) -> list[dict]:
     needle = (query or "").strip().casefold()
+    records = _iter_session_records()
     if not needle:
-        return list_sessions()
+        return [summary for summary, _raw in records]
     matches: list[dict] = []
-    for item in list_sessions():
-        try:
-            record = load_session(item["id"])
-        except ValueError:
-            continue
+    for summary, record in records:
+        turns = record.get("turns") if isinstance(record.get("turns"), list) else []
         blob = " ".join(
             f"{turn.get('user', '')} {turn.get('assistant', '')}"
-            for turn in record["turns"]
+            for turn in turns
             if isinstance(turn, dict)
         )
-        if needle in blob.casefold() or needle in item["started"].casefold():
-            matches.append(item)
+        if needle in blob.casefold() or needle in summary["started"].casefold():
+            matches.append(summary)
     return matches
 
 
