@@ -28,6 +28,8 @@ def test_http_targets_are_local_or_documented_pages():
         "https://www.googleapis.com/calendar/",
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/drive/v3/files",
         "https://accounts.google.com/o/oauth2/",
         "https://oauth2.googleapis.com/token",
         "https://api.github.com/repos/Michelederege/BabySitter_Ai_Assistant/releases/latest",

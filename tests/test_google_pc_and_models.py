@@ -124,8 +124,11 @@ def test_google_token_and_addresses():
         require_google_url("http://gmail.googleapis.com/gmail/v1/users/me/messages")
     with pytest.raises(ValueError):
         require_google_url("https://maps.googleapis.com/maps/api/x")
+    require_google_url("https://www.googleapis.com/drive/v3/files?pageSize=8")
     with pytest.raises(ValueError):
-        require_google_url("https://www.googleapis.com/drive/v3/files")
+        require_google_url("https://www.googleapis.com/upload/drive/v3/files")
+    with pytest.raises(ValueError):
+        require_google_url("https://www.googleapis.com/drive/v3/files/abc/permissions")
 
 
 def test_unread_and_calendar_use_only_the_read_urls():
