@@ -2174,6 +2174,111 @@ def _feature_inbox() -> list[Outcome]:
     ]
 
 
+def _feature_writing_draft() -> list[Outcome]:
+    from datetime import timedelta, timezone
+
+    from babysitter.intents import match_tool
+    from babysitter.plugins.tools.google_account import doc_export_url
+    from babysitter.security import require_google_url
+    from babysitter.writing import (
+        WRITING_RULES,
+        clip_draft,
+        pick_draft,
+        read_open_draft,
+        title_from_window,
+        writing_miss,
+    )
+    from babysitter.plugins.tools.google_account import GoogleError
+
+    now = datetime(2026, 11, 26, 19, 0, tzinfo=timezone.utc)
+    essay = {
+        "id": "essay01",
+        "name": "Studio essay",
+        "modifiedTime": "2026-11-26T18:40:00Z",
+        "mimeType": "application/vnd.google-apps.document",
+    }
+    older = {
+        "id": "notes01",
+        "name": "Old notes",
+        "modifiedTime": "2026-11-20T18:40:00Z",
+        "mimeType": "application/vnd.google-apps.document",
+    }
+
+    def window_picks_the_open_doc() -> str:
+        from babysitter.writing import choices_from_listing
+
+        choices = choices_from_listing({"files": [essay, older]}, 0)
+        picked = pick_draft(choices, "Studio essay - Google Docs - Google Chrome", now)
+        assert picked is not None and picked.name == "Studio essay"
+        assert title_from_window("BabySitter") == ""
+        return "The Google Docs window picks that draft."
+
+    def a_quiet_doc_stays_out() -> str:
+        from babysitter.writing import choices_from_listing
+
+        stale = dict(essay)
+        stale["modifiedTime"] = (now - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        choices = choices_from_listing({"files": [stale]}, 0)
+        assert pick_draft(choices, "BabySitter", now) is None
+        assert pick_draft(choices, "", now, allow_stale=True) is not None
+        return "A doc left alone for hours is not attached."
+
+    def plain_text_only() -> str:
+        require_google_url(doc_export_url("essay01"))
+        for blocked in (
+            "https://www.googleapis.com/drive/v3/files/essay01?alt=media",
+            "https://www.googleapis.com/drive/v3/files/essay01/export?mimeType=application/pdf",
+        ):
+            try:
+                require_google_url(blocked)
+            except ValueError:
+                continue
+            raise AssertionError(blocked)
+        return "The draft is plain text. The file is not downloaded."
+
+    def the_question_carries_the_draft() -> str:
+        token = "ya29.example-token-value-ok"
+
+        def fetch_json(url, got):
+            assert got == token and "mimeType" in url
+            return {"files": [essay, older]}
+
+        def fetch_text(url, got):
+            assert got == token and url.endswith("?mimeType=text/plain")
+            return "The armory opened in 1913.\n\nI am still writing the last paragraph."
+
+        draft = read_open_draft([token], "Studio essay - Google Docs", fetch_json=fetch_json, fetch_text=fetch_text, now=now)
+        assert draft is not None
+        assert "1913" in draft.note and WRITING_RULES in draft.note
+        assert token not in draft.note
+        long_text = ("Opening claim. " * 40) + "I am still writing the last paragraph."
+        assert "last paragraph" in clip_draft(long_text, 400)
+        assert "Opening claim" in clip_draft(long_text, 400)
+        return draft.speech
+
+    def lookup_asks_and_credits_only_real_sources() -> str:
+        intent = match_tool("find a source for the Armory Show for this paper")
+        assert intent is not None and intent.kind == "web"
+        assert "Armory Show" in intent.query and "for this paper" not in intent.query
+        assert "Do not invent" in intent.summary
+        assert match_quick_command("what am I writing").kind == "draft"
+        assert "Do not invent the draft" in writing_miss("how do I strengthen this essay")
+        assert writing_miss("what time is dinner") == ""
+        try:
+            doc_export_url("bad id")
+        except GoogleError:
+            return "A lookup asks first, and a missing source is not invented."
+        raise AssertionError("a bad file id was accepted")
+
+    return [
+        _timed("open doc wins", window_picks_the_open_doc),
+        _timed("quiet doc stays out", a_quiet_doc_stays_out),
+        _timed("plain text only", plain_text_only),
+        _timed("draft rides along", the_question_carries_the_draft),
+        _timed("lookup credits real sources", lookup_asks_and_credits_only_real_sources),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -2223,6 +2328,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("accessibility and exe", _feature_accessibility_and_exe()),
         ("self update", _feature_self_update(tmp_path, monkeypatch)),
         ("inbox", _feature_inbox()),
+        ("writing draft", _feature_writing_draft()),
     ]
 
 

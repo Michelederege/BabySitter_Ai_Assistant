@@ -272,6 +272,7 @@ class _AskJob(QThread):
         facts=None,
         personality: str = "",
         context_note: str = "",
+        note_more=None,
     ) -> None:
         super().__init__()
         self._ollama = ollama
@@ -285,6 +286,7 @@ class _AskJob(QThread):
         self._facts = list(facts or [])
         self._personality = personality
         self._context_note = context_note
+        self._note_more = note_more
         self.cancel = threading.Event()
         self.turn = 0
 
@@ -294,7 +296,16 @@ class _AskJob(QThread):
         parts: list[str] = []
         sent_lead = False
         sent_token = False
-        extra = {"context_note": self._context_note} if self._context_note else {}
+        note = self._context_note
+        more = ""
+        if self._note_more is not None:
+            try:
+                more = self._note_more() or ""
+            except Exception:
+                more = ""
+        if more:
+            note = f"{note}\n{more}".strip() if note else more
+        extra = {"context_note": note} if note else {}
         try:
             for piece in self._ollama.iter_reply(
                 self._model,
@@ -675,6 +686,39 @@ class _InboxJob(QThread):
         school = ""
         feed_url = ""
         self.ready.emit(safe_rows, speech)
+
+
+class _DraftJob(QThread):
+    ready = Signal(str, str)
+
+    def __init__(self, tokens: list[str], window_title: str) -> None:
+        super().__init__()
+        self._tokens = list(tokens)
+        self._title = window_title
+
+    def run(self) -> None:
+        tokens = self._tokens
+        title = self._title
+        self._tokens = []
+        self._title = ""
+        from babysitter.writing import read_open_draft
+
+        try:
+            draft = read_open_draft(tokens, title, allow_stale=True, limit=4000)
+        except Exception:
+            draft = None
+        if draft is None:
+            speech, note = (
+                "I don't see a Google Doc on the linked account. Open the doc you are writing, or edit it, and ask again.",
+                "",
+            )
+        else:
+            speech, note = draft.speech, draft.note
+            if any(token and (token in speech or token in note) for token in tokens):
+                speech = note = "The Google Doc could not be shown."
+        for index in range(len(tokens)):
+            tokens[index] = ""
+        self.ready.emit(speech, note)
 
 
 class _SignInJob(QThread):
@@ -2308,6 +2352,7 @@ class Shell:
             facts=facts,
             personality=getattr(self, "_session_personality", ""),
             context_note=self._desk_context_note(),
+            note_more=lambda prompt=text, ctx=mode.num_ctx: self._writing_note(prompt, ctx),
         )
         job.turn = self._turn_id
         self._store_job("_ask_job", job)
@@ -2339,6 +2384,81 @@ class Shell:
     def _facts_for(self, text: str) -> list[str]:
         items = [str(item.get("text") or "") for item in load_list("memory.json")]
         return rank_texts(text, items, k=2)
+
+    def _writing_note(self, prompt: str, num_ctx: int) -> str:
+        """Plain text of the Google Doc in front, for this question only."""
+        if not self.controller.settings.google_enabled:
+            return ""
+        from babysitter.games import foreground_window_title
+        from babysitter.writing import read_open_draft, writing_miss
+
+        tokens: list[str] = []
+        for vault in (self.google_vault, self.google_school_vault):
+            try:
+                token = self._token_for_google(vault) or ""
+            except (GoogleError, SecretsError):
+                continue
+            if token:
+                tokens.append(token)
+        if not tokens:
+            return writing_miss(prompt)
+        try:
+            title = foreground_window_title()
+        except Exception:
+            title = ""
+        limit = 1600 if num_ctx <= 4096 else 7000 if num_ctx >= 16000 else 4000
+        try:
+            draft = read_open_draft(tokens, title, limit=limit)
+        except Exception:
+            return writing_miss(prompt)
+        if draft is None:
+            return writing_miss(prompt)
+        return draft.note
+
+    def _read_draft(self) -> None:
+        if not self.controller.settings.google_enabled:
+            self._show_google(
+                "Google is off. Turn it on under Tools, then open the Google Doc. Nothing was read.",
+                speak=True,
+            )
+            return
+        running = getattr(self, "_draft_job", None)
+        if running is not None and running.isRunning():
+            self.window.home.set_reply("draft", "I'm already reading the Google Doc.", "Nothing else was sent.")
+            return
+        from babysitter.games import foreground_window_title
+
+        tokens: list[str] = []
+        try:
+            for vault in (self.google_vault, self.google_school_vault):
+                token = self._token_for_google(vault) or ""
+                if token:
+                    tokens.append(token)
+        except (GoogleError, SecretsError) as exc:
+            self._show_google(str(exc), speak=True)
+            return
+        if not tokens:
+            self._show_google(
+                "Sign in with Google on Tools first. Nothing was read.",
+                speak=True,
+            )
+            return
+        try:
+            title = foreground_window_title()
+        except Exception:
+            title = ""
+        self.window.home.set_reply("draft", "Reading the Google Doc you are writing.", "Plain text only. The file stays in Drive.")
+        job = _DraftJob(tokens, title)
+        self._store_job("_draft_job", job)
+        job.ready.connect(self._draft_ready)
+        job.start()
+
+    def _draft_ready(self, speech: str, note: str) -> None:
+        self.window.home.set_reply("draft", speech, "Read from Google Drive. The file was not downloaded.")
+        self._note_local("draft", speech)
+        if note and note != speech:
+            self.window.tools_page.show_google(speech)
+        self._speak(speech)
 
     def _desk_context_note(self) -> str:
         """Short desk state so conversational replies know about an open task or next reminder."""
@@ -3343,6 +3463,9 @@ class Shell:
             return True
         if quick.kind in {"drive", "school_mail", "blackboard"}:
             self._refresh_inbox(quick.kind)
+            return True
+        if quick.kind == "draft":
+            self._read_draft()
             return True
         if quick.kind == "history":
             self._speak_saved_history(text)

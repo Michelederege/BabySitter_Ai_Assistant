@@ -61,6 +61,15 @@ def match_tool(text: str) -> ToolIntent | None:
         return _web(query)
     if lowered.startswith("web search for "):
         return _web(raw[len("web search for ") :].strip())
+    from babysitter.writing import CITATION_SUMMARY
+
+    for prefix in ("look up ", "find a source for ", "find sources for ", "find a citation for "):
+        if lowered.startswith(prefix):
+            query = raw[len(prefix) :].strip(" .")
+            for tail in (" for this paper", " for my paper", " for my essay", " for this essay"):
+                if query.lower().endswith(tail):
+                    query = query[: -len(tail)].strip()
+            return _web(query, CITATION_SUMMARY)
     social = re.match(r"search ([a-z]+) for (.+)", lowered)
     if social and social.group(1) in _SITES:
         query = raw.split(" for ", 1)[1].strip()
@@ -115,7 +124,7 @@ def _comment_site(target: str) -> str | None:
     return None
 
 
-def _web(query: str) -> ToolIntent | None:
+def _web(query: str, summary: str = "") -> ToolIntent | None:
     if not query:
         return None
     return ToolIntent(
@@ -123,7 +132,7 @@ def _web(query: str) -> ToolIntent | None:
         "",
         query,
         f"Search your own SearXNG on this PC for {query}?",
-        "Answer from these search results in two or three sentences. Say if they do not answer it.",
+        summary or "Answer from these search results in two or three sentences. Say if they do not answer it.",
     )
 
 
