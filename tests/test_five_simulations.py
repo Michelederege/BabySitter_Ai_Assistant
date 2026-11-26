@@ -1633,6 +1633,105 @@ def _feature_burst() -> list[Outcome]:
     ]
 
 
+def _feature_packed(monkeypatch) -> list[Outcome]:
+    """Five ways a packed library can be missing without closing the window."""
+    import builtins
+    from pathlib import Path
+
+    original = builtins.__import__
+
+    def _raise_for(module: str):
+        def broken(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == module:
+                raise FileNotFoundError(module)
+            return original(name, globals, locals, fromlist, level)
+
+        return broken
+
+    def kokoro_config():
+        monkeypatch.setattr(builtins, "__import__", _raise_for("kokoro_onnx"))
+        try:
+            from babysitter.plugins.voice.kokoro_voice import packages_installed
+
+            assert packages_installed() is False
+            return "Heart and Sarah stays off."
+        finally:
+            monkeypatch.setattr(builtins, "__import__", original)
+
+    def vosk_folder():
+        import shutil
+        import tempfile
+
+        from babysitter.plugins.voice.keyword import stage_vosk_libraries
+
+        root = Path(tempfile.mkdtemp())
+        try:
+            (root / "libvosk.dll").write_bytes(b"vosk")
+            (root / "Qt6Core.dll").write_bytes(b"qt")
+            stage_vosk_libraries(str(root))
+            assert (root / "vosk" / "libvosk.dll").read_bytes() == b"vosk"
+            assert not (root / "vosk" / "Qt6Core.dll").exists()
+            return "libvosk.dll is in the vosk folder."
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+
+    def other_libraries():
+        monkeypatch.setattr(builtins, "__import__", _raise_for("faster_whisper"))
+        try:
+            from babysitter.plugins.voice.hearing import packages_installed as hearing_installed
+
+            assert hearing_installed() is False
+        finally:
+            monkeypatch.setattr(builtins, "__import__", original)
+        monkeypatch.setattr(builtins, "__import__", _raise_for("onnxruntime"))
+        try:
+            from babysitter.embedder import packages_installed as memory_installed
+
+            assert memory_installed() is False
+            return "Hearing and the sharper memory stay off."
+        finally:
+            monkeypatch.setattr(builtins, "__import__", original)
+
+    def exe_refuses_pip():
+        import babysitter.plugins.voice.kokoro_voice as kokoro
+        from babysitter.platform import library_install_command
+
+        original_installed = kokoro.packages_installed
+        original_run = kokoro.run_hidden
+        called = []
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+        kokoro.packages_installed = lambda: False
+        kokoro.run_hidden = lambda *args, **kwargs: called.append(args)
+        try:
+            assert library_install_command(("kokoro-onnx==0.6.1",)) is None
+            try:
+                kokoro.download()
+            except kokoro.KokoroError as exc:
+                assert "BabySitter.exe" in str(exc)
+            else:
+                raise AssertionError("The exe tried to pip-install.")
+            assert called == []
+            return "The exe does not install into itself."
+        finally:
+            kokoro.packages_installed = original_installed
+            kokoro.run_hidden = original_run
+            monkeypatch.delattr(sys, "frozen", raising=False)
+
+    def spec_packs_the_files():
+        text = (Path(__file__).resolve().parents[1] / "packaging" / "babysitter.spec").read_text(encoding="utf-8")
+        for name in ("kokoro_onnx", "espeakng_loader", "_sounddevice_data", "vosk"):
+            assert f'"{name}"' in text
+        return "The build packs the files those libraries open."
+
+    return [
+        _timed("kokoro config.json", kokoro_config),
+        _timed("vosk folder", vosk_folder),
+        _timed("hearing and memory", other_libraries),
+        _timed("the exe does not pip", exe_refuses_pip),
+        _timed("the build packs the files", spec_packs_the_files),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -1667,6 +1766,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("social search", _feature_social()),
         ("yes or no", _feature_yes_no()),
         ("keyword", _feature_keyword()),
+        ("packed voice", _feature_packed(monkeypatch)),
         ("speech", _feature_speech()),
         ("quiet hours", _feature_quiet()),
         ("turn gate", _feature_turn_gate()),

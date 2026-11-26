@@ -15,7 +15,7 @@ import wave
 from dataclasses import dataclass
 
 from babysitter.paths import data_dir
-from babysitter.platform import run_hidden
+from babysitter.platform import libraries_import, missing_from_exe, run_hidden, running_inside_exe
 
 
 HEARING_PACKAGES = ("faster-whisper==1.2.1", "sounddevice==0.5.6")
@@ -26,12 +26,9 @@ class HearingError(Exception):
 
 
 def packages_installed() -> bool:
-    try:
-        import faster_whisper  # noqa: F401
-        import sounddevice  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    # faster-whisper and PortAudio open DLLs by path. A missing DLL in the
+    # packaged exe is an OSError, and it used to close the window.
+    return libraries_import("faster_whisper", "sounddevice")
 
 
 def whisper_dir():
@@ -51,6 +48,8 @@ def install_command() -> list[str]:
 
 def install_packages() -> str:
     """Download the hearing programs. The user must confirm before this runs."""
+    if running_inside_exe():
+        raise HearingError(missing_from_exe("Speech recognition"))
     completed = run_hidden(install_command(), timeout=900)
     output = ((completed.stdout or "") + "\n" + (completed.stderr or "")).strip()
     if completed.returncode not in (0, None):

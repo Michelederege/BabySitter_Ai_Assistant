@@ -1,0 +1,14 @@
+# Programs the packaged exe has to contain.
+#
+# A source run can download these from the Voice page. The exe cannot:
+# pip would start BabySitter.exe again. scripts\build-exe.bat installs
+# this list before PyInstaller runs, so the json files and DLLs these
+# libraries open by path are on disk to be packed.
+#
+# Versions match the pins in the voice and memory code.
+
+kokoro-onnx==0.6.1
+sounddevice==0.5.6
+vosk==0.3.45
+faster-whisper==1.2.1
+onnxruntime==1.20.1
