@@ -160,7 +160,9 @@ def doc_export_url(file_id: str) -> str:
     """Plain text of one Google Doc. Other formats are refused."""
     if not _safe_id(file_id):
         raise GoogleError("That Google Doc could not be read.")
-    return "https://www.googleapis.com/drive/v3/files/" + file_id + "?mimeType=text/plain"
+    # /export is the plain text of the document. Without it, Drive answers
+    # with the file's details (its id, name, and type) as JSON instead.
+    return "https://www.googleapis.com/drive/v3/files/" + file_id + "/export?mimeType=text/plain"
 
 
 def http_get_text(url: str, token: str, opener=None, limit: int = 80_000) -> str:

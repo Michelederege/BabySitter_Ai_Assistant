@@ -411,21 +411,12 @@ def load_settings(path: Path | None = None) -> Settings:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeError):
-        backup = path.with_name("settings.json.bak")
-        try:
-            path.replace(backup)
-        except OSError:
-            backup = path
-        settings = Settings()
-        settings.notices.append(
-            "The settings file could not be read. A copy was kept as "
-            f"{backup.name}, and a fresh settings file was started. "
-            "Start with Windows is off."
-        )
-        save_settings(settings, path)
-        return settings
+        return _start_fresh(path)
     if not isinstance(raw, dict):
-        raise SettingsError("The settings file was not a settings object.")
+        # Valid JSON that is not a settings object, such as null or a
+        # list, is as unreadable as a broken file. It used to stop the
+        # app from opening at all.
+        return _start_fresh(path)
     try:
         original_version = int(raw.get("schema_version") or 0)
     except (TypeError, ValueError):
@@ -434,6 +425,23 @@ def load_settings(path: Path | None = None) -> Settings:
     if original_version != SCHEMA_VERSION or settings.notices:
         # Write the repaired file so the next launch doesn't have to fix it again.
         save_settings(settings, path)
+    return settings
+
+
+def _start_fresh(path: Path) -> Settings:
+    """Keep the unreadable file as a copy and start with the defaults."""
+    backup = path.with_name("settings.json.bak")
+    try:
+        path.replace(backup)
+    except OSError:
+        backup = path
+    settings = Settings()
+    settings.notices.append(
+        "The settings file could not be read. A copy was kept as "
+        f"{backup.name}, and a fresh settings file was started. "
+        "Start with Windows is off."
+    )
+    save_settings(settings, path)
     return settings
 
 

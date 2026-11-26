@@ -327,3 +327,16 @@ def test_folder_and_name_lists_are_cleaned_not_trusted():
     )
     assert settings.journal_excluded == ["Private.exe"]
     assert settings.search_folders == ["C:\\Prints"]
+
+
+def test_more_kinds_that_windows_runs_are_never_started(monkeypatch):
+    names = (
+        "applet.cpl", "install.application", "app.appref-ms", "console.msc",
+        "help.chm", "explorer.scf", "part.wsc", "fix.diagcab",
+        "open.settingcontent-ms", "update.msp", "setup.exe.", "setup.exe ",
+    )
+    for name in names:
+        assert "was not started" in open_found(_entry(name, 1.0)), name
+    # A kind this PC added to PATHEXT counts as a program too.
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.FOO")
+    assert "was not started" in open_found(_entry("thing.foo", 1.0))

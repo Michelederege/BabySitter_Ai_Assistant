@@ -176,33 +176,37 @@ def run_finish_update(
 
     staged_raw = str(payload.get("staged_exe") or "").strip()
     targets = [Path(item) for item in (payload.get("targets") or []) if item]
+    failed = ""
     if staged_raw and targets:
         staged = Path(staged_raw)
-        if not staged.is_file():
-            return 1
         primary = targets[0]
-        try:
-            _replace_with_retries(staged, primary, sleep_fn=sleep_fn)
-        except OSError:
-            return 1
-        for extra in targets[1:]:
+        if not staged.is_file():
+            failed = "The new BabySitter.exe was missing, so the old one was kept."
+        else:
             try:
-                _replace_with_retries(staged, extra, sleep_fn=sleep_fn)
+                _replace_with_retries(staged, primary, sleep_fn=sleep_fn)
             except OSError:
-                # A secondary copy should not block opening the main exe.
-                pass
+                failed = (
+                    f"{primary.name} could not be replaced. Another program may have it open. "
+                    "The old version was kept. Try the update again."
+                )
+        if not failed:
+            for extra in targets[1:]:
+                try:
+                    _replace_with_retries(staged, extra, sleep_fn=sleep_fn)
+                except OSError:
+                    # A secondary copy should not block opening the main exe.
+                    pass
 
     note_path = allowed_dir / "last-update.json"
+    note = {
+        "from": str(payload.get("from_version") or ""),
+        "to": str(payload.get("to_version") or ""),
+    }
+    if failed:
+        note["failed"] = failed
     try:
-        note_path.write_text(
-            json.dumps(
-                {
-                    "from": str(payload.get("from_version") or ""),
-                    "to": str(payload.get("to_version") or ""),
-                }
-            ),
-            encoding="utf-8",
-        )
+        note_path.write_text(json.dumps(note), encoding="utf-8")
     except OSError:
         pass
 
@@ -212,7 +216,7 @@ def run_finish_update(
         pass
 
     installer_raw = str(payload.get("installer_exe") or "").strip()
-    if installer_raw:
+    if installer_raw and not failed:
         installer = Path(installer_raw)
         if installer.is_file():
             popen_fn(
@@ -233,7 +237,9 @@ def run_finish_update(
             cwd=relaunch_cwd,
             env=clean_pyinstaller_env(extra_env),
         )
-    return 0
+    # The old version is opened again either way, so a failed swap never
+    # leaves the PC with no BabySitter window and no word about why.
+    return 1 if failed else 0
 
 
 def consume_completed_update(current_version: str = __version__) -> str:
@@ -252,6 +258,11 @@ def consume_completed_update(current_version: str = __version__) -> str:
         note_path.unlink(missing_ok=True)
     except (OSError, ValueError):
         return ""
+    if not isinstance(payload, dict):
+        return ""
+    failed = str(payload.get("failed") or "").strip()
+    if failed:
+        return f"The update did not finish. {failed}"
     old = str(payload.get("from") or "").strip()
     target = str(payload.get("to") or current_version).strip() or current_version
     if old and old != current_version:

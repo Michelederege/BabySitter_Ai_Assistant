@@ -246,7 +246,27 @@ NEVER_OPEN = {
     ".exe", ".bat", ".cmd", ".com", ".msi", ".msix", ".scr", ".pif",
     ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh",
     ".hta", ".reg", ".lnk", ".url", ".jar", ".py", ".pyw", ".appx",
+    # Also run code on a double-click: Control Panel applets, ClickOnce
+    # installs, consoles, compiled help, shell and script components,
+    # and the troubleshooter and settings shortcuts.
+    ".cpl", ".msp", ".mst", ".application", ".appref-ms", ".msc",
+    ".chm", ".scf", ".wsc", ".sct", ".ws", ".vb", ".psc1", ".psd1",
+    ".gadget", ".diagcab", ".settingcontent-ms", ".library-ms",
+    ".search-ms", ".website", ".xbap", ".appxbundle", ".msixbundle",
+    ".pyz", ".pyc",
 }
+
+
+def _runs_as_program(suffix: str) -> bool:
+    """True for a kind Windows would run. PATHEXT names any the PC added."""
+    if suffix in NEVER_OPEN:
+        return True
+    extra = {
+        part.strip().lower()
+        for part in os.environ.get("PATHEXT", "").split(";")
+        if part.strip()
+    }
+    return suffix in extra
 
 
 def open_found(found: FoundFile) -> str:
@@ -255,8 +275,10 @@ def open_found(found: FoundFile) -> str:
     A program or a script is never started this way: opening those by
     voice is how a stray match becomes code running on your PC.
     """
-    suffix = Path(found.name).suffix.lower()
-    if suffix in NEVER_OPEN:
+    # Windows ignores dots and spaces at the end of a name, so
+    # "setup.exe." would still start setup.exe.
+    suffix = Path(found.name.rstrip(" .")).suffix.lower()
+    if _runs_as_program(suffix):
         return (
             f"{found.name} is a program, not a document, so it was not started. "
             "Its place is on the screen if you want it."
