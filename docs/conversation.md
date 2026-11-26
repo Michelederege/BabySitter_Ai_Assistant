@@ -1,5 +1,8 @@
 # A conversation that stays in the room
 
+The model sizes and the confirm rules that are current live in
+`docs/agent-memory.md`. This file is the reason those rules exist.
+
 People name this kind of assistant Jarvis. The useful part of that, from the film and from voice-agent work, is not a second model. It is the pace.
 
 A modal dialog breaks the feeling that someone is in the room. A spoken yes or no, about one concrete thing, does not. BabySitter keeps the dialog for a search that leaves the PC, for deleting a saved key or token, and for quitting. A look at the screen, a reminder, and a remembered fact used to ask twice. The sentence you already said, or the button you already pressed, is the yes. Undo within 10 seconds removes a reminder, a fact, or a startup change.

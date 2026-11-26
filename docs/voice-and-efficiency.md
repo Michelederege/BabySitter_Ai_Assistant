@@ -1,5 +1,10 @@
 # Voice and efficiency additions
 
+This file is the November 2026 research log. Where a number here
+disagrees with the app, `docs/agent-memory.md` and the code win.
+Low is 4,096 tokens with a q4_0 cache, not the 16,384 and q8 lines
+further down.
+
 This is the November 2026 research, kept so the build order stays fixed.
 Priority 1 comes before the calendar and before Priorities 2–4.
 Items marked "do not build now" stay unbuilt.
