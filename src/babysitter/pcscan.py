@@ -44,6 +44,9 @@ PROTECTED_PROCESSES = {
 }
 
 PROTECTED_STARTUP = {
+    # BabySitter's own entry. Settings owns that switch, and turning it
+    # off here would leave the switch saying on.
+    "babysitter",
     "securityhealth",
     "windowsdefender",
     "window security",
@@ -158,7 +161,11 @@ def scan(processes, startups, games=(), memory: tuple[int, int] | None = None) -
     ranked = sorted(processes, key=lambda row: int(row[1]), reverse=True)
     heaviest: tuple[str, int] | None = None
     closes = 0
+    mine = own_pids()
     for name, rss, pid in ranked:
+        if int(pid) in mine:
+            # BabySitter itself. From the source folder it is pythonw.exe.
+            continue
         if not _plain_name(str(name)) or _protected_process(str(name)):
             continue
         if _stem(str(name)) in game_stems:
@@ -232,18 +239,59 @@ def close_named(name: str, *, pids, terminate) -> str:
     return f"Closed {closed} {name} processes."
 
 
+def own_pids() -> set[int]:
+    """BabySitter's own process, and the launcher or exe wrapper above it."""
+    import os
+
+    mine = {os.getpid()}
+    try:
+        import psutil
+
+        parent = psutil.Process(os.getpid()).parent()
+        if parent is not None:
+            mine.add(int(parent.pid))
+    except Exception:
+        pass
+    return mine
+
+
 def pids_named(name: str) -> list[int]:
+    """Every process with this name, except BabySitter itself.
+
+    Run from the source folder, BabySitter is pythonw.exe, so closing
+    "pythonw" by name would otherwise close BabySitter too.
+    """
     import psutil
 
     want = _stem(name)
+    mine = own_pids()
     found: list[int] = []
     for proc in psutil.process_iter(["name", "pid"]):
         try:
             if _stem(str(proc.info.get("name") or "")) == want:
-                found.append(int(proc.info["pid"]))
+                pid = int(proc.info["pid"])
+                if pid not in mine:
+                    found.append(pid)
         except (psutil.Error, OSError, TypeError, ValueError):
             continue
     return found
+
+
+def running_game_names() -> list[str]:
+    """Programs running from a folder where game stores install games."""
+    import psutil
+
+    from babysitter.games import looks_like_game_path
+
+    names: list[str] = []
+    for proc in psutil.process_iter(["name", "exe"]):
+        try:
+            path = str(proc.info.get("exe") or "")
+            if path and looks_like_game_path(path):
+                names.append(str(proc.info.get("name") or ""))
+        except (psutil.Error, OSError, TypeError, ValueError):
+            continue
+    return [name for name in names if name]
 
 
 def terminate_pid(pid: int) -> None:

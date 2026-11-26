@@ -188,3 +188,25 @@ def test_benchmark_keeps_times_only():
     assert benchmark_warning(40, 70)
     assert benchmark_warning(68, 70) is None
     assert image_tokens(1280, 720) == 900
+
+
+def test_a_reminder_on_another_day_keeps_that_days_offset():
+    from datetime import datetime, timedelta, timezone
+
+    from babysitter.commands import _on_day, when_from
+
+    now = datetime.now().astimezone()
+    for days in (1, 60, 120, 180, 240, 300):
+        moment = _on_day(now, days, 9, 0)
+        day = (now + timedelta(days=days)).date()
+        expected = datetime(day.year, day.month, day.day, 9, 0).astimezone()
+        assert moment == expected and moment.utcoffset() == expected.utcoffset(), days
+        assert (moment.hour, moment.minute) == (9, 0)
+    # "Tomorrow at 9" is 9 o'clock on tomorrow's wall clock.
+    found = when_from("tomorrow at 9 am", now)
+    assert (found.hour, found.minute) == (9, 0)
+    assert found.date() == (now + timedelta(days=1)).date()
+    # A time given in some other fixed zone stays in that zone.
+    elsewhere = datetime(2026, 3, 7, 20, 0, tzinfo=timezone(timedelta(hours=9)))
+    if elsewhere.utcoffset() != elsewhere.astimezone().utcoffset():
+        assert when_from("tomorrow at 9 am", elsewhere).utcoffset() == timedelta(hours=9)
