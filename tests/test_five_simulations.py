@@ -871,7 +871,9 @@ def _feature_shutdown(tmp_path, monkeypatch) -> list[Outcome]:
         child_pid = int(parent.stdout.readline().strip())
         try:
             proc = psutil.Process(child_pid)
-            assert proc.ppid() == parent.pid
+            # On Windows a venv's python.exe is a launcher that starts the
+            # real Python, so the child can sit one step further down.
+            assert parent.pid in {ancestor.pid for ancestor in proc.parents()}
             _terminate_psutil(psutil.Process(parent.pid))
             assert not proc.is_running()
             return "the runner child stopped with the parent"

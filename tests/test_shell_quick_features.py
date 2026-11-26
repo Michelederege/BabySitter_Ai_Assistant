@@ -16,6 +16,9 @@ def test_journal_search_and_numbers_through_the_window(tmp_path, monkeypatch):
     from babysitter.controller import Controller
     from babysitter.ui.shell import Shell
 
+    # Search only the test's own folder. The window otherwise adds the real
+    # Documents, Downloads, and Desktop, and files there change the count.
+    monkeypatch.setattr("babysitter.ui.shell.default_folders", lambda: [])
     controller = Controller()
     shell = Shell(controller)
     spoken: list[str] = []
