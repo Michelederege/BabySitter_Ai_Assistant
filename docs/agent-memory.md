@@ -71,12 +71,15 @@ ask first. Looking at the screen, saving a reminder, and saving a
 fact do not ask a second time. The sentence already said is the yes.
 Undo lasts 10 seconds.
 
-Google mail and calendar are read-only. Nothing is sent and nothing
-is deleted. The token is encrypted in its own file, not in
-`settings.json`. New mail and events are checked about every 15
-minutes, and only while the AI is on. Comment links are TikTok or
-Reddit. A YouTube link is not sent through the Reddit comments
-search. The larger public-research recipes (outlier posts, comment
+Google mail, calendar, and Drive file names are read-only. Nothing
+is sent, nothing is deleted, and nothing is uploaded. The token is
+encrypted in its own file, not in `settings.json`. A second sign-in
+stores a school Google account in a different file. New mail and
+events are checked about every 15 minutes, and only while the AI is
+on. The list on Tools shows the messages, events, and file names.
+Blackboard is the calendar feed the school gives you, not a Google
+account. Comment links are TikTok or Reddit. A YouTube link is not
+sent through the Reddit comments search. The larger public-research recipes (outlier posts, comment
 themes, trends, and the rest of that list) are in the app and still
 ask before they run.
 
@@ -194,6 +197,9 @@ decision.
 - Weather, Home Assistant, and music tools.
 - Mail or calendar alerts while the AI is off. The 15-minute check
   runs only while the AI is on.
+- A school mailbox that is Microsoft 365. School Google (Gmail) is
+  a second read-only sign-in. Blackboard is the calendar feed the
+  school gives you, not a course login.
 - Running BabySitter on the Raspberry Pi cluster.
 - Publishing the Inno Setup installer from GitHub. A tagged release
   builds the portable `BabySitter.exe` and `SHA256SUMS.txt`.

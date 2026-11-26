@@ -20,8 +20,15 @@ from babysitter.security import require_google_url
 
 
 GMAIL_LIST_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is%3Aunread&maxResults=5"
+GMAIL_VIEW_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is%3Aunread&maxResults=8"
 GMAIL_GET_PREFIX = "https://gmail.googleapis.com/gmail/v1/users/me/messages/"
+GMAIL_META = "?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date"
 CALENDAR_URL = "https://www.googleapis.com/calendar/v3/calendars/primary/events"
+DRIVE_LIST_URL = (
+    "https://www.googleapis.com/drive/v3/files"
+    "?pageSize=8&orderBy=modifiedTime%20desc&q=trashed%3Dfalse"
+    "&fields=files(id,name,modifiedTime)"
+)
 _TOKEN_DESCRIPTION = "BabySitter Google token"
 
 
@@ -47,15 +54,20 @@ def _safe_id(value: str) -> bool:
     return all(character.isalnum() or character in "-_" for character in value)
 
 
-def subject_of(message: dict) -> str:
+def header_of(message: dict, name: str, fallback: str = "") -> str:
     payload = message.get("payload") if isinstance(message, dict) else None
     headers = payload.get("headers") if isinstance(payload, dict) else None
+    wanted = name.lower()
     for header in headers or []:
         if not isinstance(header, dict):
             continue
-        if str(header.get("name") or "").lower() == "subject":
-            return str(header.get("value") or "(no subject)")[:120]
-    return "(no subject)"
+        if str(header.get("name") or "").lower() == wanted:
+            return str(header.get("value") or fallback)[:120]
+    return fallback
+
+
+def subject_of(message: dict) -> str:
+    return header_of(message, "Subject", "(no subject)") or "(no subject)"
 
 
 def unread_speech(subjects: list[str], extra: int = 0) -> str:
@@ -179,6 +191,75 @@ class GoogleReader:
             subjects.append(subject_of(detail))
         return ids, subjects
 
+    def mail_view(self, prefix: str = "Mail") -> tuple[list[str], str]:
+        listing = self._fetch(GMAIL_VIEW_URL, self._token)
+        messages = listing.get("messages") if isinstance(listing, dict) else None
+        if not isinstance(messages, list) or not messages:
+            return [], "No unread mail." if prefix == "Mail" else f"No unread {prefix.lower()}."
+        rows: list[str] = []
+        subjects: list[str] = []
+        for item in messages[:8]:
+            if not isinstance(item, dict):
+                continue
+            message_id = str(item.get("id") or "")
+            if not _safe_id(message_id):
+                continue
+            detail = self._fetch(GMAIL_GET_PREFIX + message_id + GMAIL_META, self._token)
+            subject = subject_of(detail)
+            sender = header_of(detail, "From", "Unknown")
+            when = header_of(detail, "Date", "")
+            subjects.append(subject)
+            shown = f"{prefix} · {sender} · {subject}"
+            if when:
+                shown += f" · {when[:32]}"
+            rows.append(shown)
+        extra = max(0, len(messages) - len(subjects))
+        label = "Unread mail" if prefix == "Mail" else f"Unread {prefix.lower()}"
+        speech = unread_speech(subjects, extra).replace("Unread mail", label, 1)
+        return rows, speech
+
+    def calendar_view(self, prefix: str = "Calendar") -> tuple[list[str], str]:
+        payload = self._fetch(calendar_request_url(self._now), self._token)
+        items = payload.get("items") if isinstance(payload, dict) else None
+        rows: list[str] = []
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            summary = str(item.get("summary") or "Busy")[:80]
+            start = item.get("start") if isinstance(item.get("start"), dict) else {}
+            when = str(start.get("dateTime") or start.get("date") or "")
+            where = str(item.get("location") or "")[:60]
+            shown = f"{prefix} · {summary}"
+            if when:
+                shown += f" · {when}"
+            if where:
+                shown += f" · {where}"
+            rows.append(shown)
+            if len(rows) == 8:
+                break
+        speech = calendar_speech(event_lines(payload))
+        if prefix != "Calendar":
+            speech = speech.replace("Coming up", prefix, 1).replace("Nothing coming up on the calendar.", f"Nothing coming up on {prefix}.")
+        return rows, speech
+
+    def drive_view(self, prefix: str = "Drive") -> tuple[list[str], str]:
+        payload = self._fetch(DRIVE_LIST_URL, self._token)
+        files = payload.get("files") if isinstance(payload, dict) else None
+        rows: list[str] = []
+        names: list[str] = []
+        for item in files or []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "Untitled")[:80]
+            when = str(item.get("modifiedTime") or "")[:16].replace("T", " ")
+            names.append(name)
+            rows.append(f"{prefix} · {name}" + (f" · {when}" if when else ""))
+            if len(rows) == 8:
+                break
+        if not names:
+            return [], f"No files in {prefix}."
+        return rows, f"{prefix}: " + ", ".join(names[:3]) + "."
+
     def event_index(self) -> tuple[list[str], list[str]]:
         payload = self._fetch(calendar_request_url(self._now), self._token)
         items = payload.get("items") if isinstance(payload, dict) else None
@@ -196,6 +277,37 @@ class GoogleReader:
             if len(ids) == 5:
                 break
         return ids, titles
+
+
+def read_account(
+    token: str,
+    *,
+    mail_prefix: str,
+    calendar_prefix: str,
+    drive_prefix: str,
+    fetch=http_get_json,
+) -> tuple[list[str], list[str], list[str]]:
+    """Rows, short speeches, and problems. One failed read does not hide the others."""
+    reader = GoogleReader(token, fetch)
+    rows: list[str] = []
+    speeches: list[str] = []
+    problems: list[str] = []
+    calls = (
+        (mail_prefix, lambda: reader.mail_view(mail_prefix)),
+        (calendar_prefix, lambda: reader.calendar_view(calendar_prefix)),
+        (drive_prefix, lambda: reader.drive_view(drive_prefix)),
+    )
+    for label, call in calls:
+        try:
+            found, speech = call()
+        except GoogleError as exc:
+            problems.append(f"{label}: {exc}")
+            rows.append(f"{label} · could not be read")
+            continue
+        rows.extend(found)
+        if speech:
+            speeches.append(speech)
+    return rows, speeches, problems
 
 
 class MemoryGoogleVault:
@@ -311,7 +423,8 @@ TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 REDIRECT_URI = "http://127.0.0.1:8765/babysitter"
 READONLY_SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly "
-    "https://www.googleapis.com/auth/calendar.readonly"
+    "https://www.googleapis.com/auth/calendar.readonly "
+    "https://www.googleapis.com/auth/drive.readonly"
 )
 
 
@@ -363,7 +476,7 @@ def pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def authorization_url(client_id: str, state: str, challenge: str) -> str:
+def authorization_url(client_id: str, state: str, challenge: str, prompt: str = "consent") -> str:
     from babysitter.security import require_google_oauth_url
 
     require_google_oauth_url(AUTH_ENDPOINT)
@@ -377,7 +490,7 @@ def authorization_url(client_id: str, state: str, challenge: str) -> str:
             "code_challenge": challenge,
             "code_challenge_method": "S256",
             "access_type": "offline",
-            "prompt": "consent",
+            "prompt": prompt or "consent",
         }
     )
     return AUTH_ENDPOINT + "?" + query

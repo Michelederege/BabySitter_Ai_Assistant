@@ -55,6 +55,7 @@ class Settings:
     last_weekly_review: str = ""
     google_enabled: bool = False
     google_client_id: str = ""
+    blackboard_enabled: bool = False
     quiet_hours: bool = False
     quiet_start: str = "22:00"
     quiet_end: str = "07:00"
@@ -96,6 +97,7 @@ class Settings:
             "last_weekly_review": self.last_weekly_review,
             "google_enabled": self.google_enabled,
             "google_client_id": self.google_client_id,
+            "blackboard_enabled": self.blackboard_enabled,
             "quiet_hours": self.quiet_hours,
             "quiet_start": self.quiet_start,
             "quiet_end": self.quiet_end,
@@ -385,6 +387,7 @@ def settings_from_dict(data: dict) -> Settings:
         last_weekly_review=_weekly_day(data.get("last_weekly_review", "")),
         google_enabled=bool(data.get("google_enabled", False)),
         google_client_id=_client_id(data.get("google_client_id", "")),
+        blackboard_enabled=bool(data.get("blackboard_enabled", False)),
         quiet_hours=bool(data.get("quiet_hours", False)),
         quiet_start=_clock(data.get("quiet_start", "22:00"), "22:00"),
         quiet_end=_clock(data.get("quiet_end", "07:00"), "07:00"),

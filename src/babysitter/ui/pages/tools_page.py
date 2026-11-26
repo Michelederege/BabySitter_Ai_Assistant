@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -36,6 +37,10 @@ class ToolsPage(QWidget):
     delete_google = Signal()
     google_check = Signal(str)
     google_sign_in_requested = Signal(str)
+    school_sign_in_requested = Signal(str)
+    inbox_refresh = Signal(str)
+    blackboard_save = Signal(str)
+    blackboard_enabled_changed = Signal(bool)
 
     def __init__(self) -> None:
         super().__init__()
@@ -53,20 +58,19 @@ class ToolsPage(QWidget):
         title.setObjectName("title")
         layout.addWidget(title)
         intro = QLabel(
-            "Two things can leave this computer, and both are off until you turn them on. "
-            "Google mail and calendar are read with your own token. BabySitter does not "
-            "send mail and does not delete mail. A social search sends only the words "
-            "in the box below, after you confirm, plus your key. Neither one sends "
-            "files, the screen, or memory. Leave both off for confidential work."
+            "Google, school Google, and Blackboard stay off until you connect them. "
+            "BabySitter only reads mail, the calendar, Drive file names, and a Blackboard "
+            "calendar feed. It does not send mail, change the calendar, or upload files. "
+            "A social search still sends only the words in the box below, after you confirm."
         )
         intro.setWordWrap(True)
         intro.setObjectName("hint")
         layout.addWidget(intro)
 
-        google_label = QLabel("Google mail and calendar")
+        google_label = QLabel("Google, school, and Blackboard")
         google_label.setObjectName("section")
         layout.addWidget(google_label)
-        self.google_enabled = QCheckBox("Turn on Google mail and calendar")
+        self.google_enabled = QCheckBox("Turn on Google mail, calendar, and Drive")
         self.google_enabled.setToolTip(
             "Off by default. While this is off, BabySitter will not contact Google."
         )
@@ -111,16 +115,55 @@ class ToolsPage(QWidget):
         self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
         self.google_client.setToolTip(
             "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
-            "BabySitter asks only for read-only mail and calendar."
+            "BabySitter asks only for read-only mail, calendar, and Drive file names."
         )
         layout.addWidget(self.google_client)
+        sign_row = QHBoxLayout()
         self.google_sign_in = QPushButton("Sign in with Google")
         self.google_sign_in.setToolTip(
-            "Opens your browser. The token is encrypted on this PC and can be refreshed. "
-            "BabySitter does not send or delete mail."
+            "Opens your browser for your own Google account. Read-only mail, calendar, and Drive. "
+            "Sign in again after this update so Drive is included."
         )
         self.google_sign_in.clicked.connect(lambda: self.google_sign_in_requested.emit(self.google_client.text()))
-        layout.addWidget(self.google_sign_in)
+        self.school_sign_in = QPushButton("Sign in school Google")
+        self.school_sign_in.setToolTip(
+            "Same client id, a second Google account. Pick the school account in the browser. "
+            "It is stored separately and only read."
+        )
+        self.school_sign_in.clicked.connect(lambda: self.school_sign_in_requested.emit(self.google_client.text()))
+        sign_row.addWidget(self.google_sign_in)
+        sign_row.addWidget(self.school_sign_in)
+        sign_row.addStretch(1)
+        layout.addLayout(sign_row)
+        self.refresh_inbox = QPushButton("Show linked mail, calendar, and files")
+        self.refresh_inbox.setObjectName("primary")
+        self.refresh_inbox.setToolTip("Reads what is linked and lists it here. Nothing is changed.")
+        self.refresh_inbox.clicked.connect(lambda: self.inbox_refresh.emit("all"))
+        layout.addWidget(self.refresh_inbox)
+        self.inbox = QListWidget()
+        self.inbox.setAccessibleName("Linked mail, calendar, Drive, and Blackboard")
+        self.inbox.setToolTip("Each line is one unread message, event, or Drive file name.")
+        self.inbox.setMinimumHeight(160)
+        layout.addWidget(self.inbox)
+        self.blackboard_enabled = QCheckBox("Turn on the Blackboard calendar feed")
+        self.blackboard_enabled.setToolTip(
+            "Off by default. BabySitter reads the calendar link you paste. It does not sign in to Blackboard."
+        )
+        self.blackboard_enabled.toggled.connect(self.blackboard_enabled_changed.emit)
+        layout.addWidget(self.blackboard_enabled)
+        board_row = QHBoxLayout()
+        self.blackboard_url = QLineEdit()
+        self.blackboard_url.setAccessibleName("Blackboard calendar feed")
+        self.blackboard_url.setPlaceholderText("Paste the Blackboard external calendar link")
+        self.blackboard_url.setToolTip(
+            "In Blackboard, open the calendar and copy the external calendar link. "
+            "The link is encrypted on this PC. It is not saved in settings.json."
+        )
+        self.blackboard_save_button = QPushButton("Save Blackboard link")
+        self.blackboard_save_button.clicked.connect(lambda: self.blackboard_save.emit(self.blackboard_url.text()))
+        board_row.addWidget(self.blackboard_url, 1)
+        board_row.addWidget(self.blackboard_save_button)
+        layout.addLayout(board_row)
 
         self.enabled = QCheckBox("Turn on social search")
         self.enabled.setToolTip(
@@ -242,7 +285,8 @@ class ToolsPage(QWidget):
             )
         elif windows_ready:
             self.google_status.setText(
-                "No token saved. Paste a read-only Gmail and Calendar token, then press Save token."
+                "Not linked yet. Paste your Google desktop client id, then press Sign in with Google. "
+                "The redirect to add on that client is http://127.0.0.1:8765/babysitter."
             )
         else:
             self.google_status.setText(
@@ -253,6 +297,19 @@ class ToolsPage(QWidget):
 
     def show_google(self, text: str) -> None:
         self.google_status.setText(text)
+
+    def set_inbox(self, lines: list[str]) -> None:
+        self.inbox.clear()
+        for line in lines:
+            self.inbox.addItem(line)
+
+    def set_blackboard_enabled(self, on: bool) -> None:
+        self.blackboard_enabled.blockSignals(True)
+        self.blackboard_enabled.setChecked(on)
+        self.blackboard_enabled.blockSignals(False)
+
+    def clear_blackboard_box(self) -> None:
+        self.blackboard_url.clear()
 
     def set_key_saved(self, saved: bool, windows_ready: bool) -> None:
         if saved:

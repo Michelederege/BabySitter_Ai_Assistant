@@ -501,6 +501,29 @@ def _local_extra(phrase: str, original: str) -> QuickCommand | None:
     }:
         return QuickCommand("apply_update")
     if phrase in {
+        "check my drive",
+        "whats on my drive",
+        "what's on my drive",
+        "show my drive",
+        "show my google drive",
+    }:
+        return QuickCommand("drive")
+    if phrase in {
+        "check my school email",
+        "check school email",
+        "school email",
+        "read my school email",
+    }:
+        return QuickCommand("school_mail")
+    if phrase in {
+        "check blackboard",
+        "whats on blackboard",
+        "what's on blackboard",
+        "what is on blackboard",
+        "show blackboard",
+    }:
+        return QuickCommand("blackboard")
+    if phrase in {
         "what is my next reminder",
         "what's my next reminder",
         "whats my next reminder",
