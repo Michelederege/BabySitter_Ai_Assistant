@@ -115,6 +115,26 @@ def should_hide_orb(
     return first_matching_game(watchlist, {foreground}) is not None
 
 
+def foreground_window_title() -> str:
+    """The front window's title. It is not written down."""
+    import sys
+
+    if sys.platform != "win32":
+        return ""
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    window = user32.GetForegroundWindow()
+    if not window:
+        return ""
+    length = int(user32.GetWindowTextLengthW(window))
+    if length <= 0 or length > 300:
+        return ""
+    buffer = ctypes.create_unicode_buffer(length + 1)
+    user32.GetWindowTextW(window, buffer, length + 1)
+    return buffer.value[:300]
+
+
 def foreground_process_name() -> str | None:
     """The front program's file name on Windows. None anywhere else."""
     import sys

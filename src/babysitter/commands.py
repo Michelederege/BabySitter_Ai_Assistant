@@ -524,6 +524,16 @@ def _local_extra(phrase: str, original: str) -> QuickCommand | None:
     }:
         return QuickCommand("blackboard")
     if phrase in {
+        "what am i writing",
+        "what i'm writing",
+        "what am i writing right now",
+        "read my draft",
+        "read this draft",
+        "read my paper",
+        "what document am i writing",
+    }:
+        return QuickCommand("draft")
+    if phrase in {
         "what is my next reminder",
         "what's my next reminder",
         "whats my next reminder",

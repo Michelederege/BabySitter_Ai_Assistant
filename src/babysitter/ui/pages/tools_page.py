@@ -59,8 +59,9 @@ class ToolsPage(QWidget):
         layout.addWidget(title)
         intro = QLabel(
             "Google, school Google, and Blackboard stay off until you connect them. "
-            "BabySitter only reads mail, the calendar, Drive file names, and a Blackboard "
-            "calendar feed. It does not send mail, change the calendar, or upload files. "
+            "BabySitter only reads mail, the calendar, Drive file names, the Google Doc you "
+            "are writing, and a Blackboard calendar feed. It does not send mail, change the "
+            "calendar, or upload files. "
             "A social search still sends only the words in the box below, after you confirm."
         )
         intro.setWordWrap(True)
