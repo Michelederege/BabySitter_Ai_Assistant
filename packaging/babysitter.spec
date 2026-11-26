@@ -10,6 +10,7 @@ Run this on Windows, from the repo root:
 """
 
 from pathlib import Path
+import subprocess
 
 SPEC_DIR = Path(SPECPATH).resolve()
 ROOT = SPEC_DIR.parent
@@ -19,6 +20,25 @@ for line in VERSION.splitlines():
     if line.startswith("__version__"):
         APP_VERSION = line.split("=", 1)[1].strip().strip('"').strip("'")
         break
+
+_BUILD_COMMIT = ""
+try:
+    _git_head = subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if _git_head.returncode == 0:
+        _BUILD_COMMIT = (_git_head.stdout or "").strip()
+except Exception:
+    _BUILD_COMMIT = ""
+
+_COMMIT_DIR = Path(globals().get("WORKPATH") or (ROOT / "build")).resolve()
+_COMMIT_DIR.mkdir(parents=True, exist_ok=True)
+_COMMIT_FILE = _COMMIT_DIR / "git-commit.txt"
+_COMMIT_FILE.write_text(_BUILD_COMMIT + "\n", encoding="utf-8")
 
 block_cipher = None
 
@@ -85,6 +105,7 @@ a = Analysis(
         (str(ROOT / "assets" / "hero.jpg"), "assets"),
         (str(ROOT / "assets" / "fonts"), "assets/fonts"),
         (str(ROOT / "assets" / "orb"), "assets/orb"),
+        (str(_COMMIT_FILE), "assets"),
         *_datas,
     ],
     hiddenimports=[

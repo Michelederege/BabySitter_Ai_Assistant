@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.18.0 — Update BabySitter from inside the window
+
+Settings now starts with **Check for an update** and **Update BabySitter** (and Home accepts “check for updates” or “update babysitter” even while the AI is off). When your BabySitter git folder is on this PC — whether you launched `Run BabySitter.vbs`, `dist\BabySitter.exe`, or a `BabySitter.exe` copied to the desktop — BabySitter checks `origin/main` directly without needing a `git push` to GitHub. After you confirm **Update and restart**, it fast-forwards `main`, updates `.venv` libraries if `requirements.txt` changed, rebuilds `BabySitter.exe` into a staging folder when running from the exe (or when `dist\BabySitter.exe` exists), closes the AI and single-instance lock cleanly, swaps the exe once the old process exits, and reopens on the new version.
+
+On a PC without a git folder, **Update BabySitter** checks GitHub Releases, verifies the release asset's SHA-256 fingerprint before touching disk, and installs after confirmation. Tagged `v*` pushes now also have a Windows release workflow that builds `BabySitter.exe` and `SHA256SUMS.txt`. Personal settings, memories, notes, and encrypted keys in `%LOCALAPPDATA%\BabySitter` are never touched by an update.
+
 ## 0.17.4 — Reliable Windows exe build, warmer replies, and keyboard access
 
 Opening BabySitter on Windows was failing inside `Shell.show` because `QApplication`, `QDialog`, `QFileDialog`, and `QMenu` had been dropped from `shell.py`'s imports. Those imports are back, and any startup failure inside the app now writes `%LOCALAPPDATA%\BabySitter\logs\startup-error.txt` before showing the error box. `scripts\build-exe.bat` now checks that `babysitter.ui.shell` imports cleanly, closes a tray-resident `BabySitter.exe` before rebuilding so Windows unlocks `dist\BabySitter.exe`, checks `PyInstaller`'s exit code and output file before reporting success, packs every `babysitter` submodule plus `numpy`, and leaves `pytest` and dev tools out of the exe.

@@ -87,6 +87,51 @@ def require_update_url(url: str) -> None:
         raise ValueError("That update address is not allowed.")
 
 
+RELEASE_DOWNLOAD_PREFIX = (
+    "https://github.com/Michelederege/BabySitter_Ai_Assistant/releases/download/"
+)
+
+
+def require_release_asset_url(url: str) -> None:
+    """Only release files published on the BabySitter GitHub page, over https."""
+    parsed = urllib.parse.urlsplit(url or "")
+    host = (parsed.hostname or "").lower()
+    if (
+        parsed.scheme != "https"
+        or host != "github.com"
+        or parsed.username
+        or parsed.password
+        or not (url or "").startswith(RELEASE_DOWNLOAD_PREFIX)
+    ):
+        raise ValueError("That release download address is not allowed.")
+
+
+def normalize_sha256(value: str) -> str:
+    text = (value or "").strip().lower()
+    if text.startswith("sha256:"):
+        text = text[7:].strip()
+    if len(text) != 64 or not all(ch in "0123456789abcdef" for ch in text):
+        return ""
+    return text
+
+
+def require_sha256_file(expected_sha256: str, path) -> None:
+    """Refuse a release file whose SHA-256 does not match its published digest."""
+    import hashlib
+
+    expected = normalize_sha256(expected_sha256)
+    if not expected:
+        raise ValueError("That release file did not come with a SHA-256 fingerprint.")
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected:
+        raise ValueError(
+            "That download did not match the SHA-256 fingerprint for this release. Nothing was kept."
+        )
+
+
 def require_silero_url(url: str) -> None:
     """The voice detector has one allowed file, and only after a confirm."""
     if url != SILERO_MODEL_URL:
