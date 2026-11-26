@@ -197,9 +197,20 @@ def require_google_url(url: str) -> None:
         return
     if host == "www.googleapis.com" and path.startswith("/calendar/v3/"):
         return
+    if host == "www.googleapis.com" and _drive_read_path(path):
+        return
     raise ValueError(
-        "Google mail and calendar only use the read-only Gmail and Calendar addresses."
+        "Google mail, calendar, and Drive only use the read-only addresses."
     )
+
+
+def _drive_read_path(path: str) -> bool:
+    """List files. No upload, no permission change, no copy."""
+    if path != "/drive/v3/files" and not path.startswith("/drive/v3/files/"):
+        return False
+    lowered = path.lower()
+    blocked = ("upload", "/permissions", "/copy", "/comments", "/revisions")
+    return not any(piece in lowered for piece in blocked)
 
 
 def require_scrapecreators_url(url: str) -> None:

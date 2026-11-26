@@ -58,6 +58,16 @@ def google_token_path() -> Path:
     return secrets_dir() / "google.dpapi"
 
 
+def google_school_token_path() -> Path:
+    """Encrypted token for a second Google account, usually school."""
+    return secrets_dir() / "google-school.dpapi"
+
+
+def blackboard_feed_path() -> Path:
+    """Encrypted Blackboard calendar link. The link itself is the secret."""
+    return secrets_dir() / "blackboard-feed.dpapi"
+
+
 def ollama_log_path() -> Path:
     return logs_dir() / "ollama-serve.log"
 
