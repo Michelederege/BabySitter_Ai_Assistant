@@ -2,6 +2,26 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.19.2 — Bug fixes from a review of the code
+
+**The Google Doc in front is read again.** The request asked Drive for the file's details instead of its text, so the AI never saw the draft. It now asks for the plain text.
+
+**Nothing goes online by itself.** Loading speech recognition asked the Hugging Face Hub for the model's file list every time the AI turned on, even with the model already on this PC. Only the confirmed download goes online now.
+
+**Reminders ring at the right hour across a clock change.** A reminder for another day used today's offset from UTC, so the night before daylight saving time began or ended, "tomorrow at 9" rang at 8 or 10.
+
+**Tonight's Blackboard events stay on the list.** The feed compared each event with today's date in UTC, which in the evening is already tomorrow. Events later today now show until they are over.
+
+**The PC scan leaves BabySitter and every game alone.** From the source folder BabySitter runs as pythonw.exe, and closing that name by voice closed BabySitter too. It is now skipped, and so is its own Start with Windows entry. Every game running from a store folder is left alone, not only the first one noticed.
+
+**More program kinds are listed, never opened.** File search now also refuses Control Panel applets, ClickOnce installs, consoles, compiled help, and the other kinds Windows would run, and a name that ends in a dot.
+
+**The window does not freeze for the PC check.** The Health page's check runs on its own thread.
+
+**A failed update reopens BabySitter.** If the new BabySitter.exe could not be copied into place, the window closed and nothing came back. The old version now opens again and says the update did not finish. A failed pull also puts the project folder back on the branch it was on.
+
+**Smaller fixes.** A settings file holding valid JSON that is not settings, such as `null`, is kept as a copy and replaced, instead of stopping BabySitter from opening. Settings from a newer BabySitter show one plain sentence. Each reply no longer leaves a thread behind. The keyword model download gives up on a stalled connection instead of waiting forever. The tests pass on a Windows desktop and no longer open a message box.
+
 ## 0.19.1 — Read the Google Doc you are writing
 
 A question to the AI can include the Google Doc in the front window, in DuckDuckGo or any other browser, or the one you changed in the last two hours. The browser name in the window title is ignored. BabySitter reads that doc as plain text and keeps it on this PC. Say “what am I writing” to hear the title and the opening. Say “look up …” or “find a source for …” to search, after a yes. A credit line uses only a source that was actually returned. An invented author, title, date, or link is against the instruction. Downloading the file, and any format other than plain text, stays refused.

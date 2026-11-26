@@ -53,3 +53,30 @@ def test_pcm_becomes_a_wav_and_the_text_time_is_reported():
     log = ResponsivenessLog()
     log.add({"first_sound": 900, "transcript": 400})
     assert "became text after 400 ms" in log.summary()
+
+
+def test_loading_the_speech_model_stays_on_this_pc(monkeypatch):
+    import sys
+    import types
+
+    from babysitter.plugins.voice import hearing
+
+    seen: list[dict] = []
+
+    class FakeWhisper:
+        def __init__(self, *_args, **kwargs):
+            seen.append(kwargs)
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(WhisperModel=FakeWhisper))
+    monkeypatch.setattr(hearing, "packages_installed", lambda: True)
+    monkeypatch.setattr(hearing, "model_ready", lambda: True)
+
+    hearing.release_model()
+    hearing.load_model()
+    assert seen[-1]["local_files_only"] is True
+
+    # Only the confirmed download may ask the Hugging Face Hub.
+    hearing.release_model()
+    hearing.download_model()
+    assert seen[-1]["local_files_only"] is False
+    hearing.release_model()
