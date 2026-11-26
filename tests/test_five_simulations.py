@@ -2208,10 +2208,17 @@ def _feature_writing_draft() -> list[Outcome]:
         from babysitter.writing import choices_from_listing
 
         choices = choices_from_listing({"files": [essay, older]}, 0)
-        picked = pick_draft(choices, "Studio essay - Google Docs - Google Chrome", now)
-        assert picked is not None and picked.name == "Studio essay"
+        for title in (
+            "Studio essay - Google Docs - Google Chrome",
+            "Studio essay - Google Docs - DuckDuckGo",
+            "Studio essay - Google Docs — DuckDuckGo Browser",
+            "DuckDuckGo — Studio essay - Google Docs",
+        ):
+            picked = pick_draft(choices, title, now)
+            assert picked is not None and picked.name == "Studio essay", title
         assert title_from_window("BabySitter") == ""
-        return "The Google Docs window picks that draft."
+        assert title_from_window("DuckDuckGo") == ""
+        return "A Google Docs tab in DuckDuckGo or Chrome picks that draft."
 
     def a_quiet_doc_stays_out() -> str:
         from babysitter.writing import choices_from_listing
