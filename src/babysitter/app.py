@@ -18,8 +18,13 @@ from babysitter.ui.theme import MAIN_QSS, apply_fonts
 
 
 def main(argv: list[str] | None = None) -> int:
+    args = list(sys.argv if argv is None else argv)
+    if len(args) >= 3 and args[1] == "--finish-update":
+        from babysitter.selfupdate import run_finish_update
+
+        return run_finish_update(args[2])
     try:
-        return _run(list(sys.argv if argv is None else argv))
+        return _run(args)
     except Exception:
         text = traceback.format_exc()
         try:
@@ -56,9 +61,15 @@ def _run(argv: list[str]) -> int:
 
     controller = Controller()
     shell = Shell(controller)
+    shell.single_instance = instance
     try:
         instance.asked_to_raise.connect(shell.show_window)
         shell.show()
+        from babysitter.selfupdate import consume_completed_update
+
+        updated_note = consume_completed_update()
+        if updated_note:
+            shell.note_completed_update(updated_note)
         sys.excepthook = _hook
         return app.exec()
     finally:
@@ -66,6 +77,7 @@ def _run(argv: list[str]) -> int:
             shell.registrar.clear()
         except Exception:
             pass
+        instance.release()
         controller.shutdown_threads()
 
 

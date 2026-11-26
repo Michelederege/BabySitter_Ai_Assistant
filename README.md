@@ -6,7 +6,7 @@ The window icon is a placeholder: the letters **BS** on a teal circle. Your own 
 
 ## If you opened this on GitHub
 
-The green **Code** button, and **Download ZIP**, give you the program source: the Python files, the pictures, and `requirements.txt`. That download does **not** include a finished `.exe`, Ollama, or the AI models. This page has no release file to click yet. The in-app update check only looks. It does not download an installer.
+The green **Code** button, and **Download ZIP**, give you the program source: the Python files, the pictures, and `requirements.txt`. That download does **not** include Ollama or the AI models. Tagged releases on GitHub publish `BabySitter.exe` with a `SHA256SUMS.txt` fingerprint so **Update BabySitter** in Settings can verify and install them after you confirm.
 
 On a Windows PC, after you unzip the folder:
 
@@ -241,13 +241,13 @@ Finished replies are saved under History. Search them, export one, delete one, o
 
 Web search uses a SearXNG you run on this computer. Turn it on in Settings and say “search the web for …”. BabySitter only talks to `127.0.0.1`, and it still asks before the query is sent. Public social searches can be spoken the same way, one yes, then a short summary.
 
-**Check for an update** asks GitHub if a newer release exists. It does not download, install, or sign anything. Signing needs a certificate you keep.
+**Check for an update** and **Update BabySitter** live at the top of Settings (and also work by saying or typing “check for updates” or “update babysitter”). When your BabySitter git folder is on this PC, BabySitter checks `origin/main` directly, pulls merged updates after you confirm, rebuilds `BabySitter.exe` when needed, and restarts — no `git push` or PowerShell commands needed. On a PC without a git folder, it checks GitHub Releases and verifies the SHA-256 fingerprint before installing. Nothing runs in the background or changes files until you click **Update and restart**.
 
 Quiet hours, hiding the orb while a watched game is in front, and a mouse side button for talk are in Settings and off. The side button works only while the AI is on, not in Game mode. The intelligence slider snaps to Low, Medium, and High.
 
 ## Not in this phase
 
-The updater does not install a release by itself. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
+BabySitter never installs an update silently in the background without asking first. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
 
 ## Ideas left optional for later
 

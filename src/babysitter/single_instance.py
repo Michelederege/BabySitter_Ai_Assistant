@@ -42,3 +42,12 @@ class SingleInstance(QObject):
         socket.disconnectFromServer()
         if b"raise" in data:
             self.asked_to_raise.emit()
+
+    def release(self) -> None:
+        """Stop holding the single-instance name so a restarted copy can open."""
+        try:
+            if self._server.isListening():
+                self._server.close()
+            QLocalServer.removeServer(self.key)
+        except Exception:
+            pass

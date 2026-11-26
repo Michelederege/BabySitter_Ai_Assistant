@@ -42,7 +42,14 @@ from babysitter.journal import (
 from babysitter.intents import guarded_prompt, match_tool
 from babysitter.searx import SearxError, search as searx_search
 from babysitter.sessions import append_turn, begin_session, delete_session, export_text
-from babysitter.updates import UpdateError, check_latest
+from babysitter.selfupdate import spawn_finish_update
+from babysitter.updates import (
+    PreparedUpdate,
+    UpdateError,
+    UpdatePlan,
+    check_for_update,
+    prepare_update,
+)
 from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.deskstore import add_item, hero_path, load_list, remove_item, save_list
 from babysitter.intelligence import get_mode
@@ -599,6 +606,39 @@ class _SignInJob(QThread):
             self._verifier = ""
 
 
+class _UpdateCheckJob(QThread):
+    ready = Signal(object)
+    failed = Signal(str)
+
+    def run(self) -> None:
+        try:
+            plan = check_for_update()
+            self.ready.emit(plan)
+        except UpdateError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"Update check stopped before finishing ({exc}).")
+
+
+class _UpdateApplyJob(QThread):
+    step = Signal(str)
+    ready = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, plan: UpdatePlan) -> None:
+        super().__init__()
+        self._plan = plan
+
+    def run(self) -> None:
+        try:
+            prepared = prepare_update(self._plan, on_step=self.step.emit)
+            self.ready.emit(prepared)
+        except UpdateError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"Update stopped before finishing ({exc}).")
+
+
 class _HideCharts(QObject):
     def __init__(self, collector) -> None:
         super().__init__()
@@ -640,6 +680,11 @@ class Shell:
         self._google_poll.setInterval(15 * 60 * 1000)
         self._google_poll.timeout.connect(lambda: self._start_google("both", speak_errors=False, only_new=True))
         self._search_job: _SearchJob | None = None
+        self.single_instance = None
+        self._last_update_plan: UpdatePlan | None = None
+        self._pending_relaunch: PreparedUpdate | None = None
+        self._update_prompt_install = False
+        self._update_speak_result = False
         self._power_ready = False
         self._turn_id = 0
         self._responsiveness = ResponsivenessLog()
@@ -738,6 +783,7 @@ class Shell:
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
+        settings.install_update.clicked.connect(self._install_update_clicked)
         self._hide_charts = _HideCharts(self.controller.probe)
         self.window.installEventFilter(self._hide_charts)
         settings.emergency_change.clicked.connect(self._change_emergency)
@@ -1356,20 +1402,113 @@ class Shell:
         save_settings(self.controller.settings)
         page.hotkey_note.setText("SearXNG port saved. Search still waits for a yes.")
 
-    def _check_updates(self) -> None:
+    def note_completed_update(self, message: str) -> None:
+        self.window.settings_page.update_status.setText(message)
+        self.window.home.set_phase(self.controller.state, message)
+
+    def _update_busy(self) -> bool:
+        for attr in ("_update_check_job", "_update_apply_job"):
+            job = getattr(self, attr, None)
+            if job is not None and job.isRunning():
+                return True
+        return False
+
+    def _check_updates(
+        self,
+        _checked: bool = False,
+        *,
+        prompt_install: bool = False,
+        speak_result: bool = False,
+    ) -> None:
+        del _checked
+        page = self.window.settings_page
+        if self._update_busy():
+            page.update_status.setText("An update check or install is already running.")
+            return
+        self._update_prompt_install = prompt_install
+        self._update_speak_result = speak_result
+        page.check_updates.setEnabled(False)
+        page.install_update.setEnabled(False)
+        page.update_status.setText("Checking for updates…")
+        job = _UpdateCheckJob()
+        self._store_job("_update_check_job", job)
+        job.ready.connect(self._on_update_checked)
+        job.failed.connect(self._on_update_check_failed)
+        job.start()
+
+    def _on_update_check_failed(self, message: str) -> None:
+        page = self.window.settings_page
+        page.check_updates.setEnabled(True)
+        page.install_update.setEnabled(True)
+        page.update_status.setText(message)
+        if self._update_speak_result:
+            self.window.home.set_reply("update", message, "Nothing was changed.")
+            self._speak(message)
+
+    def _on_update_checked(self, plan: UpdatePlan) -> None:
+        self._last_update_plan = plan
+        page = self.window.settings_page
+        page.check_updates.setEnabled(True)
+        page.install_update.setEnabled(True)
+        if plan.can_install:
+            page.install_update.setText(f"Update to {plan.target_version}")
+        else:
+            page.install_update.setText("Update BabySitter")
+        page.update_status.setText(plan.summary)
+        if self._update_speak_result:
+            self.window.home.set_reply("update", plan.summary, "Nothing is changed until you confirm.")
+            self._speak(plan.summary)
+        if self._update_prompt_install and plan.can_install:
+            self._confirm_and_apply_update(plan)
+
+    def _install_update_clicked(self) -> None:
+        if self._update_busy():
+            self.window.settings_page.update_status.setText("An update is already running.")
+            return
+        plan = self._last_update_plan
+        if plan is not None and plan.can_install:
+            self._confirm_and_apply_update(plan)
+            return
+        self._check_updates(prompt_install=True)
+
+    def _confirm_and_apply_update(self, plan: UpdatePlan) -> None:
         if not ask_yes_no(
             self.window,
-            "Check GitHub for a release?",
-            "This asks GitHub if a newer BabySitter release exists. It does not download or install anything.",
-            "Check",
-            "Don't check",
+            f"Update BabySitter to {plan.target_version}?",
+            plan.confirm_body or plan.summary,
+            "Update and restart",
+            "Not now",
         ):
+            self.window.settings_page.update_status.setText("Update cancelled. Nothing was changed.")
             return
-        try:
-            speech = check_latest()
-        except UpdateError as exc:
-            speech = str(exc)
-        self.window.settings_page.hotkey_note.setText(speech)
+        page = self.window.settings_page
+        page.check_updates.setEnabled(False)
+        page.install_update.setEnabled(False)
+        page.update_status.setText("Starting update…")
+        self.window.home.set_phase(self.controller.state, "Updating BabySitter…")
+        job = _UpdateApplyJob(plan)
+        self._store_job("_update_apply_job", job)
+        job.step.connect(self._on_update_step)
+        job.ready.connect(self._on_update_prepared)
+        job.failed.connect(self._on_update_apply_failed)
+        job.start()
+
+    def _on_update_step(self, message: str) -> None:
+        self.window.settings_page.update_status.setText(message)
+        self.window.home.set_phase(self.controller.state, message)
+
+    def _on_update_apply_failed(self, message: str) -> None:
+        page = self.window.settings_page
+        page.check_updates.setEnabled(True)
+        page.install_update.setEnabled(True)
+        page.update_status.setText(message)
+        self.window.home.set_phase(self.controller.state, message)
+
+    def _on_update_prepared(self, prepared: PreparedUpdate) -> None:
+        self._pending_relaunch = prepared
+        self.window.settings_page.update_status.setText(prepared.message)
+        self.window.home.set_phase(self.controller.state, prepared.message)
+        self._quit()
 
     def _download_silero(self) -> None:
         if not ask_yes_no(
@@ -3149,6 +3288,20 @@ class Shell:
         if quick.kind == "open_number":
             self._open_numbered(text, quick.seconds)
             return True
+        if quick.kind == "check_update":
+            self.window.home.set_reply(text, "Checking for updates…", "Checking Origin main / GitHub Releases.")
+            self._check_updates(prompt_install=False, speak_result=True)
+            return True
+        if quick.kind == "apply_update":
+            self.window.showNormal()
+            self.window.raise_()
+            self.window.home.set_reply(
+                text,
+                "Checking for updates…",
+                "Nothing is installed until you confirm.",
+            )
+            self._check_updates(prompt_install=True, speak_result=True)
+            return True
         return False
 
     def _speak_journal(self, text: str, yesterday: bool) -> None:
@@ -4130,6 +4283,19 @@ class Shell:
         except OSError:
             pass
         self.controller.shutdown_threads()
+        if self.single_instance is not None:
+            self.single_instance.release()
+        relaunch = self._pending_relaunch
+        self._pending_relaunch = None
+        if relaunch is not None:
+            try:
+                spawn_finish_update(
+                    relaunch.manifest_path,
+                    relaunch.helper_cmd,
+                    relaunch.helper_env,
+                )
+            except Exception as exc:
+                get_logger().error("Could not start update relauncher: %s", exc)
         QApplication.quit()
 
 

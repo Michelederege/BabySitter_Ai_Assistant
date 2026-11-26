@@ -1972,6 +1972,102 @@ def _feature_accessibility_and_exe() -> list[Outcome]:
     ]
 
 
+def _feature_self_update(tmp_path, monkeypatch) -> list[Outcome]:
+    import hashlib
+    import subprocess
+    from babysitter.commands import match_quick_command
+    from babysitter.security import require_release_asset_url
+    from babysitter.selfupdate import clean_pyinstaller_env, run_finish_update, write_update_manifest
+    from babysitter.updates import check_for_update
+
+    def spoken_update_commands() -> str:
+        c1 = match_quick_command("check for updates")
+        c2 = match_quick_command("update babysitter")
+        assert c1 is not None and c1.kind == "check_update"
+        assert c2 is not None and c2.kind == "apply_update"
+        return "Both check-update and update-babysitter commands match locally."
+
+    def origin_main_detected_without_github_push() -> str:
+        base = tmp_path / "sim_update"
+        origin = base / "origin.git"
+        pub = base / "pub"
+        loc = base / "loc"
+        base.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "--bare", "--initial-branch=main", str(origin)], check=True, capture_output=True)
+        subprocess.run(["git", "clone", str(origin), str(pub)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(pub), "config", "user.name", "Sim"], check=True)
+        subprocess.run(["git", "-C", str(pub), "config", "user.email", "sim@example.com"], check=True)
+        (pub / "packaging").mkdir(parents=True)
+        (pub / "packaging" / "babysitter.spec").write_text("# spec\n", encoding="utf-8")
+        (pub / "src" / "babysitter").mkdir(parents=True)
+        (pub / "src" / "babysitter" / "version.py").write_text('__version__ = "0.17.4"\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(pub), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(pub), "commit", "-m", "init"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(pub), "push", "-u", "origin", "main"], check=True, capture_output=True)
+        subprocess.run(["git", "clone", str(origin), str(loc)], check=True, capture_output=True)
+        (pub / "src" / "babysitter" / "version.py").write_text('__version__ = "0.18.0"\n', encoding="utf-8")
+        subprocess.run(["git", "-C", str(pub), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(pub), "commit", "-m", "New 0.18.0"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(pub), "push", "origin", "main"], check=True, capture_output=True)
+        monkeypatch.setenv("BABYSITTER_DATA_DIR", str(base / "data"))
+        monkeypatch.setenv("BABYSITTER_REPO_DIR", str(loc))
+        plan = check_for_update(current="0.17.4", frozen=False)
+        monkeypatch.delenv("BABYSITTER_REPO_DIR", raising=False)
+        assert plan.available and plan.can_install and plan.target_version == "0.18.0"
+        return plan.summary
+
+    def release_url_allowlist() -> str:
+        require_release_asset_url(
+            "https://github.com/Michelederege/BabySitter_Ai_Assistant/releases/download/v0.18.0/BabySitter.exe"
+        )
+        try:
+            require_release_asset_url("https://example.com/BabySitter.exe")
+        except ValueError:
+            return "Only the BabySitter GitHub release bucket is accepted."
+        raise AssertionError("Bad release URL was not rejected")
+
+    def atomic_exe_swap() -> str:
+        monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "swap_data"))
+        staged = tmp_path / "swap_data" / "updates" / "BabySitter-new.exe"
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        staged.write_bytes(b"NEW-BIN")
+        target = tmp_path / "swap_target" / "BabySitter.exe"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"OLD-BIN")
+        manifest = write_update_manifest(
+            from_version="0.17.4",
+            to_version="0.18.0",
+            staged_exe=str(staged),
+            targets=[str(target)],
+            relaunch_cmd=[str(target)],
+            wait_pids=[],
+        )
+        seen: list[list[str]] = []
+        assert run_finish_update(
+            str(manifest),
+            sleep_fn=lambda _s: None,
+            pid_exists_fn=lambda _p: False,
+            popen_fn=lambda args, **_kw: seen.append(args),
+        ) == 0
+        assert target.read_bytes() == b"NEW-BIN"
+        assert seen == [[str(target)]]
+        return "Staged BabySitter.exe replaced target and relaunched."
+
+    def reset_pyinstaller_environment() -> str:
+        env = clean_pyinstaller_env()
+        assert env.get("PYINSTALLER_RESET_ENVIRONMENT") == "1"
+        assert hashlib.sha256(b"ok").hexdigest()
+        return "Relaunched exe resets PyInstaller unpack state."
+
+    return [
+        _timed("spoken update commands", spoken_update_commands),
+        _timed("origin main check without push", origin_main_detected_without_github_push),
+        _timed("release url allowlist", release_url_allowlist),
+        _timed("atomic exe swap", atomic_exe_swap),
+        _timed("reset pyinstaller env", reset_pyinstaller_environment),
+    ]
+
+
 def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
     return [
         ("scan", _feature_scan()),
@@ -2019,6 +2115,7 @@ def _all(tmp_path, monkeypatch) -> list[tuple[str, list[Outcome]]]:
         ("journal excluded", _feature_journal_excluded(tmp_path, monkeypatch)),
         ("model removal", _feature_model_removal()),
         ("accessibility and exe", _feature_accessibility_and_exe()),
+        ("self update", _feature_self_update(tmp_path, monkeypatch)),
     ]
 
 
