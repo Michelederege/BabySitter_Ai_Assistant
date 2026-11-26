@@ -21,10 +21,13 @@ STORE_FOLDERS = {
     "games",
 }
 
-# Programs that live inside those folders but are not the game itself.
+# Words in a program's file name that mean it is a helper, not the game.
+# Only the file name is searched. A game whose folder happens to contain
+# one of these words, such as steamapps\common\TheSetup\, still counts.
 NOT_THE_GAME = (
     "launcher",
     "riot client",
+    "riotclient",
     "battle.net",
     "crashhandler",
     "crash handler",
@@ -32,14 +35,33 @@ NOT_THE_GAME = (
     "easyanticheat",
     "anticheat",
     "vanguard",
-    "redistributable",
+    "redist",
     "vcredist",
     "directx",
+    "dxsetup",
     "dotnet",
     "unins",
     "setup",
     "installer",
 )
+
+# Folders that hold helpers rather than games. The match is one whole
+# folder name, so "TheSetup" or "DirectX Quest" is not one of these.
+HELPER_FOLDERS = {
+    "_commonredist",
+    "commonredist",
+    "redist",
+    "redistributables",
+    "vcredist",
+    "directx",
+    "dotnet",
+    "easyanticheat",
+    "battleye",
+    "riot client",
+    "installer",
+    "installers",
+    "launcher",
+}
 
 
 def looks_like_game_path(path: str) -> bool:
@@ -47,10 +69,13 @@ def looks_like_game_path(path: str) -> bool:
     lowered = (path or "").replace("\\", "/").lower()
     if not lowered.endswith(".exe"):
         return False
-    folders = [part.strip() for part in lowered.split("/")[:-1] if part.strip()]
+    parts = [part.strip() for part in lowered.split("/") if part.strip()]
+    file_name, folders = parts[-1], parts[:-1]
     if not any(folder in STORE_FOLDERS for folder in folders):
         return False
-    return not any(word in lowered for word in NOT_THE_GAME)
+    if any(folder in HELPER_FOLDERS for folder in folders):
+        return False
+    return not any(word in file_name for word in NOT_THE_GAME)
 
 
 def detect_game(paths_by_name: dict[str, str]) -> str | None:
