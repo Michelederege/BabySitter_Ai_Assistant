@@ -77,7 +77,8 @@ encrypted in its own file, not in `settings.json`. A second sign-in
 stores a school Google account in a different file. New mail and
 events are checked about every 15 minutes, and only while the AI is
 on. The list on Tools shows the messages, events, and file names.
-A Google Doc in the front window, or one changed in the last two
+A Google Doc in the front window, including a DuckDuckGo window
+whose title contains "Google Docs", or one changed in the last two
 hours, is read as plain text into the local question. Say "look up"
 to search, after a yes. A credit line uses only a source that was
 returned. The file itself is not downloaded.
