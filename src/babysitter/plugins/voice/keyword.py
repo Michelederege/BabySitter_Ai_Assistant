@@ -245,7 +245,14 @@ def download_model() -> str:
     destination.parent.mkdir(parents=True, exist_ok=True)
     archive = destination.parent / (MODEL_NAME + ".zip")
     try:
-        urlrequest.urlretrieve(MODEL_URL, archive)  # noqa: S310  checked above
+        # urlretrieve has no timeout, so a stalled connection hung the
+        # download for good. Read in pieces with a timeout instead.
+        with urlrequest.urlopen(MODEL_URL, timeout=180) as response, archive.open("wb") as handle:  # noqa: S310  checked above
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                handle.write(chunk)
         try:
             require_matching_file(MODEL_URL, archive)
         except ValueError as exc:

@@ -178,7 +178,7 @@ simulations for every feature, not five simulations for the whole app.
 
 ## What's finished
 
-Version 0.19.1 is the current app. The story of each version is in
+Version 0.19.2 is the current app. The story of each version is in
 CHANGELOG.md. These are in the program now:
 
 - Power, the frog orb, the rail, Home, and the pages for Schedule,
@@ -261,6 +261,12 @@ the features that are already finished. It did not choose an order.
 - A smooth context slider instead of Low, Medium, and High.
 - Waking the model when a watched game closes. Game mode leaves the
   model unloaded on purpose.
+- Refreshing an expired Google sign-in off the window's thread. The
+  inbox, "read my draft", and the 15-minute check still refresh it in
+  `_token_for_google` on the window's thread, so about once an hour the
+  window can pause while Google answers, up to 8 seconds per account on
+  a bad connection. The jobs in `shell.py` would need the vault instead
+  of the token.
 - Running BabySitter on the Raspberry Pi cluster.
 - Publishing the Inno Setup installer from GitHub. A tagged release
   builds the portable `BabySitter.exe` and `SHA256SUMS.txt`.
