@@ -114,7 +114,8 @@ class Recorder:
         self._stream = None
         self._chunks: list = []
 
-    def start(self) -> None:
+    def start(self, device: int | None = None) -> None:
+        """Open the microphone. None means Windows' default one."""
         if not packages_installed():
             raise HearingError("Speech recognition is not installed yet.")
         import sounddevice as sd
@@ -131,6 +132,7 @@ class Recorder:
             channels=1,
             dtype="float32",
             callback=on_audio,
+            device=device,
         )
         self._stream.start()
 

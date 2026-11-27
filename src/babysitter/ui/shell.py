@@ -960,6 +960,8 @@ class Shell:
         settings.side_button.toggled.connect(lambda on: self._set_flag("side_button", on))
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
+        settings.microphone_chosen.connect(self._set_microphone)
+        settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
         settings.install_update.clicked.connect(self._install_update_clicked)
@@ -1449,6 +1451,34 @@ class Shell:
         listener.smart_turn = bool(settings.smart_turn)
         listener.echo_cancel = bool(settings.echo_cancel)
         listener.talk_over = bool(settings.talk_over and settings.echo_cancel)
+        listener.device = self._mic_device()
+
+    def _mic_device(self) -> int | None:
+        """The chosen microphone, or None for Windows' default."""
+        from babysitter.microphones import device_for
+
+        try:
+            return device_for(self.controller.settings.microphone)
+        except Exception:
+            return None
+
+    def _mic_name(self) -> str:
+        from babysitter.microphones import shown_name
+
+        try:
+            return shown_name(self.controller.settings.microphone)
+        except Exception:
+            return "the microphone"
+
+    def _set_microphone(self, name: str) -> None:
+        self.controller.settings.microphone = " ".join((name or "").split())[:200]
+        save_settings(self.controller.settings)
+        self._apply_listen_policy()
+        listener = getattr(self, "_listener", None)
+        if listener is not None and listener.running:
+            # Reopen keyword listening on the microphone just chosen.
+            listener.stop()
+            self._sync_keyword()
 
     def _change_emergency(self) -> None:
         self._capture_key("emergency stop", emergency=True)
@@ -1824,6 +1854,17 @@ class Shell:
             return
         self._speak("The results are on the Tools tab.")
 
+    def _fill_microphones(self) -> None:
+        """List the microphones. Only their names are read; nothing is opened."""
+        from babysitter.microphones import default_name, list_microphones
+
+        try:
+            names, default = list_microphones(), default_name()
+        except Exception:
+            # No voice library on this PC yet. The list holds the default only.
+            names, default = [], ""
+        self.window.settings_page.set_microphones(names, self.controller.settings.microphone, default)
+
     def _fill_settings(self) -> None:
         page = self.window.settings_page
         toggles = page.toggles()
@@ -1832,6 +1873,7 @@ class Shell:
         page.fill(self.controller.settings, self.controller.data_folder())
         for toggle in toggles:
             toggle.blockSignals(False)
+        self._fill_microphones()
         journal = self.window.journal_page
         journal.enabled.blockSignals(True)
         journal.enabled.setChecked(self.controller.settings.journal_enabled)
@@ -1987,7 +2029,7 @@ class Shell:
         self._show_mode("listening", "Listening. Release to stop.")
         if packages_installed() and model_ready():
             try:
-                self._recorder.start()
+                self._recorder.start(self._mic_device())
                 self._recording = True
                 self.window.home.set_phase("listening", "The microphone is open only while you hold.")
             except HearingError as exc:
@@ -2007,13 +2049,27 @@ class Shell:
         self._holding = False
         self._clock = TurnClock()
         wav = b""
-        if getattr(self, "_recording", False):
+        recorded = bool(getattr(self, "_recording", False))
+        if recorded:
             self._recording = False
             try:
                 wav = self._recorder.stop()
             except Exception:
                 self._recorder.close()
                 wav = b""
+        if recorded and not wav:
+            # The microphone opened but sent nothing. Say which one, so a
+            # dead default is not mistaken for not being heard.
+            mic = self._mic_name()
+            self._show_mode(self.controller.state, "Hold to talk")
+            self._pending_line = ""
+            self.window.home.set_reply(
+                "(no sound)",
+                f"No sound came from {mic}.",
+                "Pick the microphone you talk into under Settings, Microphone. Nothing was sent.",
+            )
+            self._sync_keyword()
+            return
         if not packages_installed() or not model_ready():
             self._show_mode(self.controller.state, "Hold to talk")
             self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
@@ -2254,7 +2310,8 @@ class Shell:
             self._show_keyword()
             self.window.home.set_phase(
                 "on",
-                "The microphone stopped answering. Keyword listening is off. Turn it on to try again.",
+                f"No sound came from {self._mic_name()}. Keyword listening is off. "
+                "Pick the microphone you talk into under Settings, Microphone, then turn it on again.",
             )
             return
         if status == "talk_over":

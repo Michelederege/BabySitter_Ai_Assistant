@@ -66,6 +66,8 @@ class Settings:
     journal_enabled: bool = True
     journal_excluded: list[str] = field(default_factory=list)
     search_folders: list[str] = field(default_factory=list)
+    # The microphone's full name. Empty means Windows' default.
+    microphone: str = ""
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -108,6 +110,7 @@ class Settings:
             "journal_enabled": self.journal_enabled,
             "journal_excluded": list(self.journal_excluded),
             "search_folders": list(self.search_folders),
+            "microphone": self.microphone,
         }
 
 
@@ -398,6 +401,7 @@ def settings_from_dict(data: dict) -> Settings:
         journal_enabled=bool(data.get("journal_enabled", True)),
         journal_excluded=_clean_names(data.get("journal_excluded")),
         search_folders=_clean_folders(data.get("search_folders")),
+        microphone=" ".join(str(data.get("microphone") or "").split())[:200],
         notices=notices,
     )
 
