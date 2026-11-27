@@ -81,8 +81,47 @@ MODES: dict[str, IntelligenceMode] = {
 }
 
 
+# Timed on the Models page only. About twice this card's video memory, so
+# it spills into system memory and cannot be a level while every layer has
+# to stay on the graphics card.
+BENCHMARK_ONLY = ("bonsai-2:27b",)
+
+# The memory slider. Low, Medium, and High stay the three loads that fit
+# the card; the slider adds stops between them. Each stop belongs to the
+# level whose model it uses, so a stop never loads a model that does not
+# fit. 0 means "the level's own amount".
+CONTEXT_STOPS = (4096, 6144, 8192, 12288, 16384)
+_context = {"tokens": 0}
+
+
+def level_for_context(tokens: int) -> str:
+    if int(tokens) <= MODES["low"].num_ctx:
+        return "low"
+    if int(tokens) <= MODES["medium"].num_ctx:
+        return "medium"
+    return "high"
+
+
+def set_context(tokens: int) -> int:
+    """Use this many tokens of conversation. Anything off the stops means the level's default."""
+    value = int(tokens or 0)
+    _context["tokens"] = value if value in CONTEXT_STOPS else 0
+    return _context["tokens"]
+
+
 def get_mode(mode_id: str) -> IntelligenceMode:
-    return MODES.get(mode_id, MODES["medium"])
+    """The level, with the slider's amount of conversation when it belongs to this level.
+
+    Every caller sees the same numbers, so a question always asks for the
+    context that is loaded. A different number makes Ollama load again.
+    """
+    from dataclasses import replace
+
+    base = MODES.get(mode_id, MODES["medium"])
+    tokens = _context["tokens"]
+    if tokens and level_for_context(tokens) == base.id and tokens != base.num_ctx:
+        return replace(base, num_ctx=tokens, vram_mib=need_mib(base.model, tokens))
+    return base
 
 
 def batch_for(model: str, num_ctx: int) -> int:

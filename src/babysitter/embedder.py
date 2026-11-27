@@ -266,6 +266,11 @@ class OnnxEmbedder:
     def __init__(self, folder: Path) -> None:
         import onnxruntime as ort
 
+        from babysitter.security import require_loaded_file
+
+        # A file that does not match is not loaded. The same-words match is used instead.
+        require_loaded_file(MODEL_URL, folder / "model.onnx")
+        require_loaded_file(VOCAB_URL, folder / "vocab.txt")
         options = ort.SessionOptions()
         options.intra_op_num_threads = 2
         options.inter_op_num_threads = 1

@@ -68,6 +68,10 @@ class Settings:
     search_folders: list[str] = field(default_factory=list)
     # The microphone's full name. Empty means Windows' default.
     microphone: str = ""
+    # "whisper" (default), "moonshine", or "parakeet". One engine hears the question.
+    hearing_engine: str = "whisper"
+    # The memory slider, in tokens. 0 means the level's own amount.
+    context_tokens: int = 0
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -111,6 +115,8 @@ class Settings:
             "journal_excluded": list(self.journal_excluded),
             "search_folders": list(self.search_folders),
             "microphone": self.microphone,
+            "hearing_engine": self.hearing_engine,
+            "context_tokens": self.context_tokens,
         }
 
 
@@ -304,6 +310,16 @@ def _port(value: object) -> int:
     return number
 
 
+def _context_tokens(value: object) -> int:
+    from babysitter.intelligence import CONTEXT_STOPS
+
+    try:
+        tokens = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return tokens if tokens in CONTEXT_STOPS else 0
+
+
 def _proactivity(value: object) -> int:
     try:
         level = int(value)
@@ -402,6 +418,12 @@ def settings_from_dict(data: dict) -> Settings:
         journal_excluded=_clean_names(data.get("journal_excluded")),
         search_folders=_clean_folders(data.get("search_folders")),
         microphone=" ".join(str(data.get("microphone") or "").split())[:200],
+        context_tokens=_context_tokens(data.get("context_tokens", 0)),
+        hearing_engine=(
+            str(data.get("hearing_engine") or "whisper")
+            if str(data.get("hearing_engine") or "whisper") in {"whisper", "moonshine", "parakeet"}
+            else "whisper"
+        ),
         notices=notices,
     )
 

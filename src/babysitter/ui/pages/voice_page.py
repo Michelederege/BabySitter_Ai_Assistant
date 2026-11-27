@@ -26,6 +26,12 @@ from babysitter.ui.pinbutton import pin_button
 VOICES = (
     ("American", "Heart & Sarah blend", "Kokoro", "Local"),
     ("American", "EDITH-style blend", "Kokoro", "Local"),
+    ("American", "Piper: HFC female", "Piper", "Local"),
+    ("British", "Piper: Jenny (British)", "Piper", "Local"),
+    ("American", "Supertonic: F1", "Supertonic", "Local"),
+    ("American", "Supertonic: F2", "Supertonic", "Local"),
+    ("American", "Supertonic: F3", "Supertonic", "Local"),
+    ("American", "Supertonic: M1", "Supertonic", "Local"),
     ("American", "af_heart", "Kokoro", "Local"),
     ("American", "am_michael", "Kokoro", "Local"),
     ("American", "Microsoft Zira", "Windows", "Local"),
@@ -40,6 +46,8 @@ VOICES = (
 
 class VoicePage(QWidget):
     notice = Signal(str)
+    # A voice whose model pack is not on this PC yet: the pack id.
+    pack_needed = Signal(str)
     pin_line = Signal(str)
 
     def __init__(self) -> None:
@@ -246,8 +254,13 @@ class VoicePage(QWidget):
         path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         self.status.setText(
             f"Saved {payload['voice']} on this PC. Preview uses that voice. "
-            "The first time, BabySitter asks before downloading Heart and Sarah."
+            "The first time, BabySitter asks before downloading it."
         )
+        from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
+
+        name = str(payload["voice"] or "")
+        if name in EXTRA_VOICES and not voice_ready(name):
+            self.pack_needed.emit(EXTRA_VOICES[name][0])
         self.notice.emit(self.status.text())
 
     def _preview(self) -> None:

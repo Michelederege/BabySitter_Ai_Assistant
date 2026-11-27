@@ -194,6 +194,7 @@ def speak_sequence(
     on_start=None,
     on_piece=None,
     incoming: queue.Queue | None = None,
+    render=None,
 ) -> None:
     """Say each piece in order. Later pieces can arrive while the first is still playing.
 
@@ -202,6 +203,10 @@ def speak_sequence(
     built while the current one plays.
     """
     waiting = [piece.strip() for piece in pieces if piece and piece.strip()]
+    if render is not None:
+        # Another engine (Piper, Supertonic) makes the audio. The same player
+        # and stream say it, so echo cancellation and talk-over still apply.
+        return _play_sequence(waiting, incoming, render, 1.0, on_start, on_piece)
     if waiting and cadence(voice_name)[1] > 1.0:
         # A measured voice gives "Understood." its own beat before the answer.
         from babysitter.plugins.voice.speech import beat_after_opener
@@ -235,6 +240,68 @@ def speak_sequence(
                     from babysitter.plugins.voice.speech import pause_ms
 
                     samples, rate = _render(engine, piece, style, speed, pitch)
+                    samples = trim_edges(samples, rate, tail_ms=int(pause_ms(piece) * pause_factor))
+                except Exception:
+                    break
+                audio.put((piece, samples, rate))
+        finally:
+            audio.put(None)
+
+    threading.Thread(target=produce, name="babysitter-voice", daemon=True).start()
+    started = False
+    stream = None
+    stream_rate = None
+    try:
+        while not _playback_stop.is_set():
+            item = audio.get()
+            if item is None or _playback_stop.is_set():
+                break
+            piece, samples, rate = item
+            if stream is None or stream_rate != rate:
+                if stream is not None:
+                    stream.stop()
+                    stream.close()
+                import sounddevice as sd
+
+                stream = sd.OutputStream(samplerate=rate, channels=1, dtype="float32")
+                stream.start()
+                stream_rate = rate
+            if not started:
+                started = True
+                if on_start is not None:
+                    on_start()
+            finished = _play_into(samples, rate, stream.write)
+            if finished and on_piece is not None:
+                on_piece(piece)
+            if not finished:
+                break
+    finally:
+        if stream is not None:
+            stream.stop()
+            stream.close()
+
+
+def _play_sequence(waiting, incoming, render, pause_factor, on_start, on_piece) -> None:
+    from babysitter.plugins.voice.speech import pause_ms
+
+    _playback_stop.clear()
+    audio: queue.Queue = queue.Queue(maxsize=2)
+
+    def produce() -> None:
+        try:
+            index = 0
+            while not _playback_stop.is_set():
+                if index < len(waiting):
+                    piece = waiting[index]
+                    index += 1
+                elif incoming is None:
+                    break
+                else:
+                    piece = incoming.get()
+                    if piece is None or _playback_stop.is_set():
+                        break
+                try:
+                    samples, rate = render(piece)
                     samples = trim_edges(samples, rate, tail_ms=int(pause_ms(piece) * pause_factor))
                 except Exception:
                     break
@@ -391,9 +458,17 @@ def _loaded_engine():
                 raise KokoroError("Heart and Sarah is not downloaded yet.")
             from kokoro_onnx import Kokoro
 
+            from babysitter.security import require_loaded_file
+
             _limit_onnx_threads()
             folder = voice_dir()
-            _engine = Kokoro(str(folder / "kokoro-v1.0.onnx"), str(folder / "voices-v1.0.bin"))
+            model, voices = folder / "kokoro-v1.0.onnx", folder / "voices-v1.0.bin"
+            try:
+                require_loaded_file(MODEL_URL, model)
+                require_loaded_file(VOICES_URL, voices)
+            except ValueError as exc:
+                raise KokoroError(str(exc)) from None
+            _engine = Kokoro(str(model), str(voices))
         return _engine
 
 

@@ -2,6 +2,20 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.23.0 — One inbox, more voices and ears, and a memory slider
+
+**One inbox.** The Tools list, "check my mail", and the 15-minute check for anything new now share one read of every linked account: your Google account, your school Google account, and Blackboard. An account that fails shows as one line, such as "School Google: the sign-in expired", and the others still show. The 15-minute check now notices new school mail too. A sign-in that has expired is refreshed in the background, so the window never pauses for Google.
+
+**Choose how BabySitter hears you.** Settings, Speech recognition, has three engines, all on the processor: Whisper (the default), Moonshine, which is much faster, and Parakeet, which is more accurate. One engine hears the question; the keyword listener only listens for the keyword. Each new engine asks before it downloads and says its size.
+
+**More voices.** The Voice tab adds Piper (an American and a British voice) and Supertonic (four voices). They play through the same player as Kokoro, so echo cancellation and talking over a reply still work. A voice whose files are missing speaks with the Windows voice until it is downloaded.
+
+**Every model file is checked before it loads.** Kokoro, the sharper memory, Silero, and every new voice and hearing engine are checked against their recorded SHA-256 before each load, not only when they download. A file that passed is remembered by its size and date, so this costs nothing after the first time. A file that was changed is refused.
+
+**A memory slider.** Settings has a slider for how much of the conversation the AI keeps, from about 3,000 words to about 12,000. Low, Medium, and High are the first, middle, and last stops, and each stop uses the model that fits the card. It applies when you let go, so the model does not reload while you drag.
+
+**bonsai-2:27b, timed only.** The Models page can time bonsai-2:27b if you have pulled it. It is about twice this card's memory, so it is never a level: it is dropped right after the timing and your own model loads again.
+
 ## 0.22.0 — Use only what a question needs
 
 **The paper goes with a question only when it matters.** With Google on, every question used to fetch the doc you changed in the last two hours and send its text along, even "what time is it". On Low, that crowded out the question, and every question waited on Google first. Now the doc goes with a question only when a Google Docs window is in front, or the question is about the writing: the paper, the essay, a paragraph, a citation, a rewrite. Any other question never reaches Google at all. "What am I writing" still finds a doc you changed in the last two hours.

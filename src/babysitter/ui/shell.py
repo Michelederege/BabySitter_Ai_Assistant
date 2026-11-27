@@ -225,12 +225,13 @@ def _png_base64(picture: QPixmap) -> str:
 class _BenchJob(QThread):
     finished_text = Signal(str)
 
-    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512) -> None:
+    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512, keep_alive="5m") -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._num_ctx = num_ctx
         self._num_batch = num_batch
+        self._keep_alive = keep_alive
 
     def run(self) -> None:
         from babysitter.pictures import format_benchmark
@@ -244,6 +245,7 @@ class _BenchJob(QThread):
                     self._model,
                     "Reply with only the word ready.",
                     self._num_ctx,
+                    keep_alive=self._keep_alive,
                     num_batch=self._num_batch,
                 ):
                     stats = {}
@@ -464,6 +466,21 @@ class _SpeakJob(QThread):
                         if nxt is None:
                             break
                         pending.append(nxt)
+            elif prefs.get("engine") == "extra":
+                from babysitter.plugins.voice.engines import render as render_extra
+                from babysitter.plugins.voice.kokoro_voice import speak_sequence
+
+                voice, speed = prefs.get("name", ""), max(0.5, int(prefs.get("speed", 100)) / 100)
+                speak_sequence(
+                    pieces,
+                    voice,
+                    int(prefs.get("speed", 100)),
+                    0,
+                    on_start=self.started.emit,
+                    on_piece=self.phrase_done.emit,
+                    incoming=self.incoming,
+                    render=lambda piece, voice=voice, speed=speed: render_extra(voice, piece, speed),
+                )
             else:
                 from babysitter.plugins.voice.kokoro_voice import speak_sequence
 
@@ -488,13 +505,28 @@ class _HearJob(QThread):
     heard = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, wav: bytes) -> None:
+    def __init__(self, wav: bytes, engine: str = "whisper") -> None:
         super().__init__()
         self._wav = wav
+        self._engine = engine
 
     def run(self) -> None:
         wav = self._wav
         self._wav = b""
+        if self._engine in {"moonshine", "parakeet"}:
+            from babysitter.plugins.voice.engines import EngineError, hear
+            from babysitter.plugins.voice.hearing import Transcript
+
+            try:
+                self.result = Transcript(hear(self._engine, wav), True)
+                self.heard.emit(self.result.text)
+            except EngineError as exc:
+                self.failed.emit(str(exc))
+            except Exception:
+                self.failed.emit("Could not turn that recording into text. Nothing was sent.")
+            finally:
+                wav = b""
+            return
         try:
             from babysitter.plugins.voice.hearing import needs_second_pass, pick_pass, read_speech
 
@@ -548,35 +580,6 @@ class _SearchJob(QThread):
             key = ""
 
 
-class _GoogleJob(QThread):
-    ready = Signal(str)
-
-    def __init__(self, token: str, kind: str) -> None:
-        super().__init__()
-        self._token = token
-        self._kind = kind
-
-    def run(self) -> None:
-        secret = self._token
-        self._token = ""
-        try:
-            reader = GoogleReader(secret, http_get_json)
-            if self._kind == "mail":
-                speech = reader.unread()
-            elif self._kind == "calendar":
-                speech = reader.upcoming()
-            else:
-                speech = reader.unread() + " " + reader.upcoming()
-        except GoogleError as exc:
-            speech = str(exc)
-        except Exception:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        if secret and secret in speech:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        secret = ""
-        self.ready.emit(speech)
-
-
 class _ScanJob(QThread):
     """Reads the PC for "scan my PC": processes, startup items, Defender.
 
@@ -621,6 +624,26 @@ class _ScanJob(QThread):
         self.finished_scan.emit((result, report))
 
 
+class _PackDownloadJob(QThread):
+    """One model pack, after a yes. Checked against its hash before it is kept."""
+
+    done = Signal(str)
+
+    def __init__(self, pack_id: str) -> None:
+        super().__init__()
+        self._pack = pack_id
+
+    def run(self) -> None:
+        from babysitter.modelpacks import PackError, download
+
+        try:
+            self.done.emit(download(self._pack))
+        except PackError as exc:
+            self.done.emit(str(exc))
+        except Exception:
+            self.done.emit("The download stopped before it finished. Nothing was kept.")
+
+
 class _HealthJob(QThread):
     """The read-only PC check. Get-CimInstance can take seconds, so it runs
     here instead of freezing the window."""
@@ -656,134 +679,51 @@ class _HealthJob(QThread):
         self.finished_text.emit(text or "The check returned nothing. Nothing was changed.")
 
 
-class _GooglePollJob(QThread):
-    ready = Signal(str, list)
+class _LinkedJob(QThread):
+    """One read of every linked account, off the window's thread.
 
-    def __init__(self, token: str, seen: set[str]) -> None:
+    The Tools list, the spoken summary, and the 15-minute check all use it.
+    Tokens are fetched here too, so refreshing a sign-in never freezes the window.
+    """
+
+    ready = Signal(object)
+
+    def __init__(self, accounts, feed, want_fresh: bool = False) -> None:
         super().__init__()
-        self._token = token
-        self._seen = set(seen)
+        self._accounts = list(accounts)
+        self._feed = feed
+        self._want_fresh = want_fresh
 
     def run(self) -> None:
-        secret = self._token
-        self._token = ""
-        updated = set(self._seen)
+        from babysitter.inbox import Inbox, gather
+
         try:
-            reader = GoogleReader(secret, http_get_json)
-            mail_ids, mail_titles = reader.mail_index()
-            event_ids, event_titles = reader.event_index()
-            speech, updated = fresh_lines(
-                list(mail_ids) + list(event_ids),
-                list(mail_titles) + list(event_titles),
-                self._seen,
-            )
-        except GoogleError as exc:
-            speech = str(exc)
+            result = gather(self._accounts, self._feed, want_fresh=self._want_fresh)
         except Exception:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        if secret and secret in speech:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        secret = ""
-        self.ready.emit(speech, list(updated))
-
-
-class _InboxJob(QThread):
-    ready = Signal(list, str)
-
-    def __init__(self, personal: str, school: str, feed_url: str, lead: str, notices: list[str] | None = None) -> None:
-        super().__init__()
-        self._personal = personal
-        self._school = school
-        self._feed_url = feed_url
-        self._lead = lead
-        self._notices = list(notices or [])
-
-    def run(self) -> None:
-        personal = self._personal
-        school = self._school
-        feed_url = self._feed_url
-        self._personal = ""
-        self._school = ""
-        self._feed_url = ""
-        rows: list[str] = []
-        speeches: list[str] = []
-        problems: list[str] = list(self._notices)
-        self._notices = []
-        if personal:
-            found, said, failed = read_account(
-                personal,
-                mail_prefix="Mail",
-                calendar_prefix="Calendar",
-                drive_prefix="Drive",
-            )
-            rows.extend(found)
-            speeches.extend(said)
-            problems.extend(failed)
-        if school:
-            found, said, failed = read_account(
-                school,
-                mail_prefix="School mail",
-                calendar_prefix="School calendar",
-                drive_prefix="School Drive",
-            )
-            rows.extend(found)
-            speeches.extend(said)
-            problems.extend(failed)
-        if feed_url:
-            try:
-                events = events_from_ics(fetch_feed(feed_url))
-                rows.extend(blackboard_rows(events))
-                speeches.append(blackboard_speech(events))
-            except FeedError as exc:
-                problems.append(str(exc))
-                rows.append("Blackboard · could not be read")
-        order = {
-            "mail": ("Unread mail", "No unread mail", "School mail"),
-            "calendar": ("Coming up", "Nothing coming up", "School calendar"),
-            "drive": ("Drive:", "No files in Drive", "School Drive"),
-            "school_mail": ("School mail", "No unread school"),
-            "blackboard": ("Blackboard:", "Nothing coming up on Blackboard"),
-        }
-        preferred = order.get(self._lead, ())
-        if preferred:
-            speeches.sort(key=lambda line: 0 if any(bit in line for bit in preferred) else 1)
-        speech = " ".join(speeches[:4]).strip()
-        if problems and not speech:
-            speech = " ".join(problems[:2])
-        elif problems:
-            speech = speech + " " + problems[0]
-        if not rows and not speech:
-            speech = (
-                "Nothing is linked yet. On Tools, paste your Google desktop client id and press Sign in. "
-                "School Google is a second sign-in. Blackboard uses the calendar link from your school."
-            )
-            rows = [speech]
-        secrets = [item for item in (personal, school, feed_url) if item]
-        if any(secret in speech for secret in secrets):
-            speech = "Google did not answer. Mail, the calendar, and Drive were not changed."
-        safe_rows: list[str] = []
-        for row in rows:
-            if any(secret in row for secret in secrets):
-                safe_rows.append("A linked account answered with something BabySitter will not show.")
-            else:
-                safe_rows.append(row)
-        personal = ""
-        school = ""
-        feed_url = ""
-        self.ready.emit(safe_rows, speech)
+            result = Inbox(problems=["The linked accounts did not answer. Nothing was changed."])
+        self._accounts = []
+        self._feed = None
+        self.ready.emit(result)
 
 
 class _DraftJob(QThread):
     ready = Signal(str, str)
 
-    def __init__(self, tokens: list[str], window_title: str) -> None:
+    def __init__(self, tokens: list, window_title: str) -> None:
         super().__init__()
-        self._tokens = list(tokens)
+        self._tokens = list(tokens)  # tokens, or functions that fetch one
         self._title = window_title
 
     def run(self) -> None:
-        tokens = self._tokens
         title = self._title
+        tokens: list[str] = []
+        for item in self._tokens:
+            try:
+                token = item() if callable(item) else item
+            except Exception:
+                continue
+            if token:
+                tokens.append(str(token))
         self._tokens = []
         self._title = ""
         from babysitter.writing import read_open_draft
@@ -1012,6 +952,9 @@ class Shell:
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
         settings.microphone_chosen.connect(self._set_microphone)
+        settings.hearing_chosen.connect(self._set_hearing_engine)
+        settings.context_chosen.connect(self._set_context)
+        self.window.voice_page.pack_needed.connect(self._offer_pack)
         settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
@@ -1268,6 +1211,12 @@ class Shell:
         if state == "off":
             release_model()
             release_kokoro()
+            try:
+                from babysitter.plugins.voice.engines import release as release_engines
+
+                release_engines()
+            except Exception:
+                pass
             self._session_personality = ""
             self._google_notified = False
             self._session_id = ""
@@ -1296,9 +1245,62 @@ class Shell:
             "Turns the AI fully off, even if this window is hidden."
         )
 
+    def _hearing_engine(self) -> str:
+        """The engine that hears the question. A chosen one not downloaded yet falls back to Whisper."""
+        from babysitter.modelpacks import ready as pack_ready
+
+        engine = self.controller.settings.hearing_engine
+        if engine in {"moonshine", "parakeet"} and pack_ready(engine):
+            return engine
+        return "whisper"
+
+    def _hearing_ready(self) -> bool:
+        if self._hearing_engine() != "whisper":
+            return True
+        return packages_installed() and model_ready()
+
+    def _set_hearing_engine(self, engine: str) -> None:
+        from babysitter.modelpacks import ready as pack_ready
+
+        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "whisper"
+        save_settings(self.controller.settings)
+        if engine in {"moonshine", "parakeet"} and not pack_ready(engine):
+            self._offer_pack(engine)
+            return
+        from babysitter.plugins.voice.engines import HEARING_ENGINES
+
+        self.window.voice_page.status.setText(f"{HEARING_ENGINES.get(engine, 'Whisper')} hears your questions now.")
+
+    def _offer_pack(self, pack_id: str) -> None:
+        """Ask before a model pack downloads. Nothing is fetched without a yes."""
+        from babysitter.modelpacks import PACKS
+
+        pack = PACKS[pack_id]
+        running = getattr(self, "_pack_job", None)
+        if running is not None and running.isRunning():
+            self.window.voice_page.status.setText("A download is already running.")
+            return
+        if not ask_yes_no(
+            self.window,
+            f"Download {pack.label}?",
+            f"About {pack.size_mb} MB, saved in your BabySitter folder and checked against its recorded hash. "
+            f"It runs on the processor, not the graphics card. {pack.note}".strip(),
+            "Download",
+            "Not now",
+        ):
+            self.window.voice_page.status.setText(f"{pack.label} was not downloaded. Nothing was sent.")
+            return
+        self.window.voice_page.status.setText(f"Downloading {pack.label}, about {pack.size_mb} MB…")
+        job = _PackDownloadJob(pack_id)
+        self._store_job("_pack_job", job)
+        job.done.connect(lambda message: self.window.voice_page.status.setText(message))
+        job.start()
+
     def _warm_hearing(self) -> None:
         if self.turns.busy():
             return
+        if self._hearing_engine() != "whisper":
+            return  # Whisper is not loaded when another engine hears the question.
         if not packages_installed() or not model_ready():
             return
         if getattr(self, "_hearing_job", None) is not None and self._hearing_job.isRunning():
@@ -1413,6 +1415,14 @@ class Shell:
     def _set_intel(self, mode_id: str) -> None:
         self.controller.set_intelligence(mode_id)
         self.window.home.set_intelligence(mode_id)
+        self.window.settings_page.set_context(0, mode_id)
+
+    def _set_context(self, tokens: int) -> None:
+        level = self.controller.set_context(tokens)
+        self.window.home.set_intelligence(level)
+        self.window.settings_page.set_context(self.controller.settings.context_tokens, level)
+        self.controller._remember(f"Memory set to {tokens:,} tokens, on {level.capitalize()}.")
+        self.window.home.set_history(self.controller.history)
 
     def _set_autostart(self, enabled: bool) -> None:
         message = self.controller.set_autostart(enabled)
@@ -1957,6 +1967,7 @@ class Shell:
         for toggle in toggles:
             toggle.blockSignals(False)
         self._fill_microphones()
+        page.set_context(self.controller.settings.context_tokens, self.controller.settings.intelligence)
         journal = self.window.journal_page
         journal.enabled.blockSignals(True)
         journal.enabled.setChecked(self.controller.settings.journal_enabled)
@@ -2110,7 +2121,7 @@ class Shell:
         self._holding = True
         self._recording = False
         self._show_mode("listening", "Listening. Release to stop.")
-        if packages_installed() and model_ready():
+        if self._hearing_ready():
             try:
                 self._recorder.start(self._mic_device())
                 self._recording = True
@@ -2153,7 +2164,7 @@ class Shell:
             )
             self._sync_keyword()
             return
-        if not packages_installed() or not model_ready():
+        if not self._hearing_ready():
             self._show_mode(self.controller.state, "Hold to talk")
             self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
             self._pending_line = ""
@@ -2174,7 +2185,7 @@ class Shell:
             from babysitter.plugins.voice.hearing import model_ready as whisper_ready
             from babysitter.plugins.voice.hearing import packages_installed as whisper_installed
 
-            if whisper_installed() and whisper_ready():
+            if self._hearing_ready() and (self._hearing_engine() != "whisper" or (whisper_installed() and whisper_ready())):
                 self._vosk_line = text
                 if getattr(self, "_listener", None) is not None:
                     self._listener.stop()
@@ -2608,15 +2619,8 @@ class Shell:
             return
         from babysitter.games import foreground_window_title
 
-        tokens: list[str] = []
-        try:
-            for vault in (self.google_vault, self.google_school_vault):
-                token = self._token_for_google(vault) or ""
-                if token:
-                    tokens.append(token)
-        except (GoogleError, SecretsError) as exc:
-            self._show_google(str(exc), speak=True)
-            return
+        # The tokens are fetched by the job, so a sign-in refresh never freezes the window.
+        tokens = [account.token for account in self._linked_accounts()]
         if not tokens:
             self._show_google(
                 "Sign in with Google on Tools first. Nothing was read.",
@@ -3024,6 +3028,9 @@ class Shell:
         if text == "BENCHMARK":
             self._benchmark()
             return
+        if text.startswith("BENCHMARK "):
+            self._benchmark(text.split(" ", 1)[1].strip())
+            return
         if text.startswith("FOLLOWUP "):
             self._save_followup(text)
             return
@@ -3206,6 +3213,21 @@ class Shell:
             pitch = int(raw_pitch) if raw_pitch is not None else -1
         except (TypeError, ValueError):
             pitch = -1
+        from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
+
+        if name in EXTRA_VOICES:
+            if voice_ready(name):
+                return {"engine": "extra", "name": name, "speed": speed, "pitch": pitch, "label": name}
+            # The model file is missing, so the Windows voice speaks instead.
+            return {
+                "engine": "windows",
+                "name": "",
+                "windows_voice": "",
+                "speed": speed,
+                "pitch": pitch,
+                "rate": sapi_rate(speed),
+                "label": f"the Windows voice, until {name} is downloaded",
+            }
         if name.startswith("Microsoft"):
             return {
                 "engine": "windows",
@@ -3340,7 +3362,7 @@ class Shell:
             self._retain_thread(running)
             self._queued_hear = (wav, on_heard)
             return
-        job = _HearJob(wav)
+        job = _HearJob(wav, self._hearing_engine())
         self._hear_job = job
         self._retain_thread(job)
         job.heard.connect(on_heard)
@@ -4308,36 +4330,38 @@ class Shell:
         page.show_google("The Blackboard link is saved. It is encrypted on this PC and it is not in settings.json.")
         self._refresh_inbox("blackboard")
 
+    def _linked_accounts(self):
+        """Each linked Google account, with a function that fetches its token later."""
+        from babysitter.inbox import Account
+
+        if not self.controller.settings.google_enabled:
+            return []
+        accounts = []
+        for vault, name, mail, calendar, drive in (
+            (self.google_vault, "Google", "Mail", "Calendar", "Drive"),
+            (self.google_school_vault, "School Google", "School mail", "School calendar", "School Drive"),
+        ):
+            try:
+                linked = vault.has_token()
+            except Exception:
+                linked = False
+            if linked:
+                accounts.append(Account(name, mail, calendar, drive, lambda v=vault: self._token_for_google(v)))
+        return accounts
+
+    def _linked_feed(self):
+        if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
+            return self.blackboard_vault.load
+        return None
+
     def _refresh_inbox(self, lead: str = "all") -> None:
         page = self.window.tools_page
         running = getattr(self, "_inbox_job", None)
         if running is not None and running.isRunning():
             page.show_google("I'm already reading the linked accounts.")
             return
-        personal = ""
-        school = ""
-        feed_url = ""
-        notices: list[str] = []
-        if self.controller.settings.google_enabled:
-            try:
-                personal = self._token_for_google(self.google_vault) or ""
-            except (GoogleError, SecretsError) as exc:
-                notices.append(str(exc))
-            try:
-                school = self._token_for_google(self.google_school_vault) or ""
-            except (GoogleError, SecretsError) as exc:
-                notices.append(str(exc))
-        if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
-            try:
-                feed_url = self.blackboard_vault.load() or ""
-            except (FeedError, SecretsError) as exc:
-                page.show_google(str(exc))
-                return
-        if not personal and not school and not feed_url:
-            if notices:
-                page.set_inbox(notices)
-                page.show_google(" ".join(notices[:2]))
-                return
+        accounts, feed = self._linked_accounts(), self._linked_feed()
+        if not accounts and feed is None:
             page.set_inbox([
                 "Nothing is linked yet. Paste the Google desktop client id, then Sign in with Google.",
             ])
@@ -4346,52 +4370,66 @@ class Shell:
             )
             return
         page.show_google("Reading linked accounts. Mail, calendar, and Drive names only.")
-        job = _InboxJob(personal, school, feed_url, lead, notices)
+        job = _LinkedJob(accounts, feed)
         self._store_job("_inbox_job", job)
-        job.ready.connect(self._inbox_ready)
+        job.ready.connect(lambda inbox, lead=lead: self._inbox_ready(inbox, lead))
         job.start()
 
-    def _inbox_ready(self, rows: list, speech: str) -> None:
-        self.window.tools_page.set_inbox([str(row) for row in rows])
-        self._show_google(speech, speak=not self.turns.busy())
+    def _inbox_ready(self, inbox, lead: str = "all") -> None:
+        from babysitter.inbox import spoken
+
+        self.window.tools_page.set_inbox(list(inbox.rows) or list(inbox.problems))
+        self._show_google(spoken(inbox, lead=lead), speak=not self.turns.busy())
 
     def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
+        """Mail and calendar, said aloud, or only what is new since the last check.
+
+        Every linked account counts, school Google and Blackboard too, through
+        the same read as the Tools list.
+        """
         self._google_speak_errors = speak_errors
         self._google_only_new = only_new
-        if not self.controller.settings.google_enabled:
+        if not self.controller.settings.google_enabled and not self.controller.settings.blackboard_enabled:
             self._show_google(
                 "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
             return
-        if not self.google_vault.available:
-            self._show_google("Saving a Google token needs Windows. Nothing was sent.", speak=speak_errors)
-            return
-        try:
-            token = self._token_for_google()
-        except (SecretsError, GoogleError) as exc:
-            self._show_google(str(exc), speak=speak_errors)
-            return
-        if not token:
+        accounts = self._linked_accounts()
+        feed = None if only_new else self._linked_feed()
+        if not accounts and feed is None:
             self._show_google(
-                "There is no Google token saved. Paste a read-only token under Tools. Nothing was sent.",
+                "Nothing is linked yet. Sign in with Google under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
             return
         running = getattr(self, "_google_job", None)
         if running is not None and running.isRunning():
-            self._show_google("I'm already checking Google.", speak=True)
+            if not only_new:
+                self._show_google("I'm already checking Google.", speak=True)
             return
+        job = _LinkedJob(accounts, feed, want_fresh=only_new)
+        self._store_job("_google_job", job)
         if only_new:
-            job = _GooglePollJob(token, self._seen_google)
-            self._store_job("_google_job", job)
-            job.ready.connect(self._google_poll_ready)
+            job.ready.connect(self._linked_fresh)
         else:
-            job = _GoogleJob(token, kind)
-            self._store_job("_google_job", job)
-            job.ready.connect(self._google_ready)
-            self.window.tools_page.show_google("Checking Google. Only mail and calendar are read.")
+            job.ready.connect(lambda inbox, kind=kind: self._linked_spoken(inbox, kind))
+            self.window.tools_page.show_google("Checking the linked accounts. Only reading.")
         job.start()
+
+    def _linked_spoken(self, inbox, kind: str) -> None:
+        from babysitter.inbox import spoken
+
+        if inbox.rows:
+            self.window.tools_page.set_inbox(list(inbox.rows))
+        only = kind if kind in {"mail", "calendar"} else ""
+        self._google_ready(spoken(inbox, lead=kind, only=only) or "Nothing new on the linked accounts.")
+
+    def _linked_fresh(self, inbox) -> None:
+        speech, seen = fresh_lines(inbox.fresh_ids, inbox.fresh_titles, self._seen_google)
+        if not speech and inbox.problems:
+            speech = inbox.problems[0]
+        self._google_poll_ready(speech, list(seen))
 
     def _google_ready(self, speech: str) -> None:
         failed = speech.startswith("Google did not") or speech.startswith("Google refused") or speech.startswith("Google sent")
@@ -4623,7 +4661,11 @@ class Shell:
         self._note_local("weekly review", speech)
         self._speak(speech)
 
-    def _benchmark(self) -> None:
+    def _benchmark(self, model: str = "") -> None:
+        from babysitter.intelligence import BENCHMARK_ONLY
+
+        if model and model not in BENCHMARK_ONLY:
+            return
         if self.controller.state != "on":
             self.window.models_page.body.setPlainText("Turn the AI on before the benchmark. Nothing was sent.")
             return
@@ -4638,13 +4680,38 @@ class Shell:
                 "A reply is in progress. The benchmark waits so it does not load the card again."
             )
             return
-        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
+        if model:
+            try:
+                installed = self.controller.ollama.installed_models()
+            except OllamaError as exc:
+                self.window.models_page.body.setPlainText(str(exc))
+                return
+            if not any(name == model or name.startswith(model) for name in installed):
+                self.window.models_page.body.setPlainText(
+                    f"{model} is not downloaded. BabySitter does not download it. "
+                    f"In a terminal: ollama pull {model}. It is about twice this card's memory."
+                )
+                return
+            # Timed with Low's context, dropped right after, then your own level loads again.
+            job = _BenchJob(self.controller.ollama, model, 4096, 512, keep_alive=0)
+            self._bench_reload = True
+            note = f"Timing {model} three times. It spills into system memory, so this is slow. Your own model loads again afterwards."
+        else:
+            job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
+            self._bench_reload = False
+            note = "Timing a fixed prompt three times. Thinking is off. Words are not saved."
         self._store_job("_bench_job", job)
-        self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
+        self.window.models_page.body.setPlainText(note)
         job.finished_text.connect(self._benchmark_done)
         job.start()
 
     def _benchmark_done(self, text: str) -> None:
+        if getattr(self, "_bench_reload", False):
+            # A benchmark-only model was timed. It is not kept: load your own level again.
+            self._bench_reload = False
+            self.window.models_page.body.setPlainText(text + "\n\nTiming only. Loading your own model again.")
+            self.controller.reload_model()
+            return
         samples = list(getattr(self._bench_job, "samples", []) or [])
         speeds = [int(sample.get("gen_tps", 0)) for sample in samples if isinstance(sample, dict)]
         speeds = [speed for speed in speeds if speed > 0]

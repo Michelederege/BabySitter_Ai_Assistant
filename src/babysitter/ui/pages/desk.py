@@ -460,6 +460,12 @@ class ModelsPage(_Page):
         bench = QPushButton("Benchmark")
         bench.setToolTip("Times a fixed prompt three times. It does not save the words.")
         bench.clicked.connect(lambda: self.notice.emit("BENCHMARK"))
+        bonsai = QPushButton("Benchmark bonsai-2:27b (timing only)")
+        bonsai.setToolTip(
+            "About twice this card's memory, so it runs partly in system memory and slowly. "
+            "Timed only. It is never a level, and your own model loads again afterwards."
+        )
+        bonsai.clicked.connect(lambda: self.notice.emit("BENCHMARK bonsai-2:27b"))
         remove_row = QHBoxLayout()
         self.remove_name = QLineEdit()
         self.remove_name.setAccessibleName("Model name to remove")
@@ -473,6 +479,7 @@ class ModelsPage(_Page):
         remove_row.addWidget(self.remove_name, 1)
         remove_row.addWidget(self.remove_button)
         self.root.insertLayout(2, remove_row)
+        self.root.insertWidget(2, bonsai)
         self.root.insertWidget(2, bench)
         self.root.insertWidget(2, ask)
         self.add_page_pin()

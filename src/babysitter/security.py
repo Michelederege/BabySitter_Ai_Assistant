@@ -174,6 +174,50 @@ def require_matching_file(url: str, path) -> None:
         )
 
 
+def require_loaded_file(url: str, path) -> None:
+    """Check a model file against its pinned SHA-256 before it is loaded.
+
+    A file copied in by hand, or changed after its download, used to load
+    unchecked. Hashing a 300 MB voice on every start costs a second, so a
+    file that passed is remembered by its size and change time, and hashed
+    again only when either changes. Raises ValueError when it does not match.
+    """
+    import json
+    from pathlib import Path
+
+    from babysitter.paths import data_dir
+
+    target = Path(path)
+    stat = target.stat()
+    stamp = [int(stat.st_size), int(stat.st_mtime_ns)]
+    key = str(target.resolve()).lower()
+    ledger_path = data_dir() / "verified-files.json"
+    try:
+        ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        if not isinstance(ledger, dict):
+            ledger = {}
+    except (OSError, ValueError):
+        ledger = {}
+    expected = DOWNLOAD_SHA256.get(url, "")
+    if ledger.get(key) == [*stamp, expected]:
+        return
+    try:
+        require_matching_file(url, target)
+    except ValueError:
+        ledger.pop(key, None)
+        raise ValueError(
+            f"{target.name} does not match the file this release expects, so it was not loaded. "
+            "Download it again from the Voice or Memory tab."
+        ) from None
+    ledger[key] = [*stamp, expected]
+    try:
+        temporary = ledger_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(ledger, indent=1), encoding="utf-8")
+        temporary.replace(ledger_path)
+    except OSError:
+        pass
+
+
 def keep_if_matching(url: str, path) -> bool:
     """True when a file already on disk has the recorded SHA-256.
 
