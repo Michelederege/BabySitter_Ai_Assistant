@@ -911,7 +911,7 @@ class Shell:
         home = self.window.home
         settings = self.window.settings_page
         home.power.clicked.connect(self._on_power)
-        self.window.pill.clicked.connect(self._on_power)
+        # v3: the pill opens the state menu, which holds the power button.
         home.try_again.clicked.connect(self._turn_on)
         home.game.clicked.connect(self._on_game)
         self.window.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
@@ -3832,7 +3832,7 @@ class Shell:
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
-        self.window.show_page(self.window.schedule_page)
+        self.window.show_page(self.window.home.pin_card)  # v3: goals are on the Board
         self.window.schedule_page.refresh_goals()
 
     def _apply_goal(self, quick: QuickCommand, text: str) -> None:
@@ -4085,7 +4085,9 @@ class Shell:
         from babysitter.deskstore import next_reminder_line
 
         self.window.schedule_page.tick()
-        self.window.home.set_countdown(next_reminder_line(load_list("schedule.json")))
+        line = next_reminder_line(load_list("schedule.json"))
+        self.window.home.set_countdown(line)
+        self.window.set_next(line)
 
     def _check_reminders(self) -> None:
         """Say a saved reminder once its clock time has arrived."""

@@ -53,6 +53,9 @@ class ToolsPage(QWidget):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(22, 18, 22, 18)
         layout.setSpacing(10)
+        # v3 places these in Settings (accounts), Today (inbox), and Desk (look up).
+        self.sections: dict[str, QWidget] = {}
+        self._body_layout = layout
 
         title = QLabel("Tools")
         title.setObjectName("title")
@@ -70,17 +73,17 @@ class ToolsPage(QWidget):
 
         google_label = QLabel("Google, school, and Blackboard")
         google_label.setObjectName("section")
-        layout.addWidget(google_label)
+        self._sec('accounts').addWidget(google_label)
         self.google_enabled = QCheckBox("Turn on Google mail, calendar, and Drive")
         self.google_enabled.setToolTip(
             "Off by default. While this is off, BabySitter will not contact Google."
         )
         self.google_enabled.toggled.connect(self.google_enabled_changed.emit)
-        layout.addWidget(self.google_enabled)
+        self._sec('accounts').addWidget(self.google_enabled)
         self.google_status = QLabel("No Google token saved.")
         self.google_status.setWordWrap(True)
         self.google_status.setObjectName("hint")
-        layout.addWidget(self.google_status)
+        self._sec('accounts').addWidget(self.google_status)
         google_row = QHBoxLayout()
         self.google_input = QLineEdit()
         self.google_input.setAccessibleName("Google read-only token")
@@ -99,7 +102,7 @@ class ToolsPage(QWidget):
         google_row.addWidget(self.google_input, 1)
         google_row.addWidget(self.google_save)
         google_row.addWidget(self.google_delete)
-        layout.addLayout(google_row)
+        self._sec('accounts').addLayout(google_row)
         check_row = QHBoxLayout()
         self.mail_button = QPushButton("Check mail")
         self.mail_button.setToolTip("Reads unread subjects. Does not send or delete mail.")
@@ -110,7 +113,7 @@ class ToolsPage(QWidget):
         check_row.addWidget(self.mail_button)
         check_row.addWidget(self.calendar_button)
         check_row.addStretch(1)
-        layout.addLayout(check_row)
+        self._sec('inbox').addLayout(check_row)
         self.google_client = QLineEdit()
         self.google_client.setAccessibleName("Google OAuth desktop client ID")
         self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
@@ -118,7 +121,7 @@ class ToolsPage(QWidget):
             "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
             "BabySitter asks only for read-only mail, calendar, and Drive file names."
         )
-        layout.addWidget(self.google_client)
+        self._sec('accounts').addWidget(self.google_client)
         sign_row = QHBoxLayout()
         self.google_sign_in = QPushButton("Sign in with Google")
         self.google_sign_in.setToolTip(
@@ -135,23 +138,23 @@ class ToolsPage(QWidget):
         sign_row.addWidget(self.google_sign_in)
         sign_row.addWidget(self.school_sign_in)
         sign_row.addStretch(1)
-        layout.addLayout(sign_row)
+        self._sec('accounts').addLayout(sign_row)
         self.refresh_inbox = QPushButton("Show linked mail, calendar, and files")
         self.refresh_inbox.setObjectName("primary")
         self.refresh_inbox.setToolTip("Reads what is linked and lists it here. Nothing is changed.")
         self.refresh_inbox.clicked.connect(lambda: self.inbox_refresh.emit("all"))
-        layout.addWidget(self.refresh_inbox)
+        self._sec('inbox').addWidget(self.refresh_inbox)
         self.inbox = QListWidget()
         self.inbox.setAccessibleName("Linked mail, calendar, Drive, and Blackboard")
         self.inbox.setToolTip("Each line is one unread message, event, or Drive file name.")
         self.inbox.setMinimumHeight(160)
-        layout.addWidget(self.inbox)
+        self._sec('inbox').addWidget(self.inbox)
         self.blackboard_enabled = QCheckBox("Turn on the Blackboard calendar feed")
         self.blackboard_enabled.setToolTip(
             "Off by default. BabySitter reads the calendar link you paste. It does not sign in to Blackboard."
         )
         self.blackboard_enabled.toggled.connect(self.blackboard_enabled_changed.emit)
-        layout.addWidget(self.blackboard_enabled)
+        self._sec('accounts').addWidget(self.blackboard_enabled)
         board_row = QHBoxLayout()
         self.blackboard_url = QLineEdit()
         self.blackboard_url.setAccessibleName("Blackboard calendar feed")
@@ -164,22 +167,22 @@ class ToolsPage(QWidget):
         self.blackboard_save_button.clicked.connect(lambda: self.blackboard_save.emit(self.blackboard_url.text()))
         board_row.addWidget(self.blackboard_url, 1)
         board_row.addWidget(self.blackboard_save_button)
-        layout.addLayout(board_row)
+        self._sec('accounts').addLayout(board_row)
 
         self.enabled = QCheckBox("Turn on social search")
         self.enabled.setToolTip(
             "Off by default. While this is off, BabySitter will not contact ScrapeCreators."
         )
         self.enabled.toggled.connect(self._on_toggled)
-        layout.addWidget(self.enabled)
+        self._sec('accounts').addWidget(self.enabled)
 
         key_label = QLabel("ScrapeCreators API key")
         key_label.setObjectName("section")
-        layout.addWidget(key_label)
+        self._sec('accounts').addWidget(key_label)
         self.key_status = QLabel("No key saved.")
         self.key_status.setWordWrap(True)
         self.key_status.setObjectName("hint")
-        layout.addWidget(self.key_status)
+        self._sec('accounts').addWidget(self.key_status)
         key_row = QHBoxLayout()
         self.key_input = QLineEdit()
         self.key_input.setAccessibleName("ScrapeCreators API key")
@@ -198,28 +201,28 @@ class ToolsPage(QWidget):
         key_row.addWidget(self.key_input, 1)
         key_row.addWidget(self.save_button)
         key_row.addWidget(self.delete_button)
-        layout.addLayout(key_row)
+        self._sec('accounts').addLayout(key_row)
 
         kind_label = QLabel("What to look up")
         kind_label.setObjectName("section")
-        layout.addWidget(kind_label)
+        self._sec('lookup').addWidget(kind_label)
         self.kind = QComboBox()
         self.kind.setAccessibleName("Social lookup kind")
         for action in SEARCH_ACTIONS:
             self.kind.addItem(action.label, action.id)
         self.kind.setToolTip("Public posts, a public profile, comments, or a transcript.")
         self.kind.currentIndexChanged.connect(self._show_action)
-        layout.addWidget(self.kind)
+        self._sec('lookup').addWidget(self.kind)
         self.action_note = QLabel("")
         self.action_note.setWordWrap(True)
         self.action_note.setObjectName("hint")
-        layout.addWidget(self.action_note)
+        self._sec('lookup').addWidget(self.action_note)
 
         self.query = QLineEdit()
         self.query.setAccessibleName("Social search query")
         self.query.setToolTip("Only this text is sent, after you confirm.")
         self.query.returnPressed.connect(self._emit_search)
-        layout.addWidget(self.query)
+        self._sec('lookup').addWidget(self.query)
 
         self.search_button = QPushButton("Prepare search")
         self.search_button.setObjectName("primary")
@@ -227,7 +230,7 @@ class ToolsPage(QWidget):
             "Shows exactly what will be sent. Nothing leaves this PC until you confirm."
         )
         self.search_button.clicked.connect(self._emit_search)
-        layout.addWidget(self.search_button)
+        self._sec('lookup').addWidget(self.search_button)
 
         pin_row = QHBoxLayout()
         results_pin = pin_button()
@@ -235,22 +238,22 @@ class ToolsPage(QWidget):
         results_pin.clicked.connect(self._pin_results)
         pin_row.addWidget(results_pin)
         pin_row.addStretch(1)
-        layout.addLayout(pin_row)
+        self._sec('lookup').addLayout(pin_row)
         self.results = QPlainTextEdit()
         self.results.setReadOnly(True)
         self.results.setAccessibleName("Tool results")
         self.results.setPlaceholderText("Results show up here, with the public link when there is one.")
         self.results.setMinimumHeight(180)
-        layout.addWidget(self.results)
+        self._sec('lookup').addWidget(self.results)
 
         later = QLabel("Spoken research recipes")
         later.setObjectName("section")
-        layout.addWidget(later)
+        self._sec('lookup').addWidget(later)
         later_body = QLabel(_later_text())
         later_body.setWordWrap(True)
         later_body.setObjectName("hint")
         later_body.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        layout.addWidget(later_body)
+        self._sec('lookup').addWidget(later_body)
         layout.addStretch(1)
 
         scroll.setWidget(body)
@@ -368,6 +371,17 @@ class ToolsPage(QWidget):
         self.search_button.setEnabled(False)
         self.results.setPlainText("Waiting for you to confirm…")
         self.search_requested.emit(self._current().id, self.query.text())
+
+    def _sec(self, name: str):
+        box = self.sections.get(name)
+        if box is None:
+            box = QWidget()
+            inner = QVBoxLayout(box)
+            inner.setContentsMargins(0, 0, 0, 0)
+            inner.setSpacing(10)
+            self.sections[name] = box
+            self._body_layout.addWidget(box)
+        return box.layout()
 
 
 def _later_text() -> str:

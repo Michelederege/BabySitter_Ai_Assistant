@@ -128,7 +128,7 @@ QToolTip {
     border-bottom: 1px solid #38436a;
 }
 #appRoot #rail {
-    background-color: #252d47;
+    background-color: #1d2439;
     border-right: 1px solid #38436a;
 }
 #appRoot QLabel#railGroup {
@@ -221,8 +221,8 @@ QToolTip {
     border-radius: 8px;
 }
 #appRoot QFrame#innerCard {
-    background-color: #323c5e;
-    border: 1px solid #3e4a72;
+    background-color: #252e4a;
+    border: 1px solid #2f395a;
     border-radius: 7px;
 }
 #appRoot QLabel#title { font-size: 24px; font-weight: 700; color: #ffffff; }
@@ -249,7 +249,7 @@ QToolTip {
     border-radius: 8px;
 }
 #appRoot QFrame#offerBanner {
-    background-color: #323c5e;
+    background-color: #252e4a;
     border: 1px solid #f5a54a;
     border-radius: 8px;
 }
@@ -261,7 +261,7 @@ QToolTip {
 
 /* ---------- inputs ---------- */
 #appRoot QPlainTextEdit, #appRoot QListWidget, #appRoot QLineEdit, #appRoot QComboBox {
-    background-color: #1f2740;
+    background-color: #1a2136;
     color: #e8ecf4;
     border: 1px solid #4a5680;
     border-radius: 6px;
@@ -294,7 +294,7 @@ QToolTip {
     height: 17px;
     border-radius: 4px;
     border: 1px solid #4a5680;
-    background: #1f2740;
+    background: #1a2136;
 }
 #appRoot QCheckBox::indicator:checked { background: #f5a54a; border-color: #f5a54a; }
 #appRoot QCheckBox:focus { color: #ffffff; }
@@ -341,6 +341,40 @@ QToolTip {
 #appRoot QMenu::item { padding: 8px 14px; border-radius: 6px; }
 #appRoot QMenu::item:selected { background: #38436a; }
 #appRoot QMenu::separator { height: 1px; background: #38436a; margin: 4px 6px; }
+
+/* ---------- v3: the calm window ---------- */
+#appRoot QFrame#sideMenu { background-color: #1d2439; border-right: 1px solid #2f395a; }
+#appRoot QFrame#bottomBar { background-color: #1d2439; border-top: 1px solid #2f395a; }
+#appRoot QPushButton#place, #appRoot QPushButton#placeBottom {
+    background: transparent; color: #a3aec5; border: none; border-radius: 9px;
+    padding: 9px 10px; text-align: left; font-size: 13px;
+}
+#appRoot QPushButton#placeBottom { text-align: center; font-size: 11px; padding: 4px 2px; }
+#appRoot QPushButton#place:hover, #appRoot QPushButton#placeBottom:hover { background: #252e4a; color: #e8ecf4; }
+#appRoot QPushButton#place:checked, #appRoot QPushButton#placeBottom:checked { background: #2f395a; color: #e8ecf4; font-weight: 600; }
+#appRoot QPushButton#statePill {
+    background: #1a2136; border: 1px solid #b9c1d3; border-radius: 13px; padding: 4px 14px; font-weight: 700;
+}
+#appRoot QPushButton#chip, QPushButton#chip {
+    background: #252e4a; color: #e8ecf4; border: 1px solid #2f395a; border-radius: 13px; padding: 5px 12px;
+}
+#appRoot QPushButton#link, QPushButton#link { background: transparent; border: none; color: #f6b977; padding: 2px 0; text-align: left; }
+#appRoot QPushButton#link:hover { text-decoration: underline; }
+#appRoot QPushButton#quiet { background: transparent; border: none; color: #a3aec5; padding: 4px 8px; }
+#appRoot QPushButton#segment { background: #1a2136; color: #a3aec5; border: 1px solid #2f395a; border-radius: 9px; padding: 6px 14px; }
+#appRoot QPushButton#segment:checked { background: #2f395a; color: #e8ecf4; }
+#appRoot QFrame#v3card { background-color: #252e4a; border: 1px solid #2f395a; border-radius: 14px; }
+QLabel#sectionLabel { color: #a3aec5; font-size: 10.5px; font-weight: 700; letter-spacing: 1px; }
+QLabel#sectionTitle { color: #e8ecf4; font-size: 16px; font-weight: 700; }
+QLabel#stateWord { color: #e8ecf4; font-size: 18px; font-weight: 700; }
+QLabel#mono { font-family: "JetBrains Mono", Consolas, monospace; color: #a3aec5; font-size: 11px; }
+#appRoot QListWidget#sectionList { background: #1d2439; border: 1px solid #2f395a; border-radius: 12px; padding: 6px; }
+#appRoot QListWidget#sectionList::item { padding: 8px 10px; border-radius: 8px; color: #a3aec5; }
+#appRoot QListWidget#sectionList::item:selected { background: #2f395a; color: #e8ecf4; }
+#appRoot QFrame#drawer { background-color: #1d2439; border-left: 1px solid #2f395a; }
+QFrame#statePopup { background-color: #1d2439; border: 1px solid #2f395a; border-radius: 14px; color: #e8ecf4; }
+*:focus { outline: none; }
+#appRoot QPushButton:focus, #appRoot QLineEdit:focus, #appRoot QListWidget:focus { border: 1px solid #f6b977; }
 """
 
 MENU_QSS = """
@@ -361,7 +395,7 @@ DIALOG_QSS = """
 QDialog { background: #2a3350; color: #e8ecf4; }
 QLabel { color: #e8ecf4; font-size: 15px; background: transparent; }
 QPlainTextEdit, QListWidget, QLineEdit {
-    background: #1f2740;
+    background: #1a2136;
     color: #e8ecf4;
     border: 1px solid #4a5680;
     border-radius: 6px;

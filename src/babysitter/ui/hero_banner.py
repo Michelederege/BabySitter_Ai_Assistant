@@ -231,6 +231,14 @@ class HeroBanner(QWidget):
         """Half screen is a little taller, so the frog still has room."""
         self.setFixedHeight(170 if compact else 150)
 
+    def set_window_height(self, window_height: int) -> None:
+        """v3: 118 px in a short window, otherwise 150 to 260 px as the window grows."""
+        height = int(window_height)
+        if height <= 640:
+            self.setFixedHeight(118)
+            return
+        self.setFixedHeight(max(150, min(260, 150 + (height - 640) // 4)))
+
     def set_reduced_motion(self, on: bool) -> None:
         self.frog.set_reduced_motion(on)
         self._anim.setDuration(0 if on else 600)

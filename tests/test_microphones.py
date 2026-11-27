@@ -128,7 +128,7 @@ def test_talk_with_a_silent_microphone_says_which_one(tmp_path, monkeypatch):
         assert heard == []
         from PySide6.QtWidgets import QLabel
 
-        text = " ".join(label.text() for label in shell.window.home.findChildren(QLabel))
+        text = " ".join(label.text() for label in shell.window.findChildren(QLabel))
         assert "No sound came from Microphone (2- GENERAL - AUDIO)." in text
     finally:
         shell.registrar.clear()

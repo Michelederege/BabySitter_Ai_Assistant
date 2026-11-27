@@ -33,7 +33,8 @@ def test_saying_my_goals_shows_the_list_on_the_reminders_page(tmp_path, monkeypa
     page.goal_text.setText("Finish the bracket")
     page._add_goal()
     app.processEvents()
-    assert shell.window.stack.currentWidget().widget() is page
+    # v3: the goals are on the Board.
+    assert shell.window.current_page() is shell.window.home.pin_card
     assert page.goals.item(0).text() == "1. Finish the bracket"
     assert "Finish the bracket" in shell.window.home.spoken.text()
     assert shell.window.home.reply_detail.text() == "1. Finish the bracket"
