@@ -2,6 +2,16 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.30.0 — The best AI for each job, measured on this PC
+
+**It hears you better, especially with noise around.** Parakeet now hears your questions. With background noise it got 0.4% of words wrong against Moonshine's 6.1%, which had turned "five forty five" into 5:35. It takes 0.14 seconds a sentence, which you won't notice. If Parakeet isn't installed, Moonshine and then Whisper step in.
+
+**It stops waking up when you didn't call it.** Keyword listening heard "Kari" in "carry the box upstairs" and "curry for dinner tonight", 8 times in 20 ordinary sentences. Now Parakeet double-checks the name before it wakes: 0 false wakes in the same test, and it still wakes just as often when you do say "Kari".
+
+**Low is the default level.** On this PC, qwen3.5:9b (Low) got 12 of 12 test questions right against Medium's 11, started answering in 0.13 seconds against 0.30, and loads in 3 seconds against 16. You were already on Low; new installs start there too.
+
+**The Supertonic voices work.** They crashed whenever Kokoro had loaded first, which was almost always. Your EDITH-style voice tested perfectly clear (no words misheard when played back to the hearing model), so it stays.
+
 ## 0.29.0 — Nothing opens by accident, more commands, a memory leak fixed
 
 **"Find …" no longer opens a file you didn't mean.** Questions like "find the capital of australia" or "find me a recipe" are answered by the AI when no file matches. A single search match opens on its own only when its name clearly matches what you said; otherwise it's listed, and "open it" opens it.
