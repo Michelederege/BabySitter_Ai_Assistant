@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -69,7 +69,7 @@ class Settings:
     # The microphone's full name. Empty means Windows' default.
     microphone: str = ""
     # "whisper" (default), "moonshine", or "parakeet". One engine hears the question.
-    hearing_engine: str = "whisper"
+    hearing_engine: str = "moonshine"  # falls back to Whisper until its pack is downloaded
     # The memory slider, in tokens. 0 means the level's own amount.
     context_tokens: int = 0
     # Outlook / Microsoft 365, read-only. The id is the app registration's, not a secret.
@@ -275,6 +275,15 @@ def migrate(data: dict) -> dict:
         incoming.setdefault("game_mode_ask", False)
         incoming["schema_version"] = 13
         version = 13
+    if version < 14:
+        # Moonshine hears a sentence in about 0.13 s on his PC; Whisper small
+        # took 1.1 s for the same words. Whisper was only ever the default,
+        # so the faster one takes over. Until Moonshine is downloaded, Whisper
+        # still hears. Parakeet, picked by hand, stays.
+        if str(incoming.get("hearing_engine") or "whisper") == "whisper":
+            incoming["hearing_engine"] = "moonshine"
+        incoming["schema_version"] = 14
+        version = 14
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)

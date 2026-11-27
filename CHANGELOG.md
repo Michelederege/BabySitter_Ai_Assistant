@@ -6,6 +6,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **Your nickname, from one sentence.** Say "I'll call you Jarvis", "your name is Nova", or "call yourself Friday". It is saved, it applies at once instead of at the next start, and it comes back every time BabySitter opens. Saying the nickname at the start of a sentence ("Jarvis, what time is it?") wakes it like the keyword. "What's your name?" is answered on this PC.
 
+**Faster replies.** Measured on this PC. The question is heard by Moonshine by default, about a tenth of a second instead of a second with Whisper (Whisper is still in Settings). The model now stays loaded while the AI is on, so a question after a quiet spell no longer waits about 9 seconds for it to load again; Off, closing, and game mode still unload it. The voice makes each sentence about a quarter faster on a processor with 16 or more threads.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

@@ -53,7 +53,7 @@ from babysitter.updates import (
 from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.deskstore import add_item, hero_path, load_list, remove_item, save_list
 from babysitter.intelligence import get_mode
-from babysitter.ollama import IDLE_KEEP_ALIVE, OllamaError, classify_ollama_process
+from babysitter.ollama import OllamaError, classify_ollama_process
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
 from babysitter.pictures import benchmark_warning, fit_screenshot, image_tokens
@@ -1342,6 +1342,21 @@ class Shell:
             f"The same as {self.controller.settings.emergency_hotkey}. "
             "Turns the AI fully off, even if this window is hidden."
         )
+
+    def _reply_keep_alive(self):
+        """How long the model stays loaded after a reply.
+
+        While the AI is on, it stays loaded, so a question after a quiet spell
+        does not wait for the model to load again (several seconds). It is
+        still unloaded at Off, at closing, and by game mode. When BabySitter
+        started Ollama, Windows also ends Ollama if BabySitter itself ends, so
+        nothing is left behind. An Ollama it did not start gets 30 minutes.
+        """
+        if getattr(self, "_return_to_game", False):
+            return "2m"
+        if getattr(self.controller.ollama, "we_started_server", False):
+            return -1
+        return "30m"
 
     def _hearing_engine(self) -> str:
         """The engine that hears the question. A chosen one not downloaded yet falls back to Whisper."""
@@ -2670,7 +2685,7 @@ class Shell:
         if note:
             text = f"{note}\n{text}"
             self._interrupt_note = ""
-        alive = "2m" if getattr(self, "_return_to_game", False) else IDLE_KEEP_ALIVE
+        alive = self._reply_keep_alive()
         facts = self._facts_for(text)
         job = _AskJob(
             self.controller.ollama,
@@ -3265,7 +3280,7 @@ class Shell:
         text = "What is on this screen? Answer in two or three plain sentences."
         if getattr(self, "_clock", None) is not None:
             self._clock.marks["image_tokens"] = tokens
-        alive = "2m" if getattr(self, "_return_to_game", False) else IDLE_KEEP_ALIVE
+        alive = self._reply_keep_alive()
         self._begin_model_turn()
         job = _AskJob(
             self.controller.ollama,

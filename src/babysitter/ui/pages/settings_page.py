@@ -249,8 +249,9 @@ class SettingsPage(QWidget):
 
         self._sec('voice').addWidget(self._label("Speech recognition"))
         hearing_hint = QLabel(
-            "One engine turns what you say into words, on the processor. Whisper is the default. "
-            "Moonshine is much faster. Parakeet is more accurate. Each asks before it downloads."
+            "One engine turns what you say into words, on the processor. Moonshine is the default: "
+            "it hears a sentence in about a tenth of a second. Parakeet is a little more careful with names. "
+            "Whisper is slower, about a second. Each asks before it downloads."
         )
         hearing_hint.setWordWrap(True)
         hearing_hint.setObjectName("hint")

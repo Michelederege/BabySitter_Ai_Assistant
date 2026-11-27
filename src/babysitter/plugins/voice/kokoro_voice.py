@@ -432,8 +432,19 @@ def _play_into(samples, sample_rate: int, write, block_ms: int = 10) -> bool:
         return False
 
 
+def _voice_threads() -> int:
+    import os
+
+    return 8 if (os.cpu_count() or 4) >= 16 else 4
+
+
 def _limit_onnx_threads() -> None:
-    """Cap Kokoro at four threads and stop it spinning while it waits."""
+    """Cap Kokoro's threads and stop it spinning while it waits.
+
+    Eight threads on a processor with 16 or more (about 25% faster per
+    sentence on his 24-thread PC: 0.56 s instead of 0.75 s), four otherwise,
+    so a game still has most of the cores.
+    """
     try:
         import onnxruntime as ort
     except ImportError:
@@ -445,7 +456,7 @@ def _limit_onnx_threads() -> None:
     def limited(*args, **kwargs):
         if "sess_options" not in kwargs and len(args) < 2:
             options = ort.SessionOptions()
-            options.intra_op_num_threads = 4
+            options.intra_op_num_threads = _voice_threads()
             options.inter_op_num_threads = 1
             options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
             try:

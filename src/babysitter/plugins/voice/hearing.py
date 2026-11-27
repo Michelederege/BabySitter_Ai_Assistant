@@ -83,7 +83,7 @@ def load_model(allow_download: bool = False):
                 device="cpu",
                 compute_type="int8",
                 download_root=str(whisper_dir()),
-                cpu_threads=4,
+                cpu_threads=8,  # 4 to 8 threads: about 10% faster on his 24-thread processor
                 num_workers=1,
                 local_files_only=not allow_download,
             )

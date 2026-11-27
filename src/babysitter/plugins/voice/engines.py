@@ -63,7 +63,9 @@ def release() -> None:
 
 
 def _threads() -> int:
-    return 4
+    from babysitter.plugins.voice.kokoro_voice import _voice_threads
+
+    return _voice_threads()
 
 
 # ---- Hearing -------------------------------------------------------------

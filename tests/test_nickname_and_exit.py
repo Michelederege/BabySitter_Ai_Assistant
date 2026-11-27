@@ -75,3 +75,34 @@ def test_a_busy_quit_closes_the_tray_ollama_too(tmp_path, monkeypatch):
     monkeypatch.setattr(controller, "turn_off", lambda **kw: calls.append(kw))
     assert controller.request_quit() == "wait"
     assert calls == [{"emergency": False, "tray_choice": "close"}]
+
+
+def test_whisper_as_the_old_default_moves_to_moonshine():
+    from babysitter.settings import migrate
+
+    assert migrate({"schema_version": 13, "hearing_engine": "whisper"})["hearing_engine"] == "moonshine"
+    assert migrate({"schema_version": 13, "hearing_engine": "parakeet"})["hearing_engine"] == "parakeet"
+
+
+def test_the_model_stays_loaded_while_the_ai_is_on(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    from babysitter.controller import Controller
+    from babysitter.ui.shell import Shell
+
+    controller = Controller()
+    shell = Shell(controller)
+    try:
+        controller.ollama.we_started_server = True
+        assert shell._reply_keep_alive() == -1
+        controller.ollama.we_started_server = False
+        assert shell._reply_keep_alive() == "30m"
+        shell._return_to_game = True
+        assert shell._reply_keep_alive() == "2m"
+    finally:
+        shell._return_to_game = False
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()
