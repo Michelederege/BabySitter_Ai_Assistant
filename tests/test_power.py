@@ -284,3 +284,86 @@ def test_cancel_while_starting_does_not_claim_success():
     )
     assert not result.ok
     assert ollama.preloaded == []
+
+
+def test_on_asks_about_an_outside_ollama_once_and_restarts_it_if_asked(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    from babysitter.controller import Controller
+
+    controller = Controller()
+    jobs: list = []
+    offers: list = []
+    monkeypatch.setattr(controller.worker, "submit", jobs.append)
+    controller.ollama_offer.connect(lambda: offers.append(True))
+    monkeypatch.setattr(controller.ollama, "port_open", lambda timeout=0.4: True)
+    controller.ollama.we_started_server = False
+
+    controller.turn_on()
+    assert offers == [True] and jobs == []  # asks first, loads nothing
+    controller.turn_on(ollama_choice="restart")
+    assert jobs[-1][0] == "on" and jobs[-1][4] is True
+    controller._busy = False
+    controller.turn_on()
+    assert offers == [True]  # remembered until BabySitter closes
+    controller._busy = False
+    controller.turn_on(ollama_choice="use")
+    assert jobs[-1][4] is False
+
+
+def test_restarting_an_outside_ollama_closes_it_before_starting_ours():
+    import threading
+
+    from babysitter.power import PowerService
+
+    events: list[str] = []
+
+    class FakeOllama:
+        we_started_server = False
+
+        def __init__(self):
+            self.up = True
+
+        def port_open(self, timeout=0.4):
+            return self.up
+
+        def close_tray(self):
+            events.append("close tray")
+            return ["ollama app.exe"]
+
+        def stop_server(self):
+            events.append("stop")
+            self.up = False
+
+        def start_server(self, num_ctx):
+            events.append("start ours")
+            self.up = True
+            self.we_started_server = True
+
+        def wait_until_up(self, *_a):
+            return True
+
+        def endpoint_is_private(self):
+            return True
+
+        def enter(self):
+            return None
+
+    class Probe:
+        def read_gpu(self):
+            return None, "no card"
+
+    class Gate:
+        def arm(self): ...
+        def release(self): ...
+
+    class Keys:
+        def set_assistant_enabled(self, _on): ...
+
+    ollama = FakeOllama()
+    service = PowerService(ollama, Probe(), Gate(), Keys())
+    service.enter_game_mode = lambda progress: __import__("babysitter.power", fromlist=["PowerResult"]).PowerResult("game", "", True)
+    service.turn_on(
+        model="qwen3.5:9b", num_ctx=4096, cancel=threading.Event(),
+        game_name="bg3.exe", progress=lambda _t: None, restart_ollama=True,
+    )
+    assert events == ["close tray", "stop", "start ours"]

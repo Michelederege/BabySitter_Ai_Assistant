@@ -64,6 +64,7 @@ class PowerService:
         cancel: threading.Event,
         game_name: str | None,
         progress,
+        restart_ollama: bool = False,
     ) -> PowerResult:
         self._progress = progress
         if self.state == ON and not cancel.is_set():
@@ -74,6 +75,17 @@ class PowerService:
         try:
             if cancel.is_set():
                 return self._cancelled()
+            if restart_ollama and self.ollama.port_open() and not self.ollama.we_started_server:
+                # Its own tray started it, so BabySitter's private address,
+                # q4 cache, flash attention, and no-cloud setting are not on.
+                # Close that copy and start Ollama BabySitter's way.
+                progress("Restarting Ollama under BabySitter so its settings apply…")
+                self.ollama.close_tray()
+                self.ollama.stop_server()
+                for _ in range(40):
+                    if not self.ollama.port_open() or cancel.is_set():
+                        break
+                    cancel.wait(0.25)
             if not self.ollama.port_open():
                 self.ollama.start_server(num_ctx)
                 progress("Waiting for Ollama to answer on this computer…")

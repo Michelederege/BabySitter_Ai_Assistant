@@ -70,13 +70,14 @@ class PowerThread(QThread):
     def _dispatch(self, job: tuple) -> PowerResult:
         kind = job[0]
         if kind == "on":
-            _kind, model, num_ctx, game_name = job
+            _kind, model, num_ctx, game_name, restart = job
             return self.service.turn_on(
                 model=model,
                 num_ctx=num_ctx,
                 cancel=self.cancel,
                 game_name=game_name,
                 progress=self.progress.emit,
+                restart_ollama=restart,
             )
         if kind == "reload":
             _kind, model, num_ctx = job
@@ -147,6 +148,8 @@ class Controller(QObject):
     reload_offered = Signal(bool)
     tray_prompt = Signal(str)
     confirm_old_version = Signal(str)
+    # Ollama is already running from its own tray. Ask before using it.
+    ollama_offer = Signal()
     notice = Signal(str)
     game_offer = Signal(str)
     quit_ready = Signal()
@@ -176,6 +179,8 @@ class Controller(QObject):
         self.force_quit = False
         self._emergency_latched = False
         self.accepted_old_version = False
+        # "restart" or "use", once answered, until BabySitter closes.
+        self.outside_ollama_choice = ""
         self._game_prompt_open = False
         self.journal_paused = False
         self._journal_last = 0.0
@@ -215,7 +220,7 @@ class Controller(QObject):
         self.status_thread.wait(2000)
         self.worker.wait(2000)
 
-    def turn_on(self, *, ignore_old_version: bool = False) -> None:
+    def turn_on(self, *, ignore_old_version: bool = False, ollama_choice: str = "") -> None:
         if in_quiet_hours(
             self.settings.quiet_hours,
             self.settings.quiet_start,
@@ -235,6 +240,16 @@ class Controller(QObject):
             return
         if ignore_old_version:
             self.accepted_old_version = True
+        if ollama_choice:
+            self.outside_ollama_choice = ollama_choice
+        if (
+            not self._busy
+            and not self.outside_ollama_choice
+            and not self.ollama.we_started_server
+            and self.ollama.port_open()
+        ):
+            self.ollama_offer.emit()
+            return
         if self._busy:
             self._remember("Still working on the last power change.")
             self.state_changed.emit(self.power.state, "Still working on the last power change.")
@@ -246,7 +261,8 @@ class Controller(QObject):
         self._emergency_latched = False
         self._set_busy(True)
         self.state_changed.emit(STARTING, f"Starting… loading {mode.model}.")
-        self.worker.submit(("on", mode.model, mode.num_ctx, game_name))
+        restart = self.outside_ollama_choice == "restart" and not self.ollama.we_started_server
+        self.worker.submit(("on", mode.model, mode.num_ctx, game_name, restart))
 
     def _level_for_start(self) -> tuple[str, str | None]:
         """The level to load, and a game name when game mode should start instead.
