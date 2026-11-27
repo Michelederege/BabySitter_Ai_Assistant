@@ -139,6 +139,56 @@ def _after_nickname(words: list[str]) -> str | None:
     return None
 
 
+def _edits(a: str, b: str) -> int:
+    """Letters to change, add, or drop to turn one word into the other."""
+    row = list(range(len(b) + 1))
+    for i, letter in enumerate(a, start=1):
+        prev, row[0] = row[0], i
+        for j, other in enumerate(b, start=1):
+            prev, row[j] = row[j], min(row[j] + 1, row[j - 1] + 1, prev + (letter != other))
+    return row[len(b)]
+
+
+def first_word_is_name(text: str, keyword: str) -> bool:
+    """True when a careful hearing starts with the keyword or nickname.
+
+    Parakeet writes the name itself ("Kari", sometimes "Kari've"), and the
+    look-alikes as the real words ("carry", "curry"), so one letter of slack
+    is enough: "kary" and "karri" count, "carry" (three letters off) does not.
+    """
+    words = [word.split("'")[0] for word in _tokens(text)]
+    start = 1 if words[:1] and words[0] in _OPENERS and len(words) > 1 else 0
+    if len(words) <= start:
+        return False
+    heard = words[start]
+    names = [token for token in _tokens(clean_keyword(keyword)) if token not in _OPENERS][:1] + _nickname_tokens()[:1]
+    return any(heard == name or heard.startswith(name) or (len(name) >= 3 and _edits(heard, name) <= 1) for name in names)
+
+
+def wake_confirmed(clip: bytes, keyword: str) -> bool:
+    """A second, careful hearing before a wake counts (0.30.0).
+
+    Vosk's small model is the cheap ear that listens all the time, but it
+    cannot hear "Kari" and matches it by sound, so ordinary speech woke
+    BabySitter: on his PC, 8 of 20 sentences like "carry the box upstairs"
+    or "curry for dinner tonight". Parakeet, already used for questions,
+    hears the same clip in about 0.14 s and tells them apart. Without
+    Parakeet, or if this check fails, the wake counts as before: a broken
+    check must never make BabySitter deaf.
+    """
+    try:
+        from babysitter.modelpacks import ready
+
+        if not ready("parakeet"):
+            return True
+        from babysitter.plugins.voice.engines import hear
+
+        text = hear("parakeet", _wav_bytes(clip))
+    except Exception:  # noqa: BLE001
+        return True
+    return first_word_is_name(text, keyword)
+
+
 def _recognizer(model):
     from vosk import KaldiRecognizer
 
@@ -510,6 +560,9 @@ class KeywordListener:
                             recognizer = _recognizer(model)
                             if not stop.is_set():
                                 on_status("armed")
+                        continue
+                    if not wake_confirmed(clip, keyword):
+                        # A look-alike ("carry", "curry"): not the name after all.
                         continue
                     if not command:
                         on_status("capturing")
