@@ -128,6 +128,16 @@ class Orb(QWidget):
         self._frame = (self._frame + 1) % strip[1]
         self.update()
 
+    def hideEvent(self, event) -> None:  # noqa: N802
+        # Hidden (for a game, or turned off): no frames are drawn, so the clock rests.
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        if self._strips and _animations_wanted() and not self._timer.isActive():
+            self._timer.start(int(1000 / max(1, self._fps)))
+        super().showEvent(event)
+
     def _frog_rect(self) -> QRect:
         return QRect((self.width() - FROG_SIZE) // 2, 0, FROG_SIZE, FROG_SIZE)
 

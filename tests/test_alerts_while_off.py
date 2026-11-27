@@ -178,3 +178,22 @@ def test_a_natural_voice_never_takes_the_card_while_off_or_in_a_game(tmp_path, m
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_the_hidden_orb_stops_animating():
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    from babysitter.ui.orb import Orb
+
+    orb = Orb()
+    orb.show()
+    app.processEvents()
+    animated = orb._timer.isActive()
+    orb.hide()
+    app.processEvents()
+    assert not orb._timer.isActive()
+    orb.show()
+    app.processEvents()
+    assert orb._timer.isActive() == animated
+    orb.close()

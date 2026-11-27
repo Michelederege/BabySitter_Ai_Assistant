@@ -544,6 +544,8 @@ class SettingsPage(QWidget):
             self.off_game_cores,
             self.hide_orb_for_games,
             self.quiet_hours,
+            self.alerts_when_off,
+            self.save_conversations,
             self.side_button,
             self.searx_enabled,
             self.quit_off,

@@ -14,7 +14,7 @@ BabySitter uses version numbers like v1.2.3.
 
 **A natural voice never takes the graphics card while the AI is off or a game runs.** A local reply then (the time, a reminder, the weather) is said with Heart and Sarah on the processor, or the Windows voice, and nothing stays loaded after it is said.
 
-**Smaller fixes.** "Undo that" and "undo it" mean undo. Asking for a Drive file while the last one is still being read says so instead of nothing. The reminder clock reads the reminder list once a second instead of three times, and the Schedule page skips its update while it is not on screen. A second unreadable copy of saved facts gets its own dated name; the older copy is never deleted. Unused imports removed.
+**Smaller fixes.** "Undo that" and "undo it" mean undo. Asking for a Drive file while the last one is still being read says so instead of nothing. The reminder clock reads the reminder list once a second instead of three times, and the Schedule page skips its update while it is not on screen. A second unreadable copy of saved facts gets its own dated name; the older copy is never deleted. The frog orb stops animating while it is hidden. Filling the Settings page no longer fires the two new switches (alerts while off, save conversations). Unused imports removed.
 
 ## 0.27.0 — Overnight round
 
