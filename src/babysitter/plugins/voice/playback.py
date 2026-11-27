@@ -8,20 +8,31 @@ echo cancellation can subtract it. Publishing is best-effort.
 from __future__ import annotations
 
 import threading
+import time
 
 
 _lock = threading.Lock()
 _latest = b""
+_when = 0.0
+
+# A block older than this is not "what is playing now". Before 0.28.1 the
+# last block of a reply stayed forever, so echo cancellation kept
+# subtracting it from the microphone and talk-over kept firing in silence.
+FRESH_SECONDS = 0.3
 
 
 def publish_playback(pcm: bytes) -> None:
-    global _latest
+    global _latest, _when
     with _lock:
         _latest = bytes(pcm)
+        _when = time.monotonic()
 
 
 def latest_playback() -> bytes:
+    """The block playing now, or b"" when nothing has played in the last 0.3 s."""
     with _lock:
+        if not _latest or time.monotonic() - _when > FRESH_SECONDS:
+            return b""
         return _latest
 
 

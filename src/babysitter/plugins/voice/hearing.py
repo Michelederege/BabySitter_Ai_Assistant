@@ -148,14 +148,7 @@ class Recorder:
 
         audio = np.concatenate(self._chunks)
         self._chunks = []
-        pcm = (audio.reshape(-1) * 32767).astype("int16")
-        buffer = io.BytesIO()
-        with wave.open(buffer, "wb") as handle:
-            handle.setnchannels(1)
-            handle.setsampwidth(2)
-            handle.setframerate(16000)
-            handle.writeframes(pcm.tobytes())
-        return buffer.getvalue()
+        return float_to_wav(audio)
 
     def close(self) -> None:
         stream = self._stream
@@ -181,6 +174,15 @@ COMMAND_HINT = (
 class Transcript:
     text: str
     confident: bool
+
+
+def float_to_wav(audio, rate: int = 16000) -> bytes:
+    """Float samples as a 16-bit wav. Clipped first: a sample past full scale
+    used to wrap around to the other extreme, which is a loud crackle."""
+    import numpy as np
+
+    pcm = (np.clip(np.asarray(audio, dtype=np.float32).reshape(-1), -1.0, 1.0) * 32767).astype("<i2")
+    return pcm16_to_wav(pcm.tobytes(), rate)
 
 
 def pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:

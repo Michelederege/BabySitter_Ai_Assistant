@@ -20,8 +20,20 @@ SPEECH_RMS = 500
 
 
 def rms(pcm: bytes) -> float:
+    """Loudness of int16 audio. numpy, since the keyword loop calls this 20 times a second."""
     if not pcm:
         return 0.0
+    try:
+        import numpy as np
+    except ImportError:
+        return _rms_plain(pcm)
+    samples = np.frombuffer(pcm[: len(pcm) - (len(pcm) % 2)], dtype="<i2")
+    if not samples.size:
+        return 0.0
+    return float(np.sqrt(np.mean(samples.astype(np.float64) ** 2)))
+
+
+def _rms_plain(pcm: bytes) -> float:
     samples = array.array("h")
     usable = pcm[: len(pcm) - (len(pcm) % 2)]
     if not usable:
@@ -39,6 +51,18 @@ def is_speech(pcm: bytes, threshold: float = SPEECH_RMS) -> bool:
 
 def residual_pcm(mic: bytes, playback: bytes) -> bytes:
     """Subtract playback from the microphone. Length follows the microphone."""
+    try:
+        import numpy as np
+    except ImportError:
+        return _residual_plain(mic, playback)
+    mic_samples = np.frombuffer(mic[: len(mic) - (len(mic) % 2)], dtype="<i2").astype(np.int32)
+    play = np.frombuffer(playback[: len(playback) - (len(playback) % 2)], dtype="<i2")
+    count = min(len(play), len(mic_samples))
+    mic_samples[:count] -= play[:count]
+    return np.clip(mic_samples, -32768, 32767).astype("<i2").tobytes()
+
+
+def _residual_plain(mic: bytes, playback: bytes) -> bytes:
     mic_samples = array.array("h")
     play_samples = array.array("h")
     mic_bytes = mic[: len(mic) - (len(mic) % 2)]

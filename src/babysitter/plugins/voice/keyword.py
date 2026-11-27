@@ -391,18 +391,24 @@ class KeywordListener:
 
     @property
     def running(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        """A listener that is alive and not on its way out."""
+        return self._thread is not None and self._thread.is_alive() and not self._stop.is_set()
 
     def start(self, keyword: str, on_phrase, on_status, on_error) -> None:
         if self.running:
             return
         if not packages_installed() or not model_ready():
             raise KeywordError("Keyword listening is not downloaded yet.")
-        self._stop.clear()
+        # Each listener gets its own stop flag. Off then On quickly used to
+        # find the old one still closing, call it "running", and do nothing,
+        # so listening ended up off; clearing one shared flag instead would
+        # keep the old one running beside the new. The old one keeps its own
+        # set flag and ends by itself.
+        self._stop = threading.Event()
         self._stop_requested = False
         self._thread = threading.Thread(
             target=self._run,
-            args=(clean_keyword(keyword), on_phrase, on_status, on_error),
+            args=(clean_keyword(keyword), on_phrase, on_status, on_error, self._stop),
             name="babysitter-keyword",
             daemon=True,
         )
@@ -430,10 +436,11 @@ class KeywordListener:
             self._thread = None
             self._stop_requested = False
 
-    def _run(self, keyword: str, on_phrase, on_status, on_error) -> None:
+    def _run(self, keyword: str, on_phrase, on_status, on_error, stop: threading.Event | None = None) -> None:
         from babysitter.platform import mark_current_thread_efficient
 
         mark_current_thread_efficient()
+        stop = stop if stop is not None else self._stop
         died = False
         try:
             import sounddevice as sd
@@ -460,7 +467,7 @@ class KeywordListener:
                 quiet_gaps = 0
                 silence = SilenceWatch()
                 on_status("armed")
-                while not self._stop.is_set():
+                while not stop.is_set():
                     try:
                         chunk = audio.get(timeout=0.2)
                         quiet_gaps = 0
@@ -479,8 +486,12 @@ class KeywordListener:
                         del utterance[: len(utterance) - (16000 * 2 * 20)]
                     chunk, echoed = self._hear(chunk)
                     if echoed and self._barge(chunk):
+                        # Once per interruption; the words that interrupted
+                        # still go to the recognizer. Before 0.28.1 every loud
+                        # chunk after the third was dropped, so the sentence
+                        # spoken over the voice was never heard.
+                        self._hot = 0
                         on_status("talk_over")
-                        continue
                     if not recognizer.AcceptWaveform(chunk):
                         continue
                     clip = bytes(utterance)
@@ -491,28 +502,33 @@ class KeywordListener:
                         if self._followup and _followup_heard(heard):
                             on_phrase(heard, _wav_bytes(clip))
                             recognizer = _recognizer(model)
-                            if not self._stop.is_set():
+                            if not stop.is_set():
                                 on_status("armed")
                             continue
                         if self._yes_no and _yes_or_no(heard):
                             on_phrase(heard, _wav_bytes(clip))
                             recognizer = _recognizer(model)
-                            if not self._stop.is_set():
+                            if not stop.is_set():
                                 on_status("armed")
                         continue
                     if not command:
                         on_status("capturing")
-                        command, clip = self._capture_question(model, audio)
-                    if command and not self._stop.is_set():
+                        command, clip = self._capture_question(model, audio, stop)
+                    if command and not stop.is_set():
                         on_phrase(command, _wav_bytes(clip))
                     recognizer = _recognizer(model)
-                    if not self._stop.is_set():
+                    if not stop.is_set():
                         on_status("armed")
         except Exception as exc:
             on_error(str(exc) or "Keyword listening stopped.")
         finally:
-            self._thread = None
-            if died and not self._stop.is_set():
+            # Only forget the thread if it is still this one. Off then On in
+            # quick succession starts a new listener before this one ends;
+            # clearing it here made `running` False while the new one ran, so
+            # the next start opened a second microphone stream.
+            if self._thread is threading.current_thread():
+                self._thread = None
+            if died and not stop.is_set():
                 self._deaths += 1
                 on_status("restart" if self._deaths < 3 else "microphone")
 
@@ -557,9 +573,10 @@ class KeywordListener:
         tripped, self._hot = barge_in(rms(chunk), True, self.talk_over, self._hot)
         return tripped
 
-    def _capture_question(self, model, audio: queue.Queue[bytes]) -> tuple[str, bytes]:
+    def _capture_question(self, model, audio: queue.Queue[bytes], stop: threading.Event | None = None) -> tuple[str, bytes]:
         from babysitter.plugins.voice.turntaking import endpoint_delays, finished_by_silence
 
+        stop = stop if stop is not None else self._stop
         recognizer = _recognizer(model)
         delays = endpoint_delays(self.smart_turn, 0)
         tune = getattr(recognizer, "SetEndpointerDelays", None)
@@ -569,7 +586,7 @@ class KeywordListener:
         quiet = 0
         heard_words = 0
         captured = bytearray()
-        while time.time() < deadline and not self._stop.is_set():
+        while time.time() < deadline and not stop.is_set():
             try:
                 chunk = audio.get(timeout=0.2)
             except queue.Empty:
