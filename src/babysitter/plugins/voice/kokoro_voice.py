@@ -30,6 +30,18 @@ BLENDS = {
     "EDITH-style blend": (("af_nova", 0.45), ("af_heart", 0.30), ("af_kore", 0.25)),
 }
 BLEND = BLENDS[DEFAULT_VOICE]
+
+# How a voice is paced, on top of the speed slider: (speed factor, pause factor).
+# The EDITH-style cadence is measured and unhurried, with a clear beat at
+# each full stop. A voice not listed keeps the slider's speed and the
+# usual pauses.
+CADENCE = {
+    "EDITH-style blend": (0.94, 1.3),
+}
+
+
+def cadence(voice_name: str) -> tuple[float, float]:
+    return CADENCE.get(voice_name or DEFAULT_VOICE, (1.0, 1.0))
 NAMED = {
     "af_heart": "af_heart",
     "af_nova": "af_nova",
@@ -190,13 +202,19 @@ def speak_sequence(
     built while the current one plays.
     """
     waiting = [piece.strip() for piece in pieces if piece and piece.strip()]
+    if waiting and cadence(voice_name)[1] > 1.0:
+        # A measured voice gives "Understood." its own beat before the answer.
+        from babysitter.plugins.voice.speech import beat_after_opener
+
+        waiting = beat_after_opener(waiting[0]) + waiting[1:]
     if not waiting and incoming is None:
         return
     if not ready():
         raise KokoroError("Heart and Sarah is not downloaded yet.")
     _playback_stop.clear()
     style = _style(voice_name)
-    speed = max(0.5, min(2.0, int(speed_percent) / 100))
+    speed_factor, pause_factor = cadence(voice_name)
+    speed = max(0.5, min(2.0, int(speed_percent) / 100 * speed_factor))
     engine = _loaded_engine()
     audio: queue.Queue = queue.Queue(maxsize=2)
 
@@ -217,7 +235,7 @@ def speak_sequence(
                     from babysitter.plugins.voice.speech import pause_ms
 
                     samples, rate = _render(engine, piece, style, speed, pitch)
-                    samples = trim_edges(samples, rate, tail_ms=pause_ms(piece))
+                    samples = trim_edges(samples, rate, tail_ms=int(pause_ms(piece) * pause_factor))
                 except Exception:
                     break
                 audio.put((piece, samples, rate))

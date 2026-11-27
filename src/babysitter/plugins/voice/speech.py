@@ -341,6 +341,23 @@ def _split_long(sentence: str, limit: int) -> list[str]:
     return pieces
 
 
+# A short opener that is its own sentence: "Done." "Understood." "Of course."
+_OPENER = re.compile(r"^((?:[A-Z][a-z']*)(?: [a-z']+){0,2}[.!])\s+(?=\S)")
+
+
+def beat_after_opener(text: str) -> list[str]:
+    """Split a short opening sentence off, so the voice gives it its own beat.
+
+    A measured speaker says "Understood." and pauses before the rest. Spoken
+    in one breath with what follows, the opener runs into the answer.
+    """
+    stripped = (text or "").strip()
+    match = _OPENER.match(stripped)
+    if not match:
+        return [stripped] if stripped else []
+    return [match.group(1), stripped[match.end():].strip()]
+
+
 def speech_chunks(text: str, limit: int = 400) -> list[str]:
     """Break a long reading into sentence-sized pieces the voice can say."""
     spoken = plain_speech(text)
