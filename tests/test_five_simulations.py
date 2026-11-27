@@ -871,7 +871,9 @@ def _feature_shutdown(tmp_path, monkeypatch) -> list[Outcome]:
         child_pid = int(parent.stdout.readline().strip())
         try:
             proc = psutil.Process(child_pid)
-            assert proc.ppid() == parent.pid
+            # On Windows a venv's python.exe is a launcher that starts the
+            # real Python, so the child can sit one step further down.
+            assert parent.pid in {ancestor.pid for ancestor in proc.parents()}
             _terminate_psutil(psutil.Process(parent.pid))
             assert not proc.is_running()
             return "the runner child stopped with the parent"
@@ -2261,7 +2263,9 @@ def _feature_writing_draft() -> list[Outcome]:
             return {"files": [essay, older]}
 
         def fetch_text(url, got):
-            assert got == token and url.endswith("?mimeType=text/plain")
+            # /export is the document's text. Without it Drive sends the
+            # file's details as JSON, and the model never sees the draft.
+            assert got == token and url.endswith("/export?mimeType=text/plain")
             return "The armory opened in 1913.\n\nI am still writing the last paragraph."
 
         draft = read_open_draft([token], "Studio essay - Google Docs", fetch_json=fetch_json, fetch_text=fetch_text, now=now)

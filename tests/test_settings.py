@@ -143,3 +143,28 @@ def test_schema_seven_gains_the_listening_extras_off(tmp_path, monkeypatch):
     assert settings.proactivity == 1
     assert settings.last_weekly_review == ""
     assert settings.keep_off_game_cores is False
+
+
+def test_json_that_is_not_settings_is_replaced(tmp_path, monkeypatch):
+    for text in ("null", "[]", "3", '"settings"'):
+        path = tmp_path / "settings.json"
+        path.write_text(text, encoding="utf-8")
+        settings = load_settings(path)
+        assert settings.intelligence == "medium"
+        assert "could not be read" in settings.notices[0]
+        assert (tmp_path / "settings.json.bak").read_text(encoding="utf-8") == text
+
+
+def test_newer_settings_show_one_plain_sentence(tmp_path, monkeypatch):
+    import babysitter.app as app
+    import babysitter.startup_error as startup_error
+
+    shown: list[str] = []
+    monkeypatch.setattr(startup_error, "show_startup_failure", shown.append)
+
+    def refuse(_args):
+        raise SettingsError("These settings were saved by a newer BabySitter.")
+
+    monkeypatch.setattr(app, "_run", refuse)
+    assert app.main(["babysitter"]) == 1
+    assert shown == ["These settings were saved by a newer BabySitter."]

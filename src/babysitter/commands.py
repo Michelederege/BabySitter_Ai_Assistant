@@ -673,9 +673,22 @@ def clock_in(text: str, now: datetime) -> datetime | None:
     return None if found is None else found[0]
 
 
+def _wall_clock(day, hour: int, minute: int, now: datetime) -> datetime:
+    """This clock time on that day, with the offset that day really has.
+
+    datetime.now().astimezone() carries today's fixed offset. Reused for
+    tomorrow across a daylight-saving change, it put the reminder an hour
+    off. A time in this PC's own zone takes that day's offset instead.
+    """
+    zone = now.tzinfo
+    if zone is not None and now.utcoffset() == now.astimezone().utcoffset():
+        return datetime(day.year, day.month, day.day, hour, minute).astimezone()
+    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=zone)
+
+
 def _on_day(now: datetime, days: int, hour: int, minute: int) -> datetime:
     day = (now + timedelta(days=days)).date()
-    return datetime(day.year, day.month, day.day, hour, minute, tzinfo=now.tzinfo)
+    return _wall_clock(day, hour, minute, now)
 
 
 def _next_clock(
@@ -710,11 +723,10 @@ def _next_clock(
     else:
         hours = [hour, hour + 12]
     best: datetime | None = None
-    zone = now.tzinfo
     for extra in (earliest_day, earliest_day + 1):
         day = (now + timedelta(days=extra)).date()
         for chosen_hour in hours:
-            candidate = datetime(day.year, day.month, day.day, chosen_hour, minute, tzinfo=zone)
+            candidate = _wall_clock(day, chosen_hour, minute, now)
             if candidate <= now:
                 continue
             if best is None or candidate < best:

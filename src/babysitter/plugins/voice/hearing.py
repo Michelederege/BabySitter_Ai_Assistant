@@ -66,8 +66,13 @@ _hearing_model = None
 _hearing_lock = threading.Lock()
 
 
-def load_model():
-    """Load the speech model once and keep it until the AI turns off."""
+def load_model(allow_download: bool = False):
+    """Load the speech model once and keep it until the AI turns off.
+
+    Only the confirmed download may reach the internet. Without
+    local_files_only, faster-whisper asks the Hugging Face Hub for the
+    file list on every load, even when the model is already on this PC.
+    """
     global _hearing_model
     with _hearing_lock:
         if _hearing_model is None:
@@ -80,6 +85,7 @@ def load_model():
                 download_root=str(whisper_dir()),
                 cpu_threads=4,
                 num_workers=1,
+                local_files_only=not allow_download,
             )
         return _hearing_model
 
@@ -95,7 +101,7 @@ def download_model() -> str:
     """Download the small speech model onto this PC. It is not sent anywhere."""
     if not packages_installed():
         raise HearingError("Install the hearing programs first.")
-    load_model()
+    load_model(allow_download=True)
     if not model_ready():
         raise HearingError("The download finished, but the speech model was not found on this PC.")
     return "Speech recognition is ready. Hold Talk to use it. It runs on the processor, not the graphics card."

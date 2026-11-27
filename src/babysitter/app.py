@@ -23,8 +23,17 @@ def main(argv: list[str] | None = None) -> int:
         from babysitter.selfupdate import run_finish_update
 
         return run_finish_update(args[2])
+    from babysitter.settings import SettingsError
+
     try:
         return _run(args)
+    except SettingsError as exc:
+        # A plain sentence, such as settings from a newer BabySitter.
+        # A traceback here only hides the one line that matters.
+        from babysitter.startup_error import show_startup_failure
+
+        show_startup_failure(str(exc))
+        return 1
     except Exception:
         text = traceback.format_exc()
         try:
