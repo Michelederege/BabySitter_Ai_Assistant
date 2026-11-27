@@ -84,6 +84,17 @@ PACKS: dict[str, Pack] = {
     ),
 }
 
+# Every Piper voice pack, from the voice catalog, each pinned to its SHA-256.
+def _add_piper_packs() -> None:
+    from babysitter.voice_catalog import piper_packs
+
+    for pack_id, label, url, sha in piper_packs():
+        if pack_id not in PACKS:
+            PACKS[pack_id] = Pack(pack_id, label, "voice", 80 if "voices)" in label else 67, archive=(url, sha))
+
+
+_add_piper_packs()
+
 MANIFEST = "pack-manifest.json"
 
 

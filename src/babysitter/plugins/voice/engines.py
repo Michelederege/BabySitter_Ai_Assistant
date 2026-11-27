@@ -28,15 +28,15 @@ HEARING_ENGINES = {
     "parakeet": PACKS["parakeet"].label,
 }
 
-# Shown on the Voice tab. The value is (pack id, speaker or style).
-EXTRA_VOICES = {
-    "Piper: HFC female": ("piper-hfc", ""),
-    "Piper: Jenny (British)": ("piper-jenny", ""),
-    "Supertonic: F1": ("supertonic", "F1"),
-    "Supertonic: F2": ("supertonic", "F2"),
-    "Supertonic: F3": ("supertonic", "F3"),
-    "Supertonic: M1": ("supertonic", "M1"),
-}
+def _extra_voices() -> dict[str, tuple[str, str]]:
+    """Every Piper and Supertonic voice in the catalog: name -> (pack id, speaker or style)."""
+    from babysitter.voice_catalog import catalog
+
+    return {voice.name: (voice.pack, voice.speaker) for voice in catalog() if voice.engine in {"piper", "supertonic"}}
+
+
+# Shown on the Voice tab. The value is (pack id, speaker index or style).
+EXTRA_VOICES = _extra_voices()
 
 _lock = threading.Lock()
 _loaded: dict[str, object] = {}
@@ -172,7 +172,11 @@ def render(name: str, text: str, speed: float = 1.0):
     from piper import SynthesisConfig
 
     # Piper's length_scale is the inverse of speed: 0.9 is a little faster.
-    config = SynthesisConfig(length_scale=1.0 / max(0.5, float(speed)))
+    # A pack with many speakers picks one by its number in the model.
+    config = SynthesisConfig(
+        length_scale=1.0 / max(0.5, float(speed)),
+        speaker_id=int(style) if str(style).isdigit() else None,
+    )
     chunks = list(engine.synthesize(text, syn_config=config))
     if not chunks:
         return np.zeros(0, dtype="float32"), 22050
