@@ -106,3 +106,32 @@ def test_spoken_words_are_not_placed_on_the_command():
     assert "powershell" in command
     assert "Fresh start" not in command
     assert "hello" not in command
+
+
+def test_the_voice_hears_words_a_person_would_say():
+    from babysitter.plugins.voice.speech import speakable
+
+    said = speakable("Chrome uses 3.7 GB, about 12% of memory, e.g. tabs & videos. See https://x.y/z 🙂")
+    assert "3.7 gigabytes" in said and "12 percent" in said
+    assert "for example, tabs and videos" in said
+    assert "the link on the screen" in said and "🙂" not in said
+    assert speakable("It needs 8-10 GB, ~9 most days.") == "It needs 8 to 10 gigabytes, about 9 most days."
+    assert speakable("Plain words stay the same.") == "Plain words stay the same."
+
+
+def test_pauses_follow_the_punctuation():
+    from babysitter.plugins.voice.speech import pause_ms
+
+    assert pause_ms("Is it on?") > pause_ms("It is on.") > pause_ms("First,") > pause_ms("and then the")
+
+
+def test_a_long_sentence_breaks_at_a_comma_not_mid_phrase():
+    from babysitter.plugins.voice.speech import speech_chunks
+
+    sentence = (
+        "The scan found five heavy apps running right now on this computer, "
+        "and the heaviest one by far is the DuckDuckGo browser with its many helper windows open."
+    )
+    pieces = speech_chunks(sentence, limit=90)
+    assert pieces[0].endswith("computer,")
+    assert " ".join(pieces) == sentence

@@ -19,14 +19,15 @@ MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model
 VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin"
 PACKAGES = ("kokoro-onnx==0.6.1", "sounddevice==0.5.6")
 
-# Blends of Kokoro's own stock voices: (first, second, first share, second share).
+# Blends of Kokoro's own stock voices, as (voice, share) pairs that add to 1.
 # Heart & Sarah is the starting preset. The EDITH-style blend is calm and
-# crisp: Nova's clear diction over Kore's lower, steadier tone. It is a mix
-# of stock voices, not a copy of anyone's voice. Kokoro clones no one.
+# crisp: Nova's clear diction and Kore's lower, steadier tone, with Heart,
+# Kokoro's most natural voice, so it sounds like a person and not a machine.
+# It is a mix of stock voices, not a copy of anyone's voice.
 DEFAULT_VOICE = "Heart & Sarah blend"
 BLENDS = {
-    DEFAULT_VOICE: ("af_heart", "af_sarah", 0.6, 0.4),
-    "EDITH-style blend": ("af_nova", "af_kore", 0.6, 0.4),
+    DEFAULT_VOICE: (("af_heart", 0.6), ("af_sarah", 0.4)),
+    "EDITH-style blend": (("af_nova", 0.45), ("af_heart", 0.30), ("af_kore", 0.25)),
 }
 BLEND = BLENDS[DEFAULT_VOICE]
 NAMED = {
@@ -213,8 +214,10 @@ def speak_sequence(
                     if piece is None or _playback_stop.is_set():
                         break
                 try:
+                    from babysitter.plugins.voice.speech import pause_ms
+
                     samples, rate = _render(engine, piece, style, speed, pitch)
-                    samples = trim_edges(samples, rate)
+                    samples = trim_edges(samples, rate, tail_ms=pause_ms(piece))
                 except Exception:
                     break
                 audio.put((piece, samples, rate))
@@ -386,7 +389,7 @@ def _style(voice_name: str):
         _styles[name] = single
         return single
     engine = _loaded_engine()
-    first, second, first_share, second_share = BLENDS.get(name, BLENDS[DEFAULT_VOICE])
-    blended = engine.get_voice_style(first) * first_share + engine.get_voice_style(second) * second_share
+    parts = BLENDS.get(name, BLENDS[DEFAULT_VOICE])
+    blended = sum(engine.get_voice_style(voice) * share for voice, share in parts)
     _styles[name] = blended
     return blended

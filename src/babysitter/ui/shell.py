@@ -96,6 +96,7 @@ from babysitter.plugins.voice.speech import (
     remainder_after,
     remembered_reply,
     sapi_rate,
+    speakable,
     speech_chunks,
     strip_thinking,
     rest_after_lead,
@@ -430,7 +431,7 @@ class _SpeakJob(QThread):
 
     def add(self, text: str) -> None:
         """More sentences for the reply that is already being spoken."""
-        for piece in speech_chunks(text, limit=self._limit):
+        for piece in speech_chunks(speakable(text), limit=self._limit):
             self.incoming.put(piece)
 
     def close_input(self) -> None:
@@ -442,7 +443,8 @@ class _SpeakJob(QThread):
         self._text = ""
         prefs = self._prefs
         try:
-            pieces = speech_chunks(text, limit=self._limit)
+            # The voice hears "3.7 gigabytes"; the screen keeps "3.7 GB".
+            pieces = speech_chunks(speakable(text), limit=self._limit)
             if prefs.get("engine") == "windows":
                 announced = False
                 pending = list(pieces)

@@ -31,8 +31,11 @@ def test_a_persona_is_saved_survives_and_gives_no_powers(tmp_path, monkeypatch):
 def test_the_edith_style_blend_is_a_mix_of_stock_voices():
     from babysitter.plugins.voice import kokoro_voice
 
-    first, second, a, b = kokoro_voice.BLENDS["EDITH-style blend"]
-    assert (first, second) == ("af_nova", "af_kore") and abs(a + b - 1.0) < 1e-9
+    for name, parts in kokoro_voice.BLENDS.items():
+        assert abs(sum(share for _voice, share in parts) - 1.0) < 1e-9, name
+        assert all(voice[:3] in {"af_", "am_", "bf_", "bm_"} for voice, _share in parts)
+    edith = dict(kokoro_voice.BLENDS["EDITH-style blend"])
+    assert set(edith) == {"af_nova", "af_heart", "af_kore"}
     assert kokoro_voice.BLEND == kokoro_voice.BLENDS["Heart & Sarah blend"]
 
 
