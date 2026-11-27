@@ -132,11 +132,19 @@ class SettingsPage(QWidget):
         root.addWidget(self.game_mode_ask)
         self.detect_games = QCheckBox("Count any program running from a game folder as a game")
         self.detect_games.setToolTip(
-            "Steam's steamapps, Epic Games, GOG, the Xbox app, Riot Games, and any "
-            "folder simply named Games. A game somewhere else still needs its name "
-            "in the list below. On by default."
+            "Steam's steamapps, Epic Games, GOG, the Xbox app, and Riot Games. A folder "
+            "simply named Games does not count by itself. A game somewhere else still "
+            "needs its name in the list below. On by default."
         )
         root.addWidget(self.detect_games)
+        from babysitter.games import classified_examples
+
+        lines = [f"{'Game' if counted else 'Not a game'} — {path}" for path, counted in classified_examples()]
+        examples = QLabel("How folders are read:\n" + "\n".join(lines))
+        examples.setObjectName("hint")
+        examples.setWordWrap(True)
+        examples.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        root.addWidget(examples)
         self.hide_orb_for_games = QCheckBox("Hide the orb while a watched game is in front")
         self.hide_orb_for_games.setToolTip(
             "Off by default. This hides BabySitter's own light. It does not draw on the game."

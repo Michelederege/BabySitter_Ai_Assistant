@@ -65,7 +65,9 @@ def test_a_game_is_noticed_by_its_install_folder():
     assert looks_like_game_path(r"C:\GOG Games\Cyberpunk 2077\bin\x64\Cyberpunk2077.exe")
     assert looks_like_game_path(r"C:\XboxGames\Starfield\Content\Starfield.exe")
     assert looks_like_game_path(r"C:\Riot Games\VALORANT\live\VALORANT.exe")
-    assert looks_like_game_path(r"D:\Games\ELDEN RING\Game\eldenring.exe")
+    # A plain Games folder no longer counts by itself. A game kept there
+    # outside any store needs its name in the list in Settings.
+    assert not looks_like_game_path(r"D:\Games\ELDEN RING\Game\eldenring.exe")
     # Store programs that are not the game itself.
     assert not looks_like_game_path(r"C:\Program Files\Epic Games\Launcher\Portal\Binaries\Win64\EpicGamesLauncher.exe")
     assert not looks_like_game_path(r"C:\Riot Games\Riot Client\RiotClientServices.exe")
@@ -114,3 +116,15 @@ def test_autostart_command_is_fixed_text():
     )
     assert "wscript.exe" in source
     assert "Run BabySitter.vbs" in source
+
+
+def test_a_folder_named_games_does_not_count_by_itself():
+    from babysitter.games import classified_examples, looks_like_game_path
+
+    assert not looks_like_game_path(r"D:\Games\Tools\obs64.exe")
+    assert not looks_like_game_path(r"C:\Users\Me\Games\notes\editor.exe")
+    assert looks_like_game_path(r"D:\Games\SteamLibrary\steamapps\common\Hades\Hades.exe")
+    assert looks_like_game_path(r"C:\GOG Games\Witcher 3\bin\x64\witcher3.exe")
+    shown = dict(classified_examples())
+    assert shown[r"D:\SteamLibrary\steamapps\common\TheSetup\game.exe"] is True
+    assert shown[r"D:\Games\Tools\obs64.exe"] is False

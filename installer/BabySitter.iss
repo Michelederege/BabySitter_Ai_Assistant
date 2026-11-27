@@ -4,7 +4,7 @@
 ; A silent install does not delete anything in %LOCALAPPDATA%\BabySitter.
 
 #define MyAppName "BabySitter"
-#define MyAppVersion "0.21.1"
+#define MyAppVersion "0.22.0"
 #define MyAppExeName "BabySitter.exe"
 
 [Setup]

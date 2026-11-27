@@ -202,11 +202,32 @@ def opening_of(text: str, limit: int = 180) -> str:
     return flat[: limit - 1].rstrip() + "…"
 
 
+_WRITING_MARKS = (
+    "paper", "essay", "draft", "paragraph", "thesis", "citation", "cite", "my writing",
+    "this doc", "my doc", "the doc", "introduction", "conclusion", "sentence", "wording",
+    "proofread", "rewrite", "reword", "bibliography", "works cited", "source for",
+)
+
+
+def asks_about_writing(prompt: str) -> bool:
+    lowered = (prompt or "").casefold()
+    return any(mark in lowered for mark in _WRITING_MARKS)
+
+
+def draft_wanted(prompt: str, window_title: str) -> bool:
+    """Only a question that needs the paper carries it.
+
+    The paper goes with the question when a Google Doc is the window in
+    front, or when the question is about the writing. "What time is it"
+    gets neither the draft nor a request to Google: on Low the draft
+    crowded the question out, and every question waited on Google.
+    """
+    return bool(title_from_window(window_title)) or asks_about_writing(prompt)
+
+
 def writing_miss(prompt: str) -> str:
     """Tell the model it does not have the paper, when the question is about the writing."""
-    lowered = (prompt or "").casefold()
-    marks = ("paper", "essay", "draft", "paragraph", "thesis", "citation", "my writing", "this doc")
-    if any(mark in lowered for mark in marks):
+    if asks_about_writing(prompt):
         return (
             "No Google Doc is in the front window, and none was changed in the last two hours. "
             "Do not invent the draft."

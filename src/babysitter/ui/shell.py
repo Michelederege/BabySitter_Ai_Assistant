@@ -991,6 +991,7 @@ class Shell:
         self.controller.reload_offered.connect(home.reload.setVisible)
         self.controller.tray_prompt.connect(self._on_tray_prompt)
         self.controller.confirm_old_version.connect(self._on_old_version)
+        self.controller.ollama_offer.connect(self._on_outside_ollama)
         self.controller.notice.connect(self._on_notice)
         self.controller.game_offer.connect(self._offer_game)
         self.controller.quit_ready.connect(self._finish_quit)
@@ -1367,12 +1368,27 @@ class Shell:
         if agreed:
             self.controller.turn_on(ignore_old_version=True)
 
+    def _on_outside_ollama(self) -> None:
+        self.show_window()
+        restart = ask_yes_no(
+            self.window,
+            "Ollama is already running",
+            "Ollama's own tray app started it, so BabySitter's settings are not on: the "
+            "this-PC-only address, the smaller memory cache, and cloud models off. "
+            "Restart it under BabySitter so they apply? Using it as it is works, without them.",
+            "Restart it under BabySitter",
+            "Use it as it is",
+        )
+        self.controller.turn_on(ollama_choice="restart" if restart else "use")
+
     def _on_tray_prompt(self, message: str) -> None:
         self.show_window()
         close_it = ask_yes_no(
             self.window,
             "Ollama's tray app is running",
-            message,
+            message
+            + "\n\nLeave it running keeps that copy as it is. BabySitter's settings (this PC only, "
+            "the smaller cache, cloud models off) do not apply to it.",
             "Close the tray app",
             "Leave it running",
         )
@@ -2550,8 +2566,16 @@ class Shell:
         if not self.controller.settings.google_enabled:
             return ""
         from babysitter.games import foreground_window_title
-        from babysitter.writing import read_open_draft, writing_miss
+        from babysitter.writing import draft_wanted, read_open_draft, writing_miss
 
+        try:
+            title = foreground_window_title()
+        except Exception:
+            title = ""
+        # Decide first, before any token or request: a question that does
+        # not need the paper never reaches Google at all.
+        if not draft_wanted(prompt, title):
+            return ""
         tokens: list[str] = []
         for vault in (self.google_vault, self.google_school_vault):
             try:
@@ -2562,10 +2586,6 @@ class Shell:
                 tokens.append(token)
         if not tokens:
             return writing_miss(prompt)
-        try:
-            title = foreground_window_title()
-        except Exception:
-            title = ""
         limit = 1600 if num_ctx <= 4096 else 7000 if num_ctx >= 16000 else 4000
         try:
             draft = read_open_draft(tokens, title, limit=limit)
