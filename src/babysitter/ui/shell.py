@@ -968,6 +968,11 @@ class Shell:
         self._google_poll.setInterval(15 * 60 * 1000)
         self._google_poll.timeout.connect(lambda: self._start_google("both", speak_errors=False, only_new=True))
         self._google_poll.timeout.connect(self._warn_google_week)
+        # Phase 5: the same 15-minute read while the AI is off, said in the Windows voice.
+        self._off_poll = QTimer(self.window)
+        self._off_poll.setInterval(15 * 60 * 1000)
+        self._off_poll.timeout.connect(self._check_while_off)
+        QTimer.singleShot(60 * 1000, self._sync_off_alerts)
         QTimer.singleShot(8000, self._warn_google_week)  # once soon after opening, too
         self._search_job: _SearchJob | None = None
         self.single_instance = None
@@ -1069,6 +1074,7 @@ class Shell:
         settings.talk_over.toggled.connect(lambda on: self._set_flag("talk_over", on))
         settings.hide_orb_for_games.toggled.connect(lambda on: self._set_flag("hide_orb_for_games", on))
         settings.quiet_hours.toggled.connect(lambda on: self._set_flag("quiet_hours", on))
+        settings.alerts_when_off.toggled.connect(self._set_alerts_when_off)
         settings.side_button.toggled.connect(lambda on: self._set_flag("side_button", on))
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
@@ -1356,6 +1362,7 @@ class Shell:
             self._google_notified = False
             self._session_id = ""
             self._google_poll.stop()
+            self._sync_off_alerts()
             self._end_model_turn()
             self._return_to_game = False
             timer = getattr(self, "_game_return_timer", None)
@@ -1369,6 +1376,8 @@ class Shell:
                 release_engines()
             except Exception:
                 pass
+        if state in {"on", "game"}:
+            self._sync_off_alerts()
         if state == "on":
             self._session_personality = session_clause()
             self._warm_voice()
@@ -1379,7 +1388,9 @@ class Shell:
                 self._queued_after_load = ""
                 self._pending_line = queued
                 self._send_heard()
-            elif self.controller.settings.google_enabled and not self._google_notified:
+            elif (
+                self.controller.settings.google_enabled or self.controller.settings.microsoft_enabled
+            ) and not self._google_notified:
                 self._google_notified = True
                 self._start_google("both", speak_errors=False, only_new=True)
                 self._google_poll.start()
@@ -3508,7 +3519,9 @@ class Shell:
             "label": _voice_label(name),
         }
 
-    def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
+    def _speak(
+        self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False, windows_only: bool = False
+    ) -> None:
         self._is_filler = filler
         self._alert_speech = bool(alert)
         if (text or "").strip() and not filler:
@@ -3524,10 +3537,16 @@ class Shell:
         if getattr(self, "_listener", None) is not None and not allow_barge:
             self._listener.stop()
         prefs = self._voice_prefs()
-        if alert and (prefs.get("engine") != "kokoro" or not kokoro_ready()):
+        if alert and (windows_only or prefs.get("engine") != "kokoro" or not kokoro_ready()):
             from babysitter.plugins.voice.windows_voice import available as windows_voice_available
 
-            prefs = alert_voice(prefs, kokoro_ready=kokoro_ready(), windows_ok=windows_voice_available())
+            if windows_only and prefs.get("engine") != "windows":
+                prefs = {"engine": "kokoro", "speed": prefs.get("speed")}  # becomes the Windows voice below
+            prefs = alert_voice(
+                prefs,
+                kokoro_ready=kokoro_ready() and not windows_only,
+                windows_ok=windows_voice_available(),
+            )
             if prefs is None:
                 self._alert_speech = False
                 self._speaking = False
@@ -4707,9 +4726,9 @@ class Shell:
         """Each linked Google account, with a function that fetches its token later."""
         from babysitter.inbox import Account
 
-        if not self.controller.settings.google_enabled:
-            return []
         accounts = []
+        if not self.controller.settings.google_enabled:
+            return self._microsoft_accounts()
         for vault, name, mail, calendar, drive in (
             (self.google_vault, "Google", "Mail", "Calendar", "Drive"),
             (self.google_school_vault, "School Google", "School mail", "School calendar", "School Drive"),
@@ -4867,7 +4886,8 @@ class Shell:
         """
         self._google_speak_errors = speak_errors
         self._google_only_new = only_new
-        if not self.controller.settings.google_enabled and not self.controller.settings.blackboard_enabled:
+        settings_now = self.controller.settings
+        if not (settings_now.google_enabled or settings_now.microsoft_enabled or settings_now.blackboard_enabled):
             self._show_google(
                 "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
                 speak=speak_errors,
@@ -4983,10 +5003,53 @@ class Shell:
             return str(refreshed.get("access_token") or "") or None
         return str(bundle.get("access_token") or "") or None
 
+    def _set_alerts_when_off(self, on: bool) -> None:
+        self.controller.settings.alerts_when_off = bool(on)
+        save_settings(self.controller.settings)
+        self._sync_off_alerts()
+
+    def _off_alerts_wanted(self) -> bool:
+        settings = self.controller.settings
+        linked = settings.google_enabled or settings.microsoft_enabled
+        return bool(settings.alerts_when_off and linked and self.controller.state in {"off", "game"})
+
+    def _sync_off_alerts(self) -> None:
+        """Run the off-time check only while it can be used: AI off or in game mode, an account linked."""
+        timer = getattr(self, "_off_poll", None)
+        if timer is None:
+            return
+        if self._off_alerts_wanted():
+            if not timer.isActive():
+                timer.start()
+        else:
+            timer.stop()
+
+    def _check_while_off(self) -> None:
+        """Phase 5. The inbox read from 1b, without the chat model. Quiet hours skip it entirely."""
+        from babysitter.quiet import alerts_silenced
+
+        if not self._off_alerts_wanted():
+            self._sync_off_alerts()
+            return
+        settings = self.controller.settings
+        if alerts_silenced(settings.quiet_hours, settings.quiet_start, settings.quiet_end):
+            return
+        self._off_alert_pending = True
+        self._start_google("both", speak_errors=False, only_new=True)
+        self._warn_google_week()
+
     def _google_poll_ready(self, speech: str, seen: list) -> None:
+        off_alert = bool(getattr(self, "_off_alert_pending", False))
+        self._off_alert_pending = False
         if speech.startswith("New from Google"):
             self._seen_google = set(seen)
             self._save_seen_google()
+            if off_alert and self.controller.state != "on":
+                # The AI is off: the Windows voice says it, and nothing is loaded.
+                self._show_google(speech, speak=False)
+                if not self.turns.busy():
+                    self._speak(speech, alert=True, windows_only=True)
+                return
             self._show_google(speech, speak=not self.turns.busy())
             return
         if self._google_speak_errors and speech:

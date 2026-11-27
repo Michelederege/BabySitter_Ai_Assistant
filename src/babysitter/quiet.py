@@ -42,3 +42,18 @@ def quiet_sentence(start: str, end: str) -> str:
         f"Quiet hours are {start} to {end}. The AI stays off. "
         "Turn quiet hours off in Settings to start it."
     )
+
+
+NIGHT_START = "22:00"
+NIGHT_END = "07:00"
+
+
+def alerts_silenced(enabled: bool, start: str, end: str, now: datetime | None = None) -> bool:
+    """Alerts while the AI is off stay silent in quiet hours.
+
+    With quiet hours turned off, the night (22:00 to 07:00) still counts, so
+    an email never wakes anyone. Game mode does not silence them.
+    """
+    if enabled:
+        return in_quiet_hours(True, start, end, now)
+    return in_quiet_hours(True, NIGHT_START, NIGHT_END, now)

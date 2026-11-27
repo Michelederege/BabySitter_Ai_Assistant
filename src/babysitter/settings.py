@@ -36,6 +36,10 @@ class Settings:
     power_on_hotkey: str = DEFAULT_POWER_ON
     auto_game_mode: bool = True
     game_mode_ask: bool = False
+    # NEXT_ROUND phase 5: new mail and events said in the Windows voice while
+    # the AI is off. The chat model is not loaded. Quiet hours silence them;
+    # with quiet hours off, 22:00 to 07:00 is quiet for these alerts anyway.
+    alerts_when_off: bool = True
     detect_games: bool = True
     game_processes: list[str] = field(default_factory=list)
     orb_x: int | None = None
@@ -87,6 +91,7 @@ class Settings:
             "power_on_hotkey": self.power_on_hotkey,
             "auto_game_mode": self.auto_game_mode,
             "game_mode_ask": self.game_mode_ask,
+            "alerts_when_off": self.alerts_when_off,
             "detect_games": self.detect_games,
             "game_processes": list(self.game_processes),
             "orb_x": self.orb_x,
@@ -411,6 +416,7 @@ def settings_from_dict(data: dict) -> Settings:
         power_on_hotkey=power_on,
         auto_game_mode=bool(data.get("auto_game_mode", True)),
         game_mode_ask=bool(data.get("game_mode_ask", False)),
+        alerts_when_off=bool(data.get("alerts_when_off", True)),
         detect_games=bool(data.get("detect_games", True)),
         game_processes=_clean_games(data.get("game_processes")),
         orb_x=orb_x if isinstance(orb_x, int) else None,

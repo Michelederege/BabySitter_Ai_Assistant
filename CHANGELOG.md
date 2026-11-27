@@ -20,6 +20,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **Word files and Drive files as text.** After a file search, say "summarize number 2" and a Word or text file is read on this PC and summed up. Say "read my Drive file history essay" and one Google Doc, Word, or text file from Drive is read the same way. Files are never uploaded or saved, and an instruction inside a file is not followed.
 
+**New mail is said while the AI is off.** Every 15 minutes the linked accounts are read, as they are while the AI is on, and anything new is said in the Windows voice. The AI is not loaded for it. Quiet hours keep it silent, and so does the night (22:00 to 07:00) when quiet hours are off. Game mode does not. Turn it off in Settings, Alerts and quiet hours. Outlook on its own is now read too; before, it was skipped when Google was off.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

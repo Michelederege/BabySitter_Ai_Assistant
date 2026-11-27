@@ -156,6 +156,15 @@ class SettingsPage(QWidget):
         )
         self._sec('games').addWidget(self.hide_orb_for_games)
 
+        self.alerts_when_off = QCheckBox("Say new mail and events while the AI is off")
+        self.alerts_when_off.setAccessibleName("Alerts while the AI is off")
+        self.alerts_when_off.setToolTip(
+            "Every 15 minutes the linked accounts are read, and anything new is said in the Windows voice. "
+            "The AI is not loaded. Silent in quiet hours, or 22:00 to 07:00 when quiet hours are off. "
+            "Game mode does not silence them."
+        )
+        self._sec('alerts').addWidget(self.alerts_when_off)
+
         self.quiet_hours = QCheckBox("Quiet hours, when the AI refuses to turn on")
         self.quiet_hours.setToolTip("Off by default. Emergency stop still works. 22:00 to 07:00 wraps past midnight.")
         self._sec('alerts').addWidget(self.quiet_hours)
@@ -406,6 +415,7 @@ class SettingsPage(QWidget):
         self.off_game_cores.setChecked(settings.keep_off_game_cores)
         self.hide_orb_for_games.setChecked(settings.hide_orb_for_games)
         self.quiet_hours.setChecked(settings.quiet_hours)
+        self.alerts_when_off.setChecked(settings.alerts_when_off)
         self.quiet_start.setText(settings.quiet_start)
         self.quiet_end.setText(settings.quiet_end)
         self.side_button.setChecked(settings.side_button)
