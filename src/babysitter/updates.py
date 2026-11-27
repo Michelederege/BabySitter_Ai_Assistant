@@ -528,12 +528,19 @@ def _check_github_release(
         can_install=True,
         summary=(
             f"Version {tag} is ready on GitHub (you are on {current}). "
-            "BabySitter did not download it yet, and the installer is not signed. "
-            "Click Update BabySitter to download, verify its SHA-256 fingerprint, and restart."
+            "BabySitter did not download it yet. "
+            "Click Update BabySitter to download it and check its SHA-256 fingerprint"
+            + (" and its code signature" if kind == "installer" else "")
+            + ", then restart."
         ),
         confirm_body=(
             f"Download {name} ({tag}) from GitHub, check its SHA-256 fingerprint, and restart BabySitter?\n\n"
-            "The download is not code-signed. Your settings, memories, notes, and saved keys stay untouched."
+            + (
+                "An installer must also carry a valid code signature, or it is not run. "
+                if kind == "installer"
+                else "The portable exe is checked by its SHA-256 fingerprint. "
+            )
+            + "Your settings, memories, notes, and saved keys stay untouched."
         ),
     )
 
@@ -787,6 +794,7 @@ def _prepare_github_update(
     is_frozen: bool,
     on_step,
     opener=None,
+    signature_runner=None,
 ) -> PreparedUpdate:
     if not plan.asset_url or not plan.asset_sha256 or not plan.asset_name:
         raise UpdateError("This release does not include a verified Windows installer yet.")
@@ -825,6 +833,16 @@ def _prepare_github_update(
         raise UpdateError(str(exc)) from exc
 
     if plan.asset_kind == "installer":
+        # Phase 7: an installer runs with your rights and changes Program Files,
+        # so the hash is not enough. Windows must also accept its code signature.
+        on_step("Checking the installer's code signature…")
+        from babysitter.signature import SignatureError, require_signed
+
+        try:
+            require_signed(part_path, run_cmd=signature_runner) if signature_runner else require_signed(part_path)
+        except SignatureError as exc:
+            part_path.unlink(missing_ok=True)
+            raise UpdateError(str(exc)) from exc
         final_path = folder / safe_name
         os.replace(part_path, final_path)
         helper_cmd = (

@@ -26,6 +26,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **Home Assistant and music.** Settings, Accounts and home: type your Home Assistant address and a long-lived token. Then say "turn off the kitchen light", "pause the music", or "next song". BabySitter says what it will do and waits for your yes. It talks only to an address on your own network, and the model's words never press anything.
 
+**Signed releases, ready for a certificate.** Each release now carries the Windows installer beside the exe, both in the SHA-256 list. Once a code-signing certificate is added to the repository, both are signed. The in-app updater now also checks an installer's signature and refuses one that is not signed; the portable exe is still checked by its fingerprint.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app
