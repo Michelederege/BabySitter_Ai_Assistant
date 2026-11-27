@@ -32,6 +32,19 @@ def data_dir() -> Path:
     return path
 
 
+def write_text_safely(path: Path, text: str) -> None:
+    """Write a whole file or nothing: a crash or power cut mid-save leaves the old one.
+
+    The text goes to a temporary file beside it, which then replaces the real
+    one in a single step.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    temporary.replace(path)
+
+
 def logs_dir() -> Path:
     path = data_dir() / "logs"
     path.mkdir(parents=True, exist_ok=True)

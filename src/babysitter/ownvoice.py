@@ -22,7 +22,7 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
-from babysitter.paths import data_dir
+from babysitter.paths import data_dir, write_text_safely
 
 OWN_ID = "own"
 OWN_NAME = "My voice (recorded on this PC)"
@@ -171,7 +171,7 @@ def save(samples, rate: int) -> str:
         "recorded_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "consent": "Recorded through the microphone after the consent question: the speaker's own voice, or a present speaker who agreed.",
     }
-    record_path().write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    write_text_safely(record_path(), json.dumps(record, indent=2) + "\n")
     return f"Your voice is saved on this PC ({record['seconds']:.0f} seconds). Choose “{OWN_NAME}” and press Use this voice."
 
 

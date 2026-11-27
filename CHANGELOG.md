@@ -2,6 +2,20 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.28.1 — Four audits: bugs and waste
+
+**Game mode no longer unloads the AI beside a small game.** It works out the free room on the graphics card by leaving out BabySitter's own model, but on your PC it was reading that share as zero. So with Medium loaded, any game it noticed, even a light one, looked like "no room", and about six seconds later the model was unloaded or switched down. It now gets that share from Ollama, so the AI stays up when the game leaves room.
+
+**The Windows voice talks without gaps.** It started a new program for every sentence, about 0.4 seconds of silence each time. It now keeps one open while it talks and closes it after two quiet minutes. A sentence that runs past 90 seconds is stopped instead of talking on.
+
+**Keyword listening comes back after a quick Off and On.** Turning it off and on again, or changing the microphone or the keyword, could leave it silently off.
+
+**Talk-over and echo cancellation behave** (both are off unless you turn them on). They kept acting on the last bit of the previous reply forever, so speaking with nothing playing could keep saying "Stopped. I heard you over the voice." And the sentence you said over the voice was thrown away instead of heard.
+
+**One account failing no longer hides the others.** An odd reply from Outlook, or a Blackboard calendar it couldn't read, used to empty the whole inbox. Now it is one line, and the rest still show.
+
+**Smaller things.** Held-Talk recordings no longer crackle when you are very loud. Your voice choice and the voice-pack lists are saved whole or not at all, so a crash mid-save can't damage them. The log no longer fills with a status check every two seconds (it was 88% of the file), so errors stay in it. Less work while idle: the side-button check runs slowly when it can't be used, a list that grew forever is gone, closing the natural voice never freezes the window for more than two seconds, and the sound math behind listening is about 20 times faster.
+
 ## 0.28.0 — Your own voice, and steadier
 
 **BabySitter can speak in your voice.** On the Voice page, **Record my voice…** asks first, then shows a short passage to read for about 15 seconds. It checks the take (not silent, not too quiet, not distorted, at least 6 seconds of speech), lets you listen back, and keeps it only when you press Keep it. Then choose "My voice (recorded on this PC)" and press Use this voice. It speaks through the same natural-voice helper as the narrators, so the natural voices need to be set up, and the AI runs on Low while it is chosen. The recording stays on this PC and is never sent anywhere. Its fingerprint (SHA-256) is checked before every use, so a swapped file is refused. **Delete my voice** removes it. Only the microphone can make one, and the question before recording says to record only your own voice or someone with you who agrees.

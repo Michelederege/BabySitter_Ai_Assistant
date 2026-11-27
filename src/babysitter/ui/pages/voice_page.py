@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from babysitter.paths import data_dir
+from babysitter.paths import data_dir, write_text_safely
 from babysitter.ui.pinbutton import pin_button
 
 
@@ -284,7 +284,7 @@ class VoicePage(QWidget):
             "speed": self.speed[1].value(),
             "pitch": self.pitch[1].value(),
         }
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        write_text_safely(path, json.dumps(payload, indent=2) + "\n")
         self.status.setText(
             f"Saved {payload['voice']} (speed {payload['speed']}, pitch {payload['pitch']}) on this PC."
         )
@@ -305,7 +305,7 @@ class VoicePage(QWidget):
             "pitch": self.pitch[1].value(),
         }
         path = data_dir() / "voice.json"
-        path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        write_text_safely(path, json.dumps(payload, indent=2) + "\n")
         self.status.setText(
             f"Saved {payload['voice']} on this PC. Preview uses that voice. "
             "The first time, BabySitter asks before downloading it."

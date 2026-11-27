@@ -20,7 +20,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from babysitter.paths import data_dir
+from babysitter.paths import data_dir, write_text_safely
 
 SHERPA_ASR = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
 SHERPA_TTS = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
@@ -171,10 +171,11 @@ def _safe_extract(archive: Path, folder: Path) -> None:
 def _write_manifest(folder: Path) -> None:
     entries = {}
     for path in sorted(folder.rglob("*")):
-        if path.is_file() and path.name != MANIFEST:
+        if path.is_file() and path.name not in {MANIFEST, MANIFEST + ".tmp"}:
             stat = path.stat()
             entries[path.relative_to(folder).as_posix()] = [_sha256(path), stat.st_size, stat.st_mtime_ns]
-    (folder / MANIFEST).write_text(json.dumps(entries, indent=1), encoding="utf-8")
+    # Whole or not at all: a torn list made a 3.2 GB pack look "not downloaded".
+    write_text_safely(folder / MANIFEST, json.dumps(entries, indent=1))
 
 
 def download(pack_id: str, opener=urllib.request.urlopen) -> str:
@@ -224,7 +225,7 @@ def verify(pack_id: str) -> Path:
         entries[rel] = [sha, stat.st_size, stat.st_mtime_ns]
         changed = True
     if changed:
-        manifest.write_text(json.dumps(entries, indent=1), encoding="utf-8")
+        write_text_safely(manifest, json.dumps(entries, indent=1))
     return folder
 
 

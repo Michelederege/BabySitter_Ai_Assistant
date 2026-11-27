@@ -101,22 +101,30 @@ def gather(
         if not token:
             continue
         inbox.secrets.append(token)
-        if account.reader is not None:
-            rows, speeches, problems = account.reader(token)
-            problems = [line.split(": ", 1)[-1] for line in problems]
-        else:
-            rows, speeches, problems = read_account(
-                token,
-                mail_prefix=account.mail,
-                calendar_prefix=account.calendar,
-                drive_prefix=account.drive,
-                fetch=fetch,
-            )
+        try:
+            if account.reader is not None:
+                rows, speeches, problems = account.reader(token)
+                problems = [line.split(": ", 1)[-1] for line in problems]
+            else:
+                rows, speeches, problems = read_account(
+                    token,
+                    mail_prefix=account.mail,
+                    calendar_prefix=account.calendar,
+                    drive_prefix=account.drive,
+                    fetch=fetch,
+                )
+        except Exception as exc:  # noqa: BLE001 - a reply of an unexpected shape is this account's line only
+            inbox.problems.append(_problem(account.name, exc))
+            inbox.rows.append(f"{account.name} · could not be read")
+            continue
         inbox.rows.extend(rows)
         inbox.speeches.extend(speeches)
         inbox.problems.extend(f"{account.name}: {line}" for line in problems)
         if want_fresh and account.indexer is not None:
-            ids, titles = account.indexer(token)
+            try:
+                ids, titles = account.indexer(token)
+            except Exception:  # noqa: BLE001 - nothing new is reported for this account this time
+                ids, titles = [], []
             inbox.fresh_ids.extend(f"{account.name}:{item}" for item in ids)
             inbox.fresh_titles.extend(titles)
         elif want_fresh:
@@ -135,6 +143,10 @@ def gather(
             url = ""
             inbox.problems.append(f"Blackboard: {exc}")
             inbox.rows.append("Blackboard · could not be read")
+        except Exception:  # noqa: BLE001 - the saved link could not be opened on this PC
+            url = ""
+            inbox.problems.append("Blackboard: the saved link could not be opened.")
+            inbox.rows.append("Blackboard · could not be read")
         if url:
             inbox.secrets.append(url)
             try:
@@ -143,6 +155,9 @@ def gather(
                 inbox.speeches.append(blackboard_speech(events))
             except FeedError as exc:
                 inbox.problems.append(f"Blackboard: {exc}")
+                inbox.rows.append("Blackboard · could not be read")
+            except Exception:  # noqa: BLE001 - a calendar file it cannot parse is one line too
+                inbox.problems.append("Blackboard: the calendar could not be read.")
                 inbox.rows.append("Blackboard · could not be read")
     return inbox.safe()
 

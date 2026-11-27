@@ -53,7 +53,7 @@ from babysitter.updates import (
 from babysitter.controller import Controller, windows_registrar_or_dummy
 from babysitter.deskstore import add_item, hero_path, load_list, remove_item, save_list
 from babysitter.intelligence import get_mode
-from babysitter.ollama import OllamaError, classify_ollama_process
+from babysitter.ollama import OllamaError
 from babysitter.hotkeys import EMERGENCY_ID, POWER_ON_ID, HotkeyError
 from babysitter.paths import asset_path, data_dir
 from babysitter.pictures import benchmark_warning, fit_screenshot, image_tokens
