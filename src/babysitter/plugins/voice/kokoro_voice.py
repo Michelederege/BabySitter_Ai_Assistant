@@ -465,21 +465,28 @@ def _limit_onnx_threads() -> None:
         return
     original = ort.InferenceSession
 
-    def limited(*args, **kwargs):
-        if "sess_options" not in kwargs and len(args) < 2:
-            options = ort.SessionOptions()
-            options.intra_op_num_threads = _voice_threads()
-            options.inter_op_num_threads = 1
-            options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-            try:
-                options.add_session_config_entry("session.intra_op.allow_spinning", "0")
-            except Exception:
-                pass
-            kwargs["sess_options"] = options
-        return original(*args, **kwargs)
+    # A subclass, not a plain function. Supertonic checks
+    # isinstance(session, ort.InferenceSession); with a function in its place
+    # that raised TypeError, so the Supertonic voices failed to load whenever
+    # Kokoro had loaded first, which is nearly always (found 27 Nov 2026).
+    class LimitedSession(original):  # type: ignore[misc, valid-type]
+        _babysitter_capped = True
 
-    limited._babysitter_capped = True  # type: ignore[attr-defined]
-    ort.InferenceSession = limited
+        def __init__(self, *args, **kwargs):
+            if "sess_options" not in kwargs and len(args) < 2:
+                options = ort.SessionOptions()
+                options.intra_op_num_threads = _voice_threads()
+                options.inter_op_num_threads = 1
+                options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+                try:
+                    options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+                except Exception:
+                    pass
+                kwargs["sess_options"] = options
+            super().__init__(*args, **kwargs)
+
+    LimitedSession.__name__ = LimitedSession.__qualname__ = original.__name__
+    ort.InferenceSession = LimitedSession
 
 
 def _loaded_engine():

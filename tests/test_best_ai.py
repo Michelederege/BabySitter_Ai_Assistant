@@ -34,6 +34,24 @@ def test_hearing_falls_back_to_the_next_best_engine(tmp_path, monkeypatch, chose
         shell.window.close()
 
 
+def test_kokoros_thread_cap_keeps_inference_session_a_class():
+    """Supertonic checks isinstance(session, ort.InferenceSession). Kokoro's thread
+    cap replaced that class with a function, so Supertonic failed to load."""
+    ort = pytest.importorskip("onnxruntime")
+    from babysitter.plugins.voice import kokoro_voice
+
+    original = ort.InferenceSession
+    try:
+        kokoro_voice._limit_onnx_threads()
+        capped = ort.InferenceSession
+        assert isinstance(capped, type), "must stay a class"
+        assert getattr(capped, "_babysitter_capped", False)
+        kokoro_voice._limit_onnx_threads()
+        assert ort.InferenceSession is capped, "capped once, not wrapped again"
+    finally:
+        ort.InferenceSession = original
+
+
 def test_parakeet_is_the_default_and_moonshine_defaults_move_to_it():
     from babysitter.settings import Settings, migrate
 
