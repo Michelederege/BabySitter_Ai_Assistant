@@ -2619,6 +2619,9 @@ class Shell:
             self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
             return
+        from babysitter.plugins.voice.keyword import strip_wake
+
+        text = strip_wake(text, self.controller.settings.keyword) or text
         clock = getattr(self, "_clock", None)
         if clock is None or "first_sound" in clock.marks or "interrupt" in clock.marks:
             self._clock = TurnClock()

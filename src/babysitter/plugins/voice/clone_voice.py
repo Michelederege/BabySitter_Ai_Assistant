@@ -171,7 +171,25 @@ def render(narrator_id: str, text: str, free_mib: int | None = None):
         clip = verified_clip(narrator)
     except NarratorError as exc:
         raise CloneError(str(exc)) from None
-    return _worker.speak(text, clip)
+    return _worker.speak(text, clip, liveliness(text))
+
+
+def liveliness(text: str) -> float:
+    """How much feeling a sentence gets (Chatterbox's exaggeration, 0.5 is its default).
+
+    One flat setting for every sentence is part of what sounds read-out. An
+    exclamation gets a little more, a question a touch more, a long plain
+    sentence a little less, so it stays calm. The range stays near the
+    default, which the model's makers recommend for conversation.
+    """
+    stripped = (text or "").rstrip()
+    if stripped.endswith("!"):
+        return 0.62
+    if stripped.endswith("?"):
+        return 0.55
+    if len(stripped.split()) > 22:
+        return 0.45
+    return 0.5
 
 
 def warm(narrator_id: str, free_mib: int | None = None) -> bool:

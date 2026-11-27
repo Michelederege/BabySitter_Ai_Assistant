@@ -67,7 +67,51 @@ def command_after_keyword(text: str, keyword: str) -> str | None:
     for index in range(len(words) - len(key) + 1):
         if words[index : index + len(key)] == key:
             return " ".join(words[index + len(key) :]).strip()
+    if len(key) == 1:
+        # A name the small keyword model does not know is heard as a sound-alike:
+        # "kari" came back as corey, carly, or kyrie in every test (27 Nov).
+        after = _after_sound_alike(words, key[0])
+        if after is not None:
+            return after
     return _after_nickname(words)
+
+
+_OPENERS = {"hey", "hi", "he", "okay", "ok", "a", "hay", "hello"}
+
+
+def _sound_key(word: str) -> str:
+    """A rough spoken form: letters that sound alike are made the same."""
+    text = (word or "").lower()
+    for source, target in (("ph", "f"), ("ck", "k"), ("qu", "kw"), ("x", "ks"), ("c", "k"), ("q", "k"), ("z", "s"), ("y", "i")):
+        text = text.replace(source, target)
+    out = []
+    for character in text:
+        if not out or character != out[-1]:
+            out.append(character)  # "carry" and "cary" sound the same
+    return "".join(out)
+
+
+def sounds_like(heard: str, name: str) -> bool:
+    """True when a heard word is close enough in sound to the name."""
+    from difflib import SequenceMatcher
+
+    a, b = _sound_key(heard), _sound_key(name)
+    if not a or not b or a[0] != b[0] or abs(len(a) - len(b)) > 2:
+        return False
+    return SequenceMatcher(None, a, b).ratio() >= 0.66
+
+
+def _after_sound_alike(words: list[str], name: str) -> str | None:
+    """Only at the start of the sentence, after an optional "hey", so the name in
+    the middle of a sentence never wakes it."""
+    start = 1 if words[:1] and words[0] in _OPENERS and len(words) > 1 else 0
+    # The heard word must be at least as long as the name, so "car keys" is not "Kari".
+    if len(words) > start and len(_sound_key(words[start])) >= len(_sound_key(name)) and sounds_like(words[start], name):
+        return " ".join(words[start + 1 :]).strip()
+    # "Hey Kari" heard as "he car": the opener and part of the name run together.
+    if start == 1 and sounds_like(words[0] + words[1], "hey" + name):
+        return " ".join(words[2:]).strip()
+    return None
 
 
 def _nickname_tokens() -> list[str]:
@@ -90,6 +134,8 @@ def _after_nickname(words: list[str]) -> str | None:
     start = 1 if words[:1] in (["hey"], ["okay"], ["ok"], ["hi"]) else 0
     if words[start : start + len(name)] == name:
         return " ".join(words[start + len(name) :]).strip()
+    if len(name) == 1:
+        return _after_sound_alike(words, name[0])
     return None
 
 
@@ -563,3 +609,26 @@ def _wav_bytes(pcm: bytes) -> bytes:
     from babysitter.plugins.voice.hearing import pcm16_to_wav
 
     return pcm16_to_wav(pcm)
+
+
+def strip_wake(text: str, keyword: str) -> str:
+    """The sentence without the keyword or nickname it starts with, capitals kept.
+
+    After the keyword wakes it, the clip is heard again in full, so the line
+    reads "Kari, what time is it?". Quick commands match "what time is it",
+    so the name in front is dropped here. A sentence that does not start with
+    the name is returned as it was.
+    """
+    original = (text or "").strip()
+    words = original.split()
+    for count in (1, 2, 3, 4):
+        if count >= len(words):
+            break
+        head = " ".join(words[:count])
+        try:
+            rest = command_after_keyword(head, keyword)
+        except KeywordError:
+            return original
+        if rest == "":
+            return " ".join(words[count:]).lstrip(" ,.!?:;-")
+    return original

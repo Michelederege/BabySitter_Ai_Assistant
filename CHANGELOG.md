@@ -30,6 +30,10 @@ BabySitter uses version numbers like v1.2.3.
 
 **It talks like a person.** The instructions were rewritten for a voice: short spoken sentences, everyday and varied words, your tone matched, feelings acknowledged, and no reading out of lists or symbols. It no longer mentions the time unless you ask about time or plans, no longer drags an earlier topic into every answer, and no longer ends every reply with "Want another one?". It uses the nickname you gave it as its own name. Numbers are now correct: asked to spell them out, the small model got them wrong. Gemma (Medium and High) now uses Google's own settings, which make it livelier.
 
+**The keyword "Kari" works now.** The small keyword model does not know the name, so it heard "Corey", "Carly", or "Kyrie" and never woke. A one-word keyword or nickname now also matches what sounds like it, at the start of a sentence, and the name is taken off before the command is read.
+
+**A livelier voice.** The narrator voices put a little more feeling into an exclamation or a question and stay calm on long sentences. Units and symbols are said as words: kilometres, miles an hour, minutes, degrees, "around the clock" for 24/7.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

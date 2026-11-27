@@ -49,12 +49,13 @@ def main(model_dir: str) -> int:
         try:
             job = json.loads(line)
             voice = str(job.get("voice") or "")
-            exaggeration = float(job.get("exaggeration", 0.5))
-            key = f"{voice}|{exaggeration}"
-            if voice and key != prepared:
+            exaggeration = min(0.8, max(0.3, float(job.get("exaggeration", 0.5))))
+            if voice and voice != prepared:
                 # The voice is worked out once from its clip, not for every sentence.
-                model.prepare_conditionals(voice, exaggeration=exaggeration)
-                prepared = key
+                # A different liveliness per sentence is only a number change in
+                # generate(), so it costs nothing extra.
+                model.prepare_conditionals(voice, exaggeration=0.5)
+                prepared = voice
             with torch.inference_mode():
                 wav = model.generate(str(job.get("text") or ""), exaggeration=exaggeration, cfg_weight=float(job.get("cfg", 0.5)))
             samples = wav.squeeze().detach().cpu().numpy().astype(np.float32)

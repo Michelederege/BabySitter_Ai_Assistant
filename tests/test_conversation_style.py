@@ -42,3 +42,18 @@ def test_closing_offers_are_trimmed_real_questions_kept():
 def test_symbols_are_said_as_words():
     assert speakable("It boils at 212°F.") == "It boils at 212 degrees."
     assert "percent" in speakable("about 70% likely")
+
+
+def test_units_and_symbols_are_said_the_way_people_say_them():
+    assert speakable("It is 384,000 km away.") == "It is 384,000 kilometres away."
+    assert speakable("Open 24/7.") == "Open around the clock."
+    assert speakable("2 + 2 = 4") == "2 plus 2 equals 4"
+    assert speakable("Well... maybe.") == "Well, maybe."
+    assert speakable("Takes 15 mins.") == "Takes 15 minutes."
+
+
+def test_the_natural_voice_has_more_feeling_on_an_exclamation():
+    from babysitter.plugins.voice.clone_voice import liveliness
+
+    assert liveliness("That's brilliant!") > liveliness("It is twelve.") > liveliness(" ".join(["word"] * 30) + ".")
+    assert 0.3 <= liveliness("Really?") <= 0.8

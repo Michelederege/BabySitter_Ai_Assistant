@@ -186,3 +186,22 @@ def test_the_nickname_is_the_name_in_the_instructions():
     assert prompt.startswith("You are Kari,")
     assert "BabySitter" not in prompt.split(".")[0]
     assert system_prompt(name="").startswith("You are ")
+
+
+def test_a_name_the_keyword_model_does_not_know_still_wakes_it():
+    # Measured: the small keyword model hears "Kari" as corey, carly, or kyrie.
+    for heard in ("corey what time is it", "carly what time is it", "kyrie what time is it", "hey corey what time is it"):
+        assert command_after_keyword(heard, "kari") == "what time is it"
+    assert command_after_keyword("he car set a timer", "kari") == "set a timer"
+    for ordinary in ("car keys where are they", "can you help me", "i told corey about it", "could you open notes"):
+        assert command_after_keyword(ordinary, "kari") is None
+
+
+def test_the_wake_word_is_dropped_before_commands_match():
+    from babysitter.plugins.voice.keyword import strip_wake
+
+    assert strip_wake("Kari, what time is it?", "kari") == "what time is it?"
+    assert strip_wake("Hey Kari, set a timer for 5 minutes", "kari") == "set a timer for 5 minutes"
+    assert strip_wake("Baby sitter, open notes", "baby sitter") == "open notes"
+    assert strip_wake("What time is it?", "kari") == "What time is it?"
+    assert match_quick_command(strip_wake("Kari, what time is it?", "kari")).kind == "time"
