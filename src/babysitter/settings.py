@@ -480,10 +480,12 @@ def settings_from_dict(data: dict) -> Settings:
         weather_place=" ".join(str(data.get("weather_place") or "").split())[:60],
         home_url=_home_url(data.get("home_url", "")),
         home_music_entity=str(data.get("home_music_entity") or "")[:120],
+        # A missing or unknown engine means the default, Moonshine (0.27.0),
+        # which itself falls back to Whisper until its pack is on this PC.
         hearing_engine=(
-            str(data.get("hearing_engine") or "whisper")
-            if str(data.get("hearing_engine") or "whisper") in {"whisper", "moonshine", "parakeet"}
-            else "whisper"
+            str(data.get("hearing_engine"))
+            if str(data.get("hearing_engine") or "") in {"whisper", "moonshine", "parakeet"}
+            else "moonshine"
         ),
         notices=notices,
     )

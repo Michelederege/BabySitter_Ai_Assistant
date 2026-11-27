@@ -1,7 +1,8 @@
 """Heart and Sarah, the Kokoro voice picked in the Voice tab.
 
 The voice files stay on this PC. Speech is generated on the processor,
-not the graphics card. Voice cloning is not supported.
+not the graphics card. Kokoro speaks only its own named voices; copied
+voices go through `clone_voice.py` instead.
 """
 
 from __future__ import annotations

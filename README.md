@@ -144,10 +144,10 @@ That file is one file, built with no console. Copy it to the desktop, or any oth
 
 A git pull does not change the exe by itself. After you pull, double-click `scripts\build-exe.bat` again. The same desktop icon then opens the new build. A file you copied onto the desktop stays as it was until you copy it again. Reminders, pins, and settings stay in `%LOCALAPPDATA%\BabySitter`.
 
-The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-0.17.4.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (for the future updater) is:
+The optional installer needs [Inno Setup 6.3 or newer](https://jrsoftware.org/isdl.php). Open `installer\BabySitter.iss` and choose Compile. You get `dist-installer\BabySitter-Setup-<version>.exe` (the number always matches `src/babysitter/version.py`), with a desktop shortcut, a Start menu entry, and an uninstaller. A silent install (the updater uses this) is:
 
 ```bat
-BabySitter-Setup-0.17.4.exe /SILENT
+BabySitter-Setup-<version>.exe /SILENT
 ```
 
 The installer does not delete `%LOCALAPPDATA%\BabySitter`. The uninstaller asks before it deletes that folder. A silent uninstall does not delete it. Ollama and its downloaded models are never removed.
@@ -256,14 +256,11 @@ Quiet hours, hiding the orb while a watched game is in front, and a mouse side b
 
 ## Not in this phase
 
-BabySitter never installs an update silently in the background without asking first. Code signing is not in this build. Voice cloning, speech-to-speech, and a cloud realtime voice are not part of this project.
+BabySitter never installs an update silently in the background without asking first. Code signing is built into the release workflow and starts once a code-signing certificate is added; until then releases are checked by their SHA-256 fingerprint. Speech-to-speech and a cloud realtime voice are not part of this project.
 
 ## Ideas left optional for later
 
-Say if you want any of these in a later update:
-
-- A smooth context slider instead of the three Low / Medium / High buttons.
-- Wake the model automatically when a watched game closes (currently Game mode stays on until you click **Leave**).
+Model and voice ideas, researched but not built, are in `docs/model-recommendations.md`. The main one: speaking in your own recorded voice on the processor (Pocket TTS) instead of the graphics card.
 
 ## Privacy in this phase
 
@@ -279,4 +276,12 @@ Ollama older than **0.35.0** has a critical flaw, CVE-2026-103663: a program tha
 
 When BabySitter starts Ollama, that process also has Ollama's own cloud models turned off. Even if you sign in to Ollama for another app, a BabySitter request cannot be answered from the internet.
 
-There is no voice cloning in this project, and there will not be.
+If you link Outlook / Microsoft 365, a mail or calendar check goes to `login.microsoftonline.com` (the sign-in) and `graph.microsoft.com`. Only reads are made, and the token is kept encrypted on this PC.
+
+The weather is checked only after you say yes each time. It goes to `geocoding-api.open-meteo.com` (your town's name, to find it; the first check each time BabySitter is open) and `api.open-meteo.com` (the position, rounded to about a kilometre). No key or account is used.
+
+Home Assistant and music go only to the address you set, and that address must be on your own network. A house command runs only after you say yes.
+
+Downloads you confirm (voices, hearing models, the natural voices, an update) come from `github.com`, `huggingface.co`, and the voice datasets named in Settings, and each file is checked against its recorded fingerprint before it is used.
+
+Voices copied from a recording are limited to two kinds: narrators who released their recordings (public domain or CC BY, credited in `THIRD_PARTY_LICENSES`), and your own voice, recorded here through the microphone after you agree. Nobody else's voice is copied, and a recording of someone else cannot be loaded from a file. Your recording stays on this PC and is never sent anywhere.

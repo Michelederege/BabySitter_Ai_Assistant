@@ -1538,7 +1538,7 @@ class Shell:
     def _set_hearing_engine(self, engine: str) -> None:
         from babysitter.modelpacks import ready as pack_ready
 
-        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "whisper"
+        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "moonshine"
         save_settings(self.controller.settings)
         if engine in {"moonshine", "parakeet"} and not pack_ready(engine):
             self._offer_pack(engine)

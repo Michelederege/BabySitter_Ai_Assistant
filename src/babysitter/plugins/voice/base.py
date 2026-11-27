@@ -3,7 +3,9 @@
 A new engine (a local voice, a Windows voice, a cloud voice) is a new file
 in this folder. The rest of the app should only talk to these methods.
 
-Voice cloning is not one of the engines and will not be added.
+Copied voices come only from narrators who released their recordings and
+from your own voice recorded here with consent (`narrators.py`,
+`ownvoice.py`, spoken by `clone_voice.py`). Nobody else's voice is copied.
 """
 
 from __future__ import annotations

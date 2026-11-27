@@ -85,7 +85,15 @@ def _get(url: str, opener=None) -> dict:
     return payload
 
 
+# A town does not move: once found, its position is reused until BabySitter
+# closes, so later checks send only the rounded position, not the name again.
+_found: dict[str, tuple[str, float, float]] = {}
+
+
 def find_place(place: str, opener=None) -> tuple[str, float, float]:
+    key = clean_place(place).lower()
+    if key in _found:
+        return _found[key]
     payload = _get(geocode_url(place), opener)
     results = payload.get("results")
     if not isinstance(results, list) or not results or not isinstance(results[0], dict):
@@ -95,7 +103,9 @@ def find_place(place: str, opener=None) -> tuple[str, float, float]:
         latitude, longitude = float(first["latitude"]), float(first["longitude"])
     except (KeyError, TypeError, ValueError) as exc:
         raise WeatherError(f"I couldn't find a place called {clean_place(place)}.") from exc
-    return str(first.get("name") or clean_place(place)), latitude, longitude
+    found = (str(first.get("name") or clean_place(place)), latitude, longitude)
+    _found[key] = found
+    return found
 
 
 def _words(code) -> str:

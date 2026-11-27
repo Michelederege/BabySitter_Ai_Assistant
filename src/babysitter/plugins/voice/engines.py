@@ -1,8 +1,10 @@
 """The extra hearing engines and voices, all on the processor.
 
-Hearing: Whisper stays the default. Moonshine is the fast choice and
-Parakeet the accurate one. Only the chosen engine is loaded, and only one
-hears the question; Vosk still only listens for the keyword.
+Hearing: Moonshine is the default since 0.27.0 (0.13 s against Whisper's
+1.1 s for a 7-second clip on his PC). Parakeet is the accurate choice and
+Whisper the fallback while a pack is missing. Only the chosen engine is
+loaded, and only one hears the question; Vosk still only listens for the
+keyword.
 
 Voices: Kokoro stays the default. Piper and Supertonic are other voices.
 Each renders a sentence to audio, and the same player says it, so echo
@@ -23,7 +25,7 @@ import wave
 from babysitter.modelpacks import PACKS, PackError, find, ready, verify
 
 HEARING_ENGINES = {
-    "whisper": "Whisper (default)",
+    "whisper": "Whisper (slower; the fallback)",
     "moonshine": PACKS["moonshine"].label,
     "parakeet": PACKS["parakeet"].label,
 }
