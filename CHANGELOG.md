@@ -32,6 +32,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **The keyword "Kari" works now.** The small keyword model does not know the name, so it heard "Corey", "Carly", or "Kyrie" and never woke. A one-word keyword or nickname now also matches what sounds like it, at the start of a sentence, and the name is taken off before the command is read.
 
+**The first narrator sentence is quick.** The graphics card is now warmed up with one silent word when the AI turns on, so the first answer starts in about a second instead of four.
+
 **A livelier voice.** The narrator voices put a little more feeling into an exclamation or a question and stay calm on long sentences. Units and symbols are said as words: kilometres, miles an hour, minutes, degrees, "around the clock" for 24/7.
 
 **It understands more ways of saying things.** "Do you know what time it is", "start a 3 minute timer", "stop the timer", "how much time is left", "read my emails", "what's my schedule", "do I need an umbrella", and "what do you remember about me" now work straight away, without the model.

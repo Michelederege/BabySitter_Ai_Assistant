@@ -204,4 +204,13 @@ def warm(narrator_id: str, free_mib: int | None = None) -> bool:
         _worker.start(verify("chatterbox"))
     except (CloneError, PackError):
         return False
+    # The first sentence the card makes is slow while it gets ready (4.5 s
+    # for a 1.5 s line, measured 27 Nov; later lines run at about real time).
+    # One short, unplayed word here moves that wait to the warm-up at On.
+    try:
+        from babysitter.narrators import BY_ID, verified_clip
+
+        _worker.speak("Okay.", verified_clip(BY_ID[narrator_id]))
+    except Exception:  # noqa: BLE001 - a failed warm-up only means the first line is slower
+        pass
     return True
