@@ -36,7 +36,10 @@ def _extra_voices() -> dict[str, tuple[str, str]]:
 
 
 def is_natural(name: str) -> bool:
-    return (name or "").startswith("Narrator: ")
+    """A voice the Chatterbox helper speaks: a narrator, or your own recording."""
+    from babysitter.ownvoice import OWN_NAME
+
+    return (name or "").startswith("Narrator: ") or name == OWN_NAME
 
 
 # Shown on the Voice tab. The value is (pack id, speaker index or style).

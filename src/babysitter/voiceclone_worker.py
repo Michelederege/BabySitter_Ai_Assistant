@@ -50,12 +50,15 @@ def main(model_dir: str) -> int:
             job = json.loads(line)
             voice = str(job.get("voice") or "")
             exaggeration = min(0.8, max(0.3, float(job.get("exaggeration", 0.5))))
-            if voice and voice != prepared:
+            # The file's time joins its path, so a new recording of your own
+            # voice (same file name) is prepared again instead of the old one.
+            key = f"{voice}|{os.stat(voice).st_mtime_ns}" if voice else ""
+            if key and key != prepared:
                 # The voice is worked out once from its clip, not for every sentence.
                 # A different liveliness per sentence is only a number change in
                 # generate(), so it costs nothing extra.
                 model.prepare_conditionals(voice, exaggeration=0.5)
-                prepared = voice
+                prepared = key
             with torch.inference_mode():
                 wav = model.generate(str(job.get("text") or ""), exaggeration=exaggeration, cfg_weight=float(job.get("cfg", 0.5)))
             samples = wav.squeeze().detach().cpu().numpy().astype(np.float32)

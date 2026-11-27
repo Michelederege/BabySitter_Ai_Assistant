@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import base64
 import json
+import queue
 import subprocess
 import sys
 import threading
@@ -59,14 +60,33 @@ def install_steps() -> list[list[str]]:
     ]
 
 
+# How long to wait for the helper before giving up on it. Loading took about
+# 20 s on his RTX 4070 and a sentence about real time, so these only trip
+# when the helper is stuck. A stuck helper is closed and Kokoro speaks.
+START_SECONDS = 180
+SENTENCE_SECONDS = 90
+
+
 class _Worker:
     def __init__(self) -> None:
         self._proc: subprocess.Popen | None = None
+        self._lines: queue.Queue | None = None
         self._lock = threading.Lock()
         self._next = 0
 
     def running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
+
+    def _read_line(self, seconds: float) -> str:
+        """The helper's next line, or "" when it closed. A wait past `seconds` closes it."""
+        lines = self._lines
+        if lines is None:
+            return ""
+        try:
+            return lines.get(timeout=seconds)
+        except queue.Empty:
+            self.stop(kill=True)
+            raise CloneError(f"The natural voice stopped answering for {int(seconds)} seconds, so it was closed. Kokoro speaks instead.") from None
 
     def start(self, model_dir: Path) -> None:
         from babysitter.platform import popen_hidden
@@ -88,7 +108,22 @@ class _Worker:
         from babysitter.platform import end_with_this_app
 
         end_with_this_app(self._proc)
-        first = self._proc.stdout.readline() if self._proc.stdout else ""
+        # One reader thread per helper: the reply thread then waits with a
+        # time limit instead of blocking on readline() forever.
+        lines: queue.Queue = queue.Queue()
+        self._lines = lines
+
+        def pump(stream=self._proc.stdout) -> None:
+            try:
+                for text in stream:
+                    lines.put(text)
+            except (OSError, ValueError):
+                pass
+            finally:
+                lines.put("")
+
+        threading.Thread(target=pump, name="babysitter-natural-voice", daemon=True).start()
+        first = self._read_line(START_SECONDS)
         try:
             hello = json.loads(first)
         except ValueError:
@@ -105,23 +140,37 @@ class _Worker:
                 raise CloneError("The natural voice is not running.")
             self._next += 1
             job = {"id": self._next, "text": text, "voice": str(clip), "exaggeration": exaggeration}
-            self._proc.stdin.write(json.dumps(job) + "\n")
-            self._proc.stdin.flush()
-            line = self._proc.stdout.readline()
-        if not line:
-            self.stop()
-            raise CloneError("The natural voice stopped. Kokoro speaks instead.")
-        reply = json.loads(line)
-        if "error" in reply:
-            raise CloneError(f"The natural voice could not say that ({reply['error'][:120]}).")
-        samples = np.frombuffer(base64.b64decode(reply["samples"]), dtype=np.float32)
-        return samples, int(reply["rate"])
+            try:
+                self._proc.stdin.write(json.dumps(job) + "\n")
+                self._proc.stdin.flush()
+            except (OSError, ValueError):
+                self.stop(kill=True)
+                raise CloneError("The natural voice stopped. Kokoro speaks instead.") from None
+            line = self._read_line(SENTENCE_SECONDS)
+            if not line:
+                self.stop()
+                raise CloneError("The natural voice stopped. Kokoro speaks instead.")
+            try:
+                reply = json.loads(line)
+                if "error" in reply:
+                    raise CloneError(f"The natural voice could not say that ({str(reply['error'])[:120]}).")
+                samples = np.frombuffer(base64.b64decode(reply["samples"]), dtype=np.float32)
+                return samples, int(reply["rate"])
+            except CloneError:
+                raise
+            except (ValueError, KeyError, TypeError) as exc:
+                # A garbled line means the replies are out of step; start clean next time.
+                self.stop(kill=True)
+                raise CloneError("The natural voice sent a reply it could not read. Kokoro speaks instead.") from exc
 
-    def stop(self) -> None:
+    def stop(self, kill: bool = False) -> None:
         proc, self._proc = self._proc, None
+        self._lines = None
         if proc is None:
             return
         try:
+            if kill:
+                proc.kill()
             if proc.stdin:
                 proc.stdin.close()
             proc.wait(timeout=10)
@@ -140,21 +189,49 @@ def release() -> None:
     _worker.stop()
 
 
+def _has_clip(voice_id: str) -> bool:
+    """A narrator's downloaded clip, or your own recording."""
+    from babysitter.narrators import BY_ID, clip_ready
+    from babysitter.ownvoice import OWN_ID
+    from babysitter.ownvoice import ready as own_ready
+
+    if voice_id == OWN_ID:
+        return own_ready()
+    narrator = BY_ID.get(voice_id)
+    return narrator is not None and clip_ready(narrator)
+
+
+def _checked_clip(voice_id: str) -> Path:
+    """The clip after its hash check, for a narrator or for your own voice."""
+    from babysitter.narrators import BY_ID, NarratorError, verified_clip
+    from babysitter.ownvoice import OWN_ID, OwnVoiceError
+    from babysitter.ownvoice import verified_clip as own_clip
+
+    try:
+        if voice_id == OWN_ID:
+            return own_clip()
+        narrator = BY_ID.get(voice_id)
+        if narrator is None:
+            raise CloneError("That natural voice is not known.")
+        return verified_clip(narrator)
+    except (NarratorError, OwnVoiceError) as exc:
+        raise CloneError(str(exc)) from None
+
+
 def ready(narrator_id: str) -> bool:
     from babysitter.modelpacks import ready as pack_ready
-    from babysitter.narrators import BY_ID, clip_ready
 
-    narrator = BY_ID.get(narrator_id)
-    return narrator is not None and environment_ready() and pack_ready("chatterbox") and clip_ready(narrator)
+    return environment_ready() and pack_ready("chatterbox") and _has_clip(narrator_id)
 
 
 def render(narrator_id: str, text: str, free_mib: int | None = None):
     """One sentence in a narrator's voice, as (float32 samples, sample rate)."""
     from babysitter.modelpacks import PackError, verify
-    from babysitter.narrators import BY_ID, NarratorError, verified_clip
+    from babysitter.ownvoice import OWN_ID
 
-    narrator = BY_ID.get(narrator_id)
-    if narrator is None or not ready(narrator_id):
+    if not ready(narrator_id):
+        if narrator_id == OWN_ID and environment_ready():
+            raise CloneError("Your voice is not recorded yet. Record it on the Voice page.")
         raise CloneError("The natural voices are not set up yet. Set them up on the Voice and hearing section.")
     if not _worker.running():
         if free_mib is not None and free_mib < NEEDS_MIB:
@@ -167,11 +244,7 @@ def render(narrator_id: str, text: str, free_mib: int | None = None):
         except PackError as exc:
             raise CloneError(str(exc)) from None
         _worker.start(model_dir)
-    try:
-        clip = verified_clip(narrator)
-    except NarratorError as exc:
-        raise CloneError(str(exc)) from None
-    return _worker.speak(text, clip, liveliness(text))
+    return _worker.speak(text, _checked_clip(narrator_id), liveliness(text))
 
 
 def liveliness(text: str) -> float:
@@ -208,9 +281,7 @@ def warm(narrator_id: str, free_mib: int | None = None) -> bool:
     # for a 1.5 s line, measured 27 Nov; later lines run at about real time).
     # One short, unplayed word here moves that wait to the warm-up at On.
     try:
-        from babysitter.narrators import BY_ID, verified_clip
-
-        _worker.speak("Okay.", verified_clip(BY_ID[narrator_id]))
+        _worker.speak("Okay.", _checked_clip(narrator_id))
     except Exception:  # noqa: BLE001 - a failed warm-up only means the first line is slower
         pass
     return True

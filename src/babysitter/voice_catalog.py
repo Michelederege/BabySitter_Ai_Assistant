@@ -541,7 +541,11 @@ def catalog() -> list[Voice]:
         voices.append(Voice(f"Piper: {label}" if label != "Jenny" else "Piper: Jenny (British)", "piper", accent, pack=pid,
                             licence="See the MODEL_CARD in its pack."))
     from babysitter.narrators import NARRATORS
+    from babysitter.ownvoice import OWN_ID, OWN_NAME
 
+    # Your own recording first: copied by the same helper, from the microphone only.
+    voices.append(Voice(OWN_NAME, "natural", "Yours", pack="chatterbox", speaker=OWN_ID,
+                        licence="Your own recording, kept on this PC."))
     for narrator in NARRATORS:
         # Real people reading: the most natural voices, copied by Chatterbox.
         voices.append(Voice(f"Narrator: {narrator.name}", "natural", narrator.accent, pack="chatterbox",

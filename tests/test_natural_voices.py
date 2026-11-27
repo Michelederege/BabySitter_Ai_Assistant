@@ -18,7 +18,9 @@ def test_eight_narrators_are_pinned_and_credited():
     assert "Public domain" in lj.licence and lj.member.endswith(".wav")
     assert all("CC BY 4.0" in n.licence for n in narrators.NARRATORS if n.source == "hifi")
     names = [name for name in engines.EXTRA_VOICES if engines.is_natural(name)]
-    assert "Narrator: Linda Johnson (LJ Speech)" in names and len(names) == 8
+    # The eight narrators, plus your own recorded voice (0.28.0).
+    assert "Narrator: Linda Johnson (LJ Speech)" in names and len(names) == 9
+    assert sum(name.startswith("Narrator: ") for name in names) == 8
 
 
 def test_a_changed_clip_is_never_used(tmp_path, monkeypatch):

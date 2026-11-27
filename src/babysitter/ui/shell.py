@@ -190,7 +190,9 @@ class _WarmVoiceJob(QThread):
             from babysitter.plugins.voice.kokoro_voice import ready, warm
             from babysitter.plugins.voice.fillers import library
 
-            if self._voice.startswith("Narrator: "):
+            from babysitter.plugins.voice.engines import is_natural
+
+            if is_natural(self._voice):
                 # A natural voice takes about 20 seconds to load; do it now, not at the first reply.
                 from babysitter.plugins.voice import engines
                 from babysitter.plugins.voice.clone_voice import warm as warm_natural
@@ -1114,6 +1116,8 @@ class Shell:
         settings.context_chosen.connect(self._set_context)
         self.window.voice_page.pack_needed.connect(self._offer_pack)
         self.window.voice_page.voice_saved.connect(self._voice_saved)
+        self.window.voice_page.record_own.connect(self._record_own_voice)
+        self.window.voice_page.delete_own.connect(self._delete_own_voice)
         self.controller.voice_wants_card = self._natural_voice_chosen
         from babysitter.plugins.voice import engines as _engines
 
@@ -1519,7 +1523,54 @@ class Shell:
         job.step.connect(self.window.voice_page.status.setText)
         job.start()
 
+    def _record_own_voice(self) -> None:
+        """Consent first, every time; then the recording window. Nothing leaves this PC."""
+        from babysitter import ownvoice
+        from babysitter.ui.record_voice import RecordVoiceDialog
+
+        status = self.window.voice_page.status
+        if not ask_yes_no(self.window, "Record your voice?", ownvoice.CONSENT, "I agree, record my voice", "Not now"):
+            status.setText("Nothing was recorded.")
+            return
+        result = RecordVoiceDialog(self.window, self._mic_device()).run()
+        if not result:
+            status.setText("Nothing was saved. Your earlier recording, if any, is unchanged.")
+            return
+        status.setText(result)
+        from babysitter.plugins.voice.clone_voice import environment_ready
+        from babysitter.modelpacks import ready as pack_ready
+
+        if not (environment_ready() and pack_ready("chatterbox")):
+            status.setText(result + " Speaking in it needs the natural voices set up first.")
+            self._offer_natural_voices()
+
+    def _delete_own_voice(self) -> None:
+        from babysitter import ownvoice
+
+        if not ownvoice.ready():
+            self.window.voice_page.status.setText("There is no voice recording to delete.")
+            return
+        if not ask_yes_no(
+            self.window,
+            "Delete your voice?",
+            "This deletes your voice recording from this PC. If it is the chosen voice, Kokoro speaks instead "
+            "until you pick another or record again.",
+            "Delete it",
+            "Keep it",
+        ):
+            return
+        self.window.voice_page.status.setText(ownvoice.delete())
+
     def _offer_pack(self, pack_id: str) -> None:
+        if pack_id == "own":
+            from babysitter.plugins.voice.clone_voice import environment_ready
+            from babysitter.modelpacks import ready as pack_ready
+
+            if environment_ready() and pack_ready("chatterbox"):
+                self._record_own_voice()
+            else:
+                self._offer_natural_voices()
+            return
         if pack_id == "natural":
             self._offer_natural_voices()
             return

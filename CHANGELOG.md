@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.28.0 — Your own voice, and steadier
+
+**BabySitter can speak in your voice.** On the Voice page, **Record my voice…** asks first, then shows a short passage to read for about 15 seconds. It checks the take (not silent, not too quiet, not distorted, at least 6 seconds of speech), lets you listen back, and keeps it only when you press Keep it. Then choose "My voice (recorded on this PC)" and press Use this voice. It speaks through the same natural-voice helper as the narrators, so the natural voices need to be set up, and the AI runs on Low while it is chosen. The recording stays on this PC and is never sent anywhere. Its fingerprint (SHA-256) is checked before every use, so a swapped file is refused. **Delete my voice** removes it. Only the microphone can make one, and the question before recording says to record only your own voice or someone with you who agrees.
+
+**A stuck natural voice no longer hangs a reply.** If the helper stops answering (90 seconds for a sentence, 3 minutes to start), it is closed and Kokoro says the rest. A reply it sends that can't be read, or a helper that closed, does the same instead of raising an error.
+
+**Stopping a reply no longer leaves a stuck thread behind.** Every stopped or interrupted reply used to leave one helper thread waiting forever. The two copies of the speaking loop are now one, and it always lets its helper go.
+
+**A voice that fails says so.** A voice that couldn't say the first sentence used to go quiet with nothing in the log. Now the reason is shown, and the log names the kind of error (never the words).
+
+**Errors are caught everywhere, and shown once.** Errors in background threads (keyword listening, the voice player) are now written to the log; before, they vanished. A hard crash inside an audio or AI library writes `logs\crash.log` first, so there is something to send. The same error no longer opens box after box: one missing file in an old build opened 18 boxes in two minutes on 26 November. Each kind of error is shown once per run and every one is logged.
+
 ## 0.27.2 — Talking to it more naturally
 
 **Polite and filler words no longer get in the way.** "Could you please just tell me the time real quick", "um, what's on my calendar", "would you mind checking my email for me", and "I'd like you to be quiet" all reach the same commands as the short forms. "5 mins", "2 hrs", and "a couple of minutes" work in timers and reminders.

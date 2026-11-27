@@ -1,7 +1,9 @@
 """How BabySitter will sound, and how it hears you.
 
 The controls save your choices. Speaking them out loud waits until a
-voice engine is installed. There is no voice cloning.
+voice engine is installed. The only copied voices are the narrators, who
+released their recordings, and your own, recorded here after a consent
+question (`ownvoice.py`).
 """
 
 from __future__ import annotations
@@ -46,7 +48,11 @@ def _all_voices():
 
     engines = {"kokoro": "Kokoro", "piper": "Piper", "supertonic": "Supertonic", "natural": "Natural, real narrator"}
     listed = {name for _accent, name, _engine, _where in VOICES}
-    extra = [(voice.accent, voice.name, engines[voice.engine], "Local") for voice in catalog() if voice.name not in listed]
+    extra = [
+        (voice.accent, voice.name, "Natural, your voice" if voice.speaker == "own" else engines[voice.engine], "Local")
+        for voice in catalog()
+        if voice.name not in listed
+    ]
     natural = [row for row in extra if row[2].startswith("Natural")]
     others = [row for row in extra if not row[2].startswith("Natural")]
     # The real narrators first after the default, since they sound the most human.
@@ -62,6 +68,8 @@ class VoicePage(QWidget):
     pack_needed = Signal(str)
     voice_saved = Signal(str)
     pin_line = Signal(str)
+    record_own = Signal()
+    delete_own = Signal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -105,6 +113,21 @@ class VoicePage(QWidget):
         voice_row.addWidget(voice_pin)
         voice_row.addStretch(1)
         layout.addLayout(voice_row)
+
+        own_row = QHBoxLayout()
+        record = QPushButton("Record my voice…")
+        record.setToolTip(
+            "Read a short passage for about 15 seconds. BabySitter copies how you sound. "
+            "The recording stays on this PC. It asks first."
+        )
+        record.clicked.connect(self.record_own.emit)
+        own_row.addWidget(record)
+        forget = QPushButton("Delete my voice")
+        forget.setToolTip("Deletes your voice recording from this PC.")
+        forget.clicked.connect(self.delete_own.emit)
+        own_row.addWidget(forget)
+        own_row.addStretch(1)
+        layout.addLayout(own_row)
 
         self.speed = self._slider("Speed", 80, 130, 105)
         self.pitch = self._slider("Pitch", -6, 6, -1)
@@ -154,7 +177,7 @@ class VoicePage(QWidget):
 
         note = QLabel(
             "Kokoro, Windows voices, and an optional Azure voice are engines behind one slot. "
-            "Voice cloning is not supported. Azure stays off: if you turn it on later, the text of every spoken reply would be sent to Microsoft."
+            "The natural voices copy a narrator, or your own voice if you record it here; nobody else's. Azure stays off: if you turn it on later, the text of every spoken reply would be sent to Microsoft."
         )
         note.setWordWrap(True)
         layout.addWidget(note)
@@ -287,12 +310,15 @@ class VoicePage(QWidget):
             f"Saved {payload['voice']} on this PC. Preview uses that voice. "
             "The first time, BabySitter asks before downloading it."
         )
-        from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
+        from babysitter.plugins.voice.engines import EXTRA_VOICES, is_natural, voice_ready
 
         name = str(payload["voice"] or "")
         self.voice_saved.emit(name)
         if name in EXTRA_VOICES and not voice_ready(name):
-            self.pack_needed.emit("natural" if name.startswith("Narrator: ") else EXTRA_VOICES[name][0])
+            if EXTRA_VOICES[name][1] == "own":
+                self.pack_needed.emit("own")
+            else:
+                self.pack_needed.emit("natural" if is_natural(name) else EXTRA_VOICES[name][0])
         self.notice.emit(self.status.text())
 
     def _preview(self) -> None:
