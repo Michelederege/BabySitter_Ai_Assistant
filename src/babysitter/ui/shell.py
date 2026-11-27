@@ -180,9 +180,10 @@ class _KeywordDownloadJob(QThread):
 
 
 class _WarmVoiceJob(QThread):
-    def __init__(self, busy) -> None:
+    def __init__(self, busy, voice_name: str = "") -> None:
         super().__init__()
         self._busy = busy
+        self._voice = voice_name
 
     def run(self) -> None:
         if self._busy():
@@ -204,9 +205,11 @@ class _WarmVoiceJob(QThread):
             def render(text: str):
                 from babysitter.plugins.voice.kokoro_voice import render_clip
 
-                return render_clip(text)
+                return render_clip(text, self._voice)
 
-            library().prepare(render, self._busy)
+            # Fillers only for a Kokoro voice; the Windows voice has none.
+            if self._voice and not self._voice.startswith("Microsoft"):
+                library(self._voice).prepare(render, self._busy)
         except Exception:
             return
 
@@ -1314,7 +1317,7 @@ class Shell:
     def _warm_voice(self) -> None:
         if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
             return
-        job = _WarmVoiceJob(self.turns.busy)
+        job = _WarmVoiceJob(self.turns.busy, self._voice_prefs().get("name", ""))
         self._store_job("_warm_job", job)
         job.start()
 
@@ -2663,7 +2666,10 @@ class Shell:
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
         self._show_mode("thinking", line)
-        clip = library().clip(index)
+        prefs = self._voice_prefs()
+        if prefs.get("engine") != "kokoro":
+            return  # a Kokoro clip in front of the Windows voice would be two voices
+        clip = library(prefs.get("name", "")).clip(index)
         if clip is None or getattr(self, "_speaking", False):
             return
         pcm, rate = clip
@@ -3193,7 +3199,7 @@ class Shell:
             "name": name,
             "speed": speed,
             "pitch": pitch,
-            "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
+            "label": _voice_label(name),
         }
 
     def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
@@ -3589,6 +3595,9 @@ class Shell:
             return True
         if quick.kind == "rate":
             self._save_rating(quick.detail)
+            return True
+        if quick.kind == "persona":
+            self._save_persona(quick.detail)
             return True
         if quick.kind == "timer":
             self._begin_timer(quick.seconds, quick.detail)
@@ -4554,6 +4563,29 @@ class Shell:
         self.window.home.set_reply("rating", speech, "The tone stays fixed until the next time you turn the AI on.")
         self._speak(speech)
 
+    def _save_persona(self, name: str) -> None:
+        """A name and manner for the next session. It gives no new powers."""
+        from babysitter.personality import clear_persona, save_persona
+
+        if not name:
+            clear_persona()
+            speech = "Okay. I'll be myself again the next time the AI turns on."
+        else:
+            try:
+                shown = save_persona(name)
+            except ValueError as exc:
+                speech = str(exc)
+            else:
+                speech = (
+                    f"Saved. I'll be {shown} the next time the AI turns on. "
+                    "Say be yourself to undo it."
+                )
+        note = "Only how I speak changes. The tools, and every confirm, stay the same."
+        self.window.voice_page.status.setText(speech)
+        self.window.home.set_reply("persona", speech, note)
+        self._note_local("persona", speech)
+        self._speak(speech)
+
     def _speak_weekly(self) -> None:
         if self.turns.busy():
             self.window.home.set_phase("on", "The weekly review waits until this reply finishes.")
@@ -4761,6 +4793,16 @@ class Shell:
                 backstop.daemon = True
                 backstop.start()
         QApplication.quit()
+
+
+def _voice_label(name: str) -> str:
+    """How a Kokoro voice is named in "Speaking with …"."""
+    lowered = (name or "").lower()
+    if "edith" in lowered:
+        return "the EDITH-style voice"
+    if "blend" in lowered or "sarah" in lowered:
+        return "Heart and Sarah"
+    return name
 
 
 def load_icon() -> QIcon:

@@ -19,10 +19,20 @@ MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model
 VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.1/voices-v1.0.bin"
 PACKAGES = ("kokoro-onnx==0.6.1", "sounddevice==0.5.6")
 
-# The starting preset: af_heart 60% + af_sarah 40%.
-BLEND = ("af_heart", "af_sarah", 0.6, 0.4)
+# Blends of Kokoro's own stock voices: (first, second, first share, second share).
+# Heart & Sarah is the starting preset. The EDITH-style blend is calm and
+# crisp: Nova's clear diction over Kore's lower, steadier tone. It is a mix
+# of stock voices, not a copy of anyone's voice. Kokoro clones no one.
+DEFAULT_VOICE = "Heart & Sarah blend"
+BLENDS = {
+    DEFAULT_VOICE: ("af_heart", "af_sarah", 0.6, 0.4),
+    "EDITH-style blend": ("af_nova", "af_kore", 0.6, 0.4),
+}
+BLEND = BLENDS[DEFAULT_VOICE]
 NAMED = {
     "af_heart": "af_heart",
+    "af_nova": "af_nova",
+    "af_kore": "af_kore",
     "am_michael": "am_michael",
     "bf_emma": "bf_emma",
     "bm_george": "bm_george",
@@ -117,7 +127,7 @@ def warm() -> None:
     """Load Heart and Sarah before the first question, so that reply is not waiting on it."""
     if not ready():
         return
-    _style("Heart & Sarah blend")
+    _style(DEFAULT_VOICE)
 
 
 def release() -> None:
@@ -154,12 +164,12 @@ def _float_to_pcm16(samples) -> bytes:
         return bytes(pcm)
 
 
-def render_clip(text: str) -> tuple[bytes, int]:
-    """One int16 clip from Heart and Sarah. Used to pre-render filler lines."""
+def render_clip(text: str, voice_name: str = DEFAULT_VOICE) -> tuple[bytes, int]:
+    """One int16 clip in the chosen voice. Used to pre-render filler lines."""
     if not ready():
         raise KokoroError("Heart and Sarah is not downloaded yet.")
     engine = _loaded_engine()
-    samples, rate = _render(engine, text, _style("Heart & Sarah blend"), 1.05, -1)
+    samples, rate = _render(engine, text, _style(voice_name or DEFAULT_VOICE), 1.05, -1)
     return _float_to_pcm16(samples), int(rate)
 
 
@@ -367,7 +377,7 @@ def _loaded_engine():
 
 
 def _style(voice_name: str):
-    name = voice_name or "Heart & Sarah blend"
+    name = voice_name or DEFAULT_VOICE
     cached = _styles.get(name)
     if cached is not None:
         return cached
@@ -376,7 +386,7 @@ def _style(voice_name: str):
         _styles[name] = single
         return single
     engine = _loaded_engine()
-    heart, sarah, heart_share, sarah_share = BLEND
-    blended = engine.get_voice_style(heart) * heart_share + engine.get_voice_style(sarah) * sarah_share
+    first, second, first_share, second_share = BLENDS.get(name, BLENDS[DEFAULT_VOICE])
+    blended = engine.get_voice_style(first) * first_share + engine.get_voice_style(second) * second_share
     _styles[name] = blended
     return blended

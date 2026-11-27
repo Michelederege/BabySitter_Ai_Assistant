@@ -98,6 +98,9 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     rating = _rating(phrase)
     if rating:
         return QuickCommand("rate", detail=rating)
+    persona = _persona(phrase)
+    if persona is not None:
+        return QuickCommand("persona", detail=persona)
     if phrase in {
         "what time is it",
         "whats the time",
@@ -418,6 +421,31 @@ def _search_command(phrase: str, original: str) -> QuickCommand | None:
             return None
         return QuickCommand("find", detail=detail)
     return None
+
+
+# "Be quiet" and "be honest" are requests, not names.
+_NOT_A_NAME = {
+    "quiet", "quick", "quicker", "honest", "careful", "nice", "brief", "short", "shorter",
+    "long", "longer", "warm", "warmer", "cool", "cooler", "serious", "funny", "right", "back",
+    "ready", "more", "less", "concise", "polite", "kind", "gentle", "direct", "there", "here",
+    "done", "a", "an", "the", "my", "it", "that", "this", "clear", "clearer", "specific",
+    "precise", "patient", "silent", "still", "calm", "real", "straight", "fast", "faster",
+    "slow", "slower", "louder", "softer", "better", "good", "creative", "detailed", "friendly",
+}
+
+
+def _persona(phrase: str) -> str | None:
+    """A name to answer to, or "" to drop it. None when this is not about a persona."""
+    if phrase in {"be yourself", "go back to being yourself", "stop being edith", "drop the persona", "no persona"}:
+        return ""
+    match = re.fullmatch(r"(?:be|become|call yourself|your name is|be called)\s+([a-z' -]{2,24})", phrase)
+    if not match:
+        return None
+    name = match.group(1).strip()
+    words = name.split()
+    if not 1 <= len(words) <= 2 or words[0] in _NOT_A_NAME:
+        return None
+    return name
 
 
 def _rating(phrase: str) -> str:
