@@ -151,6 +151,72 @@ def next_reminder_line(items: list[dict], now: datetime | None = None) -> str:
     return f"{words} — {left}{extra}"
 
 
+def _spoken_length(seconds: int) -> str:
+    """1:59:59 as "about 2 hours", 0:29 as "29 seconds": a length a person would say."""
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return f"{seconds} second{'s' if seconds != 1 else ''}"
+    minutes, secs = divmod(seconds, 60)
+    if minutes < 10:
+        text = f"{minutes} minute{'s' if minutes != 1 else ''}"
+        return text + (f" {secs} second{'s' if secs != 1 else ''}" if secs else "")
+    total = round(seconds / 60)
+    if total < 60:
+        return f"{total} minutes"
+    hours, minutes = divmod(total, 60)
+    if hours >= 24:
+        days = round(hours / 24)
+        return f"about {days} day{'s' if days != 1 else ''}"
+    text = f"{hours} hour{'s' if hours != 1 else ''}"
+    return text + (f" {minutes} minute{'s' if minutes != 1 else ''}" if minutes else "")
+
+
+def next_reminder_speech(items: list[dict], now: datetime | None = None) -> str:
+    """The next reminder as a sentence to say. `next_reminder_line` is the screen's
+    short form ("drink water — 1:59:59"); read aloud, the dash and the clock digits
+    sounded like a label, not an answer."""
+    moment_now = now or datetime.now().astimezone()
+    waiting: list[tuple[datetime, dict]] = []
+    untimed = 0
+    for item in items:
+        if str(item.get("fired") or "") == "yes":
+            continue
+        due = str(item.get("due") or "").strip()
+        if not due:
+            untimed += 1
+            continue
+        try:
+            moment = datetime.fromisoformat(due)
+        except ValueError:
+            continue
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=moment_now.tzinfo)
+        waiting.append((moment, item))
+    if not waiting:
+        if untimed:
+            return "You have a reminder saved with no time, so it isn't counting down."
+        return "Nothing is counting down."
+    waiting.sort(key=lambda pair: pair[0])
+    moment, item = waiting[0]
+    left = _spoken_length(int((moment - moment_now).total_seconds()))
+    words = " ".join(str(item.get("text") or "").split()).rstrip(".")
+    lowered = words.lower()
+    if lowered in {"", "reminder"}:
+        sentence = f"Your next reminder is in {left}."
+    elif lowered == "timer" or lowered.startswith("timer"):
+        sentence = f"{left[0].upper()}{left[1:]} left on the timer."
+    elif lowered == "alarm":
+        sentence = f"Your alarm goes off in {left}."
+    else:
+        if lowered.startswith("to "):
+            words = words[3:]
+        sentence = f"In {left}: {words}."
+    more = len(waiting) - 1
+    if more:
+        sentence += f" {more} more after that." if more > 1 else " One more after that."
+    return sentence
+
+
 def update_item(name: str, item_id: str, **fields: str) -> bool:
     """Change fields on one saved item. False when it is not there."""
     items = load_list(name)

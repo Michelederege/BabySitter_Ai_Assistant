@@ -4308,12 +4308,16 @@ class Shell:
             if not facts:
                 speech = "Nothing saved yet. Say remember that, and the fact, and I'll keep it on this PC."
             else:
-                newest = facts[-3:][::-1]
+                from babysitter.phrasing import PhraseBook
+
+                # Said to you, so "my sister is Anna" is "your sister is Anna";
+                # the list on screen keeps your own words.
+                newest = [PhraseBook.said_back(fact) for fact in facts[-3:][::-1]]
                 count = len(facts)
                 speech = (
                     f"I've saved {count} thing{'s' if count != 1 else ''}. The newest: " + "; ".join(newest) + "."
                     if count > 1
-                    else f"Just one thing: {facts[0]}."
+                    else f"Just one thing: {newest[0]}."
                 )
             self.window.home.set_reply(text, speech, "\n".join(f"• {fact}" for fact in facts[::-1]) or "Saved on this PC, encrypted.")
             self._note_local("memories", speech)
@@ -4689,14 +4693,14 @@ class Shell:
     def _briefing(self, text: str) -> None:
         """The day in a few sentences: the date, the next reminder, open goals, then
         the linked accounts if any. Weather is offered, not fetched: it still needs a yes."""
-        from babysitter.deskstore import next_reminder_line
+        from babysitter.deskstore import next_reminder_speech
 
         now = datetime.now().astimezone()
         hour = now.hour
         greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
         parts = [f"{greeting}. It's {now.strftime('%A')}, {now.strftime('%B')} {now.day}."]
-        reminder = next_reminder_line(load_list("schedule.json"))
-        if reminder and not reminder.lower().startswith(("no reminder", "nothing")):
+        reminder = next_reminder_speech(load_list("schedule.json"))
+        if reminder and not reminder.lower().startswith(("nothing", "you have a reminder saved with no time")):
             parts.append(reminder)
         goals = [item for item in load_list("goals.json") if str(item.get("done") or "") != "yes"]
         if goals:
@@ -4716,10 +4720,11 @@ class Shell:
             self._start_google("both", speak_errors=False)
 
     def _speak_next_reminder(self, text: str) -> None:
-        from babysitter.deskstore import next_reminder_line
+        from babysitter.deskstore import next_reminder_line, next_reminder_speech
 
-        speech = next_reminder_line(load_list("schedule.json"))
-        self.window.home.set_reply(text, speech, "Read from this PC. Nothing was sent.")
+        items = load_list("schedule.json")
+        speech = next_reminder_speech(items)
+        self.window.home.set_reply(text, speech, next_reminder_line(items) + "\nRead from this PC. Nothing was sent.")
         self._note_local(text, speech)
         self._speak(speech)
 

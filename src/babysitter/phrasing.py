@@ -8,6 +8,7 @@ replies feel human while keeping the facts exact.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 
@@ -65,6 +66,24 @@ class PhraseBook:
                 f"Noted, I've tucked {short} away here. Say undo in the next 10 seconds to take it back.",
             ),
         )
+
+    @staticmethod
+    def said_back(fact: str) -> str:
+        """A fact you saved, turned round to be said to you: "my sister is Anna"
+        becomes "your sister is Anna", "I'm allergic to nuts" "you're allergic to nuts"."""
+        swaps = {
+            "i'm": "you're", "im": "you're", "i am": "you are", "i've": "you've", "i'd": "you'd",
+            "i'll": "you'll", "i was": "you were", "i": "you", "my": "your", "mine": "yours",
+            "me": "you", "myself": "yourself",
+        }
+
+        def swap(match: re.Match) -> str:
+            word = match.group(0)
+            new = swaps.get(word.lower(), word)
+            return new[0].upper() + new[1:] if word[0].isupper() and match.start() == 0 else new
+
+        pattern = r"\b(?:i am|i was|i'm|i've|i'd|i'll|im|i|my|mine|me|myself)\b"
+        return re.sub(pattern, swap, fact or "", flags=re.IGNORECASE)
 
     @staticmethod
     def ring_line(note: str) -> str:
