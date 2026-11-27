@@ -25,6 +25,7 @@ class SettingsPage(QWidget):
     pin_line = Signal(str)
     # The chosen microphone's full name. Empty means Windows' default.
     microphone_chosen = Signal(str)
+    hearing_chosen = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -221,6 +222,23 @@ class SettingsPage(QWidget):
             lambda _index: self.microphone_chosen.emit(str(self.microphone.currentData() or ""))
         )
 
+        root.addWidget(self._label("Speech recognition"))
+        hearing_hint = QLabel(
+            "One engine turns what you say into words, on the processor. Whisper is the default. "
+            "Moonshine is much faster. Parakeet is more accurate. Each asks before it downloads."
+        )
+        hearing_hint.setWordWrap(True)
+        hearing_hint.setObjectName("hint")
+        root.addWidget(hearing_hint)
+        from babysitter.plugins.voice.engines import HEARING_ENGINES
+
+        self.hearing = QComboBox()
+        self.hearing.setAccessibleName("Speech recognition engine")
+        for engine_id, label in HEARING_ENGINES.items():
+            self.hearing.addItem(label, engine_id)
+        self.hearing.activated.connect(lambda _i: self.hearing_chosen.emit(str(self.hearing.currentData() or "whisper")))
+        root.addWidget(self.hearing)
+
         root.addWidget(self._label("Listening extras"))
         hint = QLabel(
             "These stay off until you turn them on. Silero is used only when its file is already "
@@ -360,6 +378,9 @@ class SettingsPage(QWidget):
         self.vad_enabled.setChecked(settings.vad_enabled)
         self.smart_turn.setChecked(settings.smart_turn)
         self.echo_cancel.setChecked(settings.echo_cancel)
+        self.hearing.blockSignals(True)
+        self.hearing.setCurrentIndex(max(0, self.hearing.findData(settings.hearing_engine)))
+        self.hearing.blockSignals(False)
         self.talk_over.setChecked(settings.talk_over)
         games = [str(name) for name in settings.game_processes]
         excluded = [str(name) for name in settings.journal_excluded]

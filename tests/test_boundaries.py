@@ -46,6 +46,10 @@ def test_http_targets_are_local_or_documented_pages():
         # The sharper memory model, downloaded only after a confirm click.
         "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx",
         "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/vocab.txt",
+        # Model packs for Moonshine, Parakeet, Piper, and Supertonic. Each file is
+        # pinned to a SHA-256 in modelpacks.py and downloads only after a yes.
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/",
+        "https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b/",
         # Built only after the host is checked to be 127.0.0.1.
         "http://{self.host}:{self.port}",
     )

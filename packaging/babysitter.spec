@@ -85,6 +85,13 @@ _PACKED = (
     ("faster_whisper", None),
     ("tokenizers", None),
     ("av", None),
+    # The extra hearing engines and voices. Their model files are separate
+    # packs, downloaded after a yes, so only the programs are packed here.
+    ("sherpa_onnx", None),
+    ("piper", None),
+    ("supertonic", None),
+    ("_soundfile_data", None),
+    ("pathvalidate", None),
 )
 
 _binaries = []
@@ -132,6 +139,12 @@ a = Analysis(
         "srt",
         "tqdm",
         "requests",
+        "sherpa_onnx",
+        "piper",
+        "piper.voice",
+        "supertonic",
+        "soundfile",
+        "pathvalidate",
     ],
     hookspath=[],
     hooksconfig={},

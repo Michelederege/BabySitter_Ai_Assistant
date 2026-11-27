@@ -68,6 +68,8 @@ class Settings:
     search_folders: list[str] = field(default_factory=list)
     # The microphone's full name. Empty means Windows' default.
     microphone: str = ""
+    # "whisper" (default), "moonshine", or "parakeet". One engine hears the question.
+    hearing_engine: str = "whisper"
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -111,6 +113,7 @@ class Settings:
             "journal_excluded": list(self.journal_excluded),
             "search_folders": list(self.search_folders),
             "microphone": self.microphone,
+            "hearing_engine": self.hearing_engine,
         }
 
 
@@ -402,6 +405,11 @@ def settings_from_dict(data: dict) -> Settings:
         journal_excluded=_clean_names(data.get("journal_excluded")),
         search_folders=_clean_folders(data.get("search_folders")),
         microphone=" ".join(str(data.get("microphone") or "").split())[:200],
+        hearing_engine=(
+            str(data.get("hearing_engine") or "whisper")
+            if str(data.get("hearing_engine") or "whisper") in {"whisper", "moonshine", "parakeet"}
+            else "whisper"
+        ),
         notices=notices,
     )
 

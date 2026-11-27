@@ -464,6 +464,21 @@ class _SpeakJob(QThread):
                         if nxt is None:
                             break
                         pending.append(nxt)
+            elif prefs.get("engine") == "extra":
+                from babysitter.plugins.voice.engines import render as render_extra
+                from babysitter.plugins.voice.kokoro_voice import speak_sequence
+
+                voice, speed = prefs.get("name", ""), max(0.5, int(prefs.get("speed", 100)) / 100)
+                speak_sequence(
+                    pieces,
+                    voice,
+                    int(prefs.get("speed", 100)),
+                    0,
+                    on_start=self.started.emit,
+                    on_piece=self.phrase_done.emit,
+                    incoming=self.incoming,
+                    render=lambda piece, voice=voice, speed=speed: render_extra(voice, piece, speed),
+                )
             else:
                 from babysitter.plugins.voice.kokoro_voice import speak_sequence
 
@@ -488,13 +503,28 @@ class _HearJob(QThread):
     heard = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, wav: bytes) -> None:
+    def __init__(self, wav: bytes, engine: str = "whisper") -> None:
         super().__init__()
         self._wav = wav
+        self._engine = engine
 
     def run(self) -> None:
         wav = self._wav
         self._wav = b""
+        if self._engine in {"moonshine", "parakeet"}:
+            from babysitter.plugins.voice.engines import EngineError, hear
+            from babysitter.plugins.voice.hearing import Transcript
+
+            try:
+                self.result = Transcript(hear(self._engine, wav), True)
+                self.heard.emit(self.result.text)
+            except EngineError as exc:
+                self.failed.emit(str(exc))
+            except Exception:
+                self.failed.emit("Could not turn that recording into text. Nothing was sent.")
+            finally:
+                wav = b""
+            return
         try:
             from babysitter.plugins.voice.hearing import needs_second_pass, pick_pass, read_speech
 
@@ -590,6 +620,26 @@ class _ScanJob(QThread):
             self.finished_scan.emit(exc)
             return
         self.finished_scan.emit((result, report))
+
+
+class _PackDownloadJob(QThread):
+    """One model pack, after a yes. Checked against its hash before it is kept."""
+
+    done = Signal(str)
+
+    def __init__(self, pack_id: str) -> None:
+        super().__init__()
+        self._pack = pack_id
+
+    def run(self) -> None:
+        from babysitter.modelpacks import PackError, download
+
+        try:
+            self.done.emit(download(self._pack))
+        except PackError as exc:
+            self.done.emit(str(exc))
+        except Exception:
+            self.done.emit("The download stopped before it finished. Nothing was kept.")
 
 
 class _HealthJob(QThread):
@@ -900,6 +950,8 @@ class Shell:
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
         settings.microphone_chosen.connect(self._set_microphone)
+        settings.hearing_chosen.connect(self._set_hearing_engine)
+        self.window.voice_page.pack_needed.connect(self._offer_pack)
         settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
@@ -1156,6 +1208,12 @@ class Shell:
         if state == "off":
             release_model()
             release_kokoro()
+            try:
+                from babysitter.plugins.voice.engines import release as release_engines
+
+                release_engines()
+            except Exception:
+                pass
             self._session_personality = ""
             self._google_notified = False
             self._session_id = ""
@@ -1184,9 +1242,62 @@ class Shell:
             "Turns the AI fully off, even if this window is hidden."
         )
 
+    def _hearing_engine(self) -> str:
+        """The engine that hears the question. A chosen one not downloaded yet falls back to Whisper."""
+        from babysitter.modelpacks import ready as pack_ready
+
+        engine = self.controller.settings.hearing_engine
+        if engine in {"moonshine", "parakeet"} and pack_ready(engine):
+            return engine
+        return "whisper"
+
+    def _hearing_ready(self) -> bool:
+        if self._hearing_engine() != "whisper":
+            return True
+        return packages_installed() and model_ready()
+
+    def _set_hearing_engine(self, engine: str) -> None:
+        from babysitter.modelpacks import ready as pack_ready
+
+        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "whisper"
+        save_settings(self.controller.settings)
+        if engine in {"moonshine", "parakeet"} and not pack_ready(engine):
+            self._offer_pack(engine)
+            return
+        from babysitter.plugins.voice.engines import HEARING_ENGINES
+
+        self.window.voice_page.status.setText(f"{HEARING_ENGINES.get(engine, 'Whisper')} hears your questions now.")
+
+    def _offer_pack(self, pack_id: str) -> None:
+        """Ask before a model pack downloads. Nothing is fetched without a yes."""
+        from babysitter.modelpacks import PACKS
+
+        pack = PACKS[pack_id]
+        running = getattr(self, "_pack_job", None)
+        if running is not None and running.isRunning():
+            self.window.voice_page.status.setText("A download is already running.")
+            return
+        if not ask_yes_no(
+            self.window,
+            f"Download {pack.label}?",
+            f"About {pack.size_mb} MB, saved in your BabySitter folder and checked against its recorded hash. "
+            f"It runs on the processor, not the graphics card. {pack.note}".strip(),
+            "Download",
+            "Not now",
+        ):
+            self.window.voice_page.status.setText(f"{pack.label} was not downloaded. Nothing was sent.")
+            return
+        self.window.voice_page.status.setText(f"Downloading {pack.label}, about {pack.size_mb} MB…")
+        job = _PackDownloadJob(pack_id)
+        self._store_job("_pack_job", job)
+        job.done.connect(lambda message: self.window.voice_page.status.setText(message))
+        job.start()
+
     def _warm_hearing(self) -> None:
         if self.turns.busy():
             return
+        if self._hearing_engine() != "whisper":
+            return  # Whisper is not loaded when another engine hears the question.
         if not packages_installed() or not model_ready():
             return
         if getattr(self, "_hearing_job", None) is not None and self._hearing_job.isRunning():
@@ -1998,7 +2109,7 @@ class Shell:
         self._holding = True
         self._recording = False
         self._show_mode("listening", "Listening. Release to stop.")
-        if packages_installed() and model_ready():
+        if self._hearing_ready():
             try:
                 self._recorder.start(self._mic_device())
                 self._recording = True
@@ -2041,7 +2152,7 @@ class Shell:
             )
             self._sync_keyword()
             return
-        if not packages_installed() or not model_ready():
+        if not self._hearing_ready():
             self._show_mode(self.controller.state, "Hold to talk")
             self.window.home.set_phase(self.controller.state, "The microphone stays closed until you hold to talk.")
             self._pending_line = ""
@@ -2062,7 +2173,7 @@ class Shell:
             from babysitter.plugins.voice.hearing import model_ready as whisper_ready
             from babysitter.plugins.voice.hearing import packages_installed as whisper_installed
 
-            if whisper_installed() and whisper_ready():
+            if self._hearing_ready() and (self._hearing_engine() != "whisper" or (whisper_installed() and whisper_ready())):
                 self._vosk_line = text
                 if getattr(self, "_listener", None) is not None:
                     self._listener.stop()
@@ -3087,6 +3198,21 @@ class Shell:
             pitch = int(raw_pitch) if raw_pitch is not None else -1
         except (TypeError, ValueError):
             pitch = -1
+        from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
+
+        if name in EXTRA_VOICES:
+            if voice_ready(name):
+                return {"engine": "extra", "name": name, "speed": speed, "pitch": pitch, "label": name}
+            # The model file is missing, so the Windows voice speaks instead.
+            return {
+                "engine": "windows",
+                "name": "",
+                "windows_voice": "",
+                "speed": speed,
+                "pitch": pitch,
+                "rate": sapi_rate(speed),
+                "label": f"the Windows voice, until {name} is downloaded",
+            }
         if name.startswith("Microsoft"):
             return {
                 "engine": "windows",
@@ -3221,7 +3347,7 @@ class Shell:
             self._retain_thread(running)
             self._queued_hear = (wav, on_heard)
             return
-        job = _HearJob(wav)
+        job = _HearJob(wav, self._hearing_engine())
         self._hear_job = job
         self._retain_thread(job)
         job.heard.connect(on_heard)
