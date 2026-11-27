@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.29.0 — Nothing opens by accident, more commands, a memory leak fixed
+
+**"Find …" no longer opens a file you didn't mean.** Questions like "find the capital of australia" or "find me a recipe" are answered by the AI when no file matches. A single search match opens on its own only when its name clearly matches what you said; otherwise it's listed, and "open it" opens it.
+
+**New things you can say:** "what can you do", "speak slower" / "talk faster" (really changes the voice), "louder" (an honest answer instead of a fake yes), "turn off the AI", "game mode", "leave game mode", "set an alarm for 7 am", "cancel my alarm", "what's on my calendar today". Plain "thanks" and "thank you" are answered right away again.
+
+**Reminders understood and said better.** "Set a reminder for 5 to call mom" now gets a time (it used to get none). No more "remind you to to call mom". Timers and reminders are said as sentences ("1 minute 29 seconds left on the timer"), and saved facts are said back to you ("your sister is Anna").
+
+**A memory leak is gone.** Long use could grow BabySitter from about 116 MB to almost 800 MB. It now stays flat.
+
+**Smaller fixes.** The weather looks your town up once per run. The README's privacy section now lists every service, and old "no voice cloning" and "no code signing" claims are corrected. Model and voice ideas are in `docs/model-recommendations.md`.
+
 ## 0.28.1 — Four audits: bugs and waste
 
 **Game mode no longer unloads the AI beside a small game.** It works out the free room on the graphics card by leaving out BabySitter's own model, but on your PC it was reading that share as zero. So with Medium loaded, any game it noticed, even a light one, looked like "no room", and about six seconds later the model was unloaded or switched down. It now gets that share from Ollama, so the AI stays up when the game leaves room.
