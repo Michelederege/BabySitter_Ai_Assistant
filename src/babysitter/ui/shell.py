@@ -4057,6 +4057,31 @@ class Shell:
         self._end_model_turn()
         self.window.home.set_phase(self.controller.state, message)
 
+    def _show_voice_fallback(self) -> None:
+        """Say on screen why Kokoro spoke instead of the natural voice or your own.
+
+        `engines.fallback_note` kept the reason (too little video memory, a
+        helper that stopped), but nothing read it, so the voice changed with no
+        word why. Each different reason is shown once per run, in the status
+        line and the history, not spoken over the reply.
+        """
+        try:
+            from babysitter.plugins.voice.engines import fallback_note
+
+            note = fallback_note()
+        except Exception:  # noqa: BLE001
+            return
+        if not note:
+            return
+        shown = getattr(self, "_fallbacks_shown", None)
+        if shown is None:
+            shown = self._fallbacks_shown = set()
+        if note in shown:
+            return
+        shown.add(note)
+        self.controller._remember(note)
+        self.window.home.set_phase(self.controller.state, note)
+
     def _speak_done(self) -> None:
         queued = getattr(self, "_queued_speech", None)
         self._queued_speech = None
@@ -4066,6 +4091,7 @@ class Shell:
             return
         self._speaking = False
         self._release_idle_voices()
+        self._show_voice_fallback()
         if getattr(self, "_alert_speech", False):
             self._alert_speech = False
             self._show_mode(self.controller.state, "Reminder said.")
