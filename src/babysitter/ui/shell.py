@@ -548,35 +548,6 @@ class _SearchJob(QThread):
             key = ""
 
 
-class _GoogleJob(QThread):
-    ready = Signal(str)
-
-    def __init__(self, token: str, kind: str) -> None:
-        super().__init__()
-        self._token = token
-        self._kind = kind
-
-    def run(self) -> None:
-        secret = self._token
-        self._token = ""
-        try:
-            reader = GoogleReader(secret, http_get_json)
-            if self._kind == "mail":
-                speech = reader.unread()
-            elif self._kind == "calendar":
-                speech = reader.upcoming()
-            else:
-                speech = reader.unread() + " " + reader.upcoming()
-        except GoogleError as exc:
-            speech = str(exc)
-        except Exception:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        if secret and secret in speech:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        secret = ""
-        self.ready.emit(speech)
-
-
 class _ScanJob(QThread):
     """Reads the PC for "scan my PC": processes, startup items, Defender.
 
@@ -656,134 +627,51 @@ class _HealthJob(QThread):
         self.finished_text.emit(text or "The check returned nothing. Nothing was changed.")
 
 
-class _GooglePollJob(QThread):
-    ready = Signal(str, list)
+class _LinkedJob(QThread):
+    """One read of every linked account, off the window's thread.
 
-    def __init__(self, token: str, seen: set[str]) -> None:
+    The Tools list, the spoken summary, and the 15-minute check all use it.
+    Tokens are fetched here too, so refreshing a sign-in never freezes the window.
+    """
+
+    ready = Signal(object)
+
+    def __init__(self, accounts, feed, want_fresh: bool = False) -> None:
         super().__init__()
-        self._token = token
-        self._seen = set(seen)
+        self._accounts = list(accounts)
+        self._feed = feed
+        self._want_fresh = want_fresh
 
     def run(self) -> None:
-        secret = self._token
-        self._token = ""
-        updated = set(self._seen)
+        from babysitter.inbox import Inbox, gather
+
         try:
-            reader = GoogleReader(secret, http_get_json)
-            mail_ids, mail_titles = reader.mail_index()
-            event_ids, event_titles = reader.event_index()
-            speech, updated = fresh_lines(
-                list(mail_ids) + list(event_ids),
-                list(mail_titles) + list(event_titles),
-                self._seen,
-            )
-        except GoogleError as exc:
-            speech = str(exc)
+            result = gather(self._accounts, self._feed, want_fresh=self._want_fresh)
         except Exception:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        if secret and secret in speech:
-            speech = "Google did not answer. Mail and the calendar were not changed."
-        secret = ""
-        self.ready.emit(speech, list(updated))
-
-
-class _InboxJob(QThread):
-    ready = Signal(list, str)
-
-    def __init__(self, personal: str, school: str, feed_url: str, lead: str, notices: list[str] | None = None) -> None:
-        super().__init__()
-        self._personal = personal
-        self._school = school
-        self._feed_url = feed_url
-        self._lead = lead
-        self._notices = list(notices or [])
-
-    def run(self) -> None:
-        personal = self._personal
-        school = self._school
-        feed_url = self._feed_url
-        self._personal = ""
-        self._school = ""
-        self._feed_url = ""
-        rows: list[str] = []
-        speeches: list[str] = []
-        problems: list[str] = list(self._notices)
-        self._notices = []
-        if personal:
-            found, said, failed = read_account(
-                personal,
-                mail_prefix="Mail",
-                calendar_prefix="Calendar",
-                drive_prefix="Drive",
-            )
-            rows.extend(found)
-            speeches.extend(said)
-            problems.extend(failed)
-        if school:
-            found, said, failed = read_account(
-                school,
-                mail_prefix="School mail",
-                calendar_prefix="School calendar",
-                drive_prefix="School Drive",
-            )
-            rows.extend(found)
-            speeches.extend(said)
-            problems.extend(failed)
-        if feed_url:
-            try:
-                events = events_from_ics(fetch_feed(feed_url))
-                rows.extend(blackboard_rows(events))
-                speeches.append(blackboard_speech(events))
-            except FeedError as exc:
-                problems.append(str(exc))
-                rows.append("Blackboard · could not be read")
-        order = {
-            "mail": ("Unread mail", "No unread mail", "School mail"),
-            "calendar": ("Coming up", "Nothing coming up", "School calendar"),
-            "drive": ("Drive:", "No files in Drive", "School Drive"),
-            "school_mail": ("School mail", "No unread school"),
-            "blackboard": ("Blackboard:", "Nothing coming up on Blackboard"),
-        }
-        preferred = order.get(self._lead, ())
-        if preferred:
-            speeches.sort(key=lambda line: 0 if any(bit in line for bit in preferred) else 1)
-        speech = " ".join(speeches[:4]).strip()
-        if problems and not speech:
-            speech = " ".join(problems[:2])
-        elif problems:
-            speech = speech + " " + problems[0]
-        if not rows and not speech:
-            speech = (
-                "Nothing is linked yet. On Tools, paste your Google desktop client id and press Sign in. "
-                "School Google is a second sign-in. Blackboard uses the calendar link from your school."
-            )
-            rows = [speech]
-        secrets = [item for item in (personal, school, feed_url) if item]
-        if any(secret in speech for secret in secrets):
-            speech = "Google did not answer. Mail, the calendar, and Drive were not changed."
-        safe_rows: list[str] = []
-        for row in rows:
-            if any(secret in row for secret in secrets):
-                safe_rows.append("A linked account answered with something BabySitter will not show.")
-            else:
-                safe_rows.append(row)
-        personal = ""
-        school = ""
-        feed_url = ""
-        self.ready.emit(safe_rows, speech)
+            result = Inbox(problems=["The linked accounts did not answer. Nothing was changed."])
+        self._accounts = []
+        self._feed = None
+        self.ready.emit(result)
 
 
 class _DraftJob(QThread):
     ready = Signal(str, str)
 
-    def __init__(self, tokens: list[str], window_title: str) -> None:
+    def __init__(self, tokens: list, window_title: str) -> None:
         super().__init__()
-        self._tokens = list(tokens)
+        self._tokens = list(tokens)  # tokens, or functions that fetch one
         self._title = window_title
 
     def run(self) -> None:
-        tokens = self._tokens
         title = self._title
+        tokens: list[str] = []
+        for item in self._tokens:
+            try:
+                token = item() if callable(item) else item
+            except Exception:
+                continue
+            if token:
+                tokens.append(str(token))
         self._tokens = []
         self._title = ""
         from babysitter.writing import read_open_draft
@@ -2608,15 +2496,8 @@ class Shell:
             return
         from babysitter.games import foreground_window_title
 
-        tokens: list[str] = []
-        try:
-            for vault in (self.google_vault, self.google_school_vault):
-                token = self._token_for_google(vault) or ""
-                if token:
-                    tokens.append(token)
-        except (GoogleError, SecretsError) as exc:
-            self._show_google(str(exc), speak=True)
-            return
+        # The tokens are fetched by the job, so a sign-in refresh never freezes the window.
+        tokens = [account.token for account in self._linked_accounts()]
         if not tokens:
             self._show_google(
                 "Sign in with Google on Tools first. Nothing was read.",
@@ -4308,36 +4189,38 @@ class Shell:
         page.show_google("The Blackboard link is saved. It is encrypted on this PC and it is not in settings.json.")
         self._refresh_inbox("blackboard")
 
+    def _linked_accounts(self):
+        """Each linked Google account, with a function that fetches its token later."""
+        from babysitter.inbox import Account
+
+        if not self.controller.settings.google_enabled:
+            return []
+        accounts = []
+        for vault, name, mail, calendar, drive in (
+            (self.google_vault, "Google", "Mail", "Calendar", "Drive"),
+            (self.google_school_vault, "School Google", "School mail", "School calendar", "School Drive"),
+        ):
+            try:
+                linked = vault.has_token()
+            except Exception:
+                linked = False
+            if linked:
+                accounts.append(Account(name, mail, calendar, drive, lambda v=vault: self._token_for_google(v)))
+        return accounts
+
+    def _linked_feed(self):
+        if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
+            return self.blackboard_vault.load
+        return None
+
     def _refresh_inbox(self, lead: str = "all") -> None:
         page = self.window.tools_page
         running = getattr(self, "_inbox_job", None)
         if running is not None and running.isRunning():
             page.show_google("I'm already reading the linked accounts.")
             return
-        personal = ""
-        school = ""
-        feed_url = ""
-        notices: list[str] = []
-        if self.controller.settings.google_enabled:
-            try:
-                personal = self._token_for_google(self.google_vault) or ""
-            except (GoogleError, SecretsError) as exc:
-                notices.append(str(exc))
-            try:
-                school = self._token_for_google(self.google_school_vault) or ""
-            except (GoogleError, SecretsError) as exc:
-                notices.append(str(exc))
-        if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
-            try:
-                feed_url = self.blackboard_vault.load() or ""
-            except (FeedError, SecretsError) as exc:
-                page.show_google(str(exc))
-                return
-        if not personal and not school and not feed_url:
-            if notices:
-                page.set_inbox(notices)
-                page.show_google(" ".join(notices[:2]))
-                return
+        accounts, feed = self._linked_accounts(), self._linked_feed()
+        if not accounts and feed is None:
             page.set_inbox([
                 "Nothing is linked yet. Paste the Google desktop client id, then Sign in with Google.",
             ])
@@ -4346,52 +4229,66 @@ class Shell:
             )
             return
         page.show_google("Reading linked accounts. Mail, calendar, and Drive names only.")
-        job = _InboxJob(personal, school, feed_url, lead, notices)
+        job = _LinkedJob(accounts, feed)
         self._store_job("_inbox_job", job)
-        job.ready.connect(self._inbox_ready)
+        job.ready.connect(lambda inbox, lead=lead: self._inbox_ready(inbox, lead))
         job.start()
 
-    def _inbox_ready(self, rows: list, speech: str) -> None:
-        self.window.tools_page.set_inbox([str(row) for row in rows])
-        self._show_google(speech, speak=not self.turns.busy())
+    def _inbox_ready(self, inbox, lead: str = "all") -> None:
+        from babysitter.inbox import spoken
+
+        self.window.tools_page.set_inbox(list(inbox.rows) or list(inbox.problems))
+        self._show_google(spoken(inbox, lead=lead), speak=not self.turns.busy())
 
     def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
+        """Mail and calendar, said aloud, or only what is new since the last check.
+
+        Every linked account counts, school Google and Blackboard too, through
+        the same read as the Tools list.
+        """
         self._google_speak_errors = speak_errors
         self._google_only_new = only_new
-        if not self.controller.settings.google_enabled:
+        if not self.controller.settings.google_enabled and not self.controller.settings.blackboard_enabled:
             self._show_google(
                 "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
             return
-        if not self.google_vault.available:
-            self._show_google("Saving a Google token needs Windows. Nothing was sent.", speak=speak_errors)
-            return
-        try:
-            token = self._token_for_google()
-        except (SecretsError, GoogleError) as exc:
-            self._show_google(str(exc), speak=speak_errors)
-            return
-        if not token:
+        accounts = self._linked_accounts()
+        feed = None if only_new else self._linked_feed()
+        if not accounts and feed is None:
             self._show_google(
-                "There is no Google token saved. Paste a read-only token under Tools. Nothing was sent.",
+                "Nothing is linked yet. Sign in with Google under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
             return
         running = getattr(self, "_google_job", None)
         if running is not None and running.isRunning():
-            self._show_google("I'm already checking Google.", speak=True)
+            if not only_new:
+                self._show_google("I'm already checking Google.", speak=True)
             return
+        job = _LinkedJob(accounts, feed, want_fresh=only_new)
+        self._store_job("_google_job", job)
         if only_new:
-            job = _GooglePollJob(token, self._seen_google)
-            self._store_job("_google_job", job)
-            job.ready.connect(self._google_poll_ready)
+            job.ready.connect(self._linked_fresh)
         else:
-            job = _GoogleJob(token, kind)
-            self._store_job("_google_job", job)
-            job.ready.connect(self._google_ready)
-            self.window.tools_page.show_google("Checking Google. Only mail and calendar are read.")
+            job.ready.connect(lambda inbox, kind=kind: self._linked_spoken(inbox, kind))
+            self.window.tools_page.show_google("Checking the linked accounts. Only reading.")
         job.start()
+
+    def _linked_spoken(self, inbox, kind: str) -> None:
+        from babysitter.inbox import spoken
+
+        if inbox.rows:
+            self.window.tools_page.set_inbox(list(inbox.rows))
+        only = kind if kind in {"mail", "calendar"} else ""
+        self._google_ready(spoken(inbox, lead=kind, only=only) or "Nothing new on the linked accounts.")
+
+    def _linked_fresh(self, inbox) -> None:
+        speech, seen = fresh_lines(inbox.fresh_ids, inbox.fresh_titles, self._seen_google)
+        if not speech and inbox.problems:
+            speech = inbox.problems[0]
+        self._google_poll_ready(speech, list(seen))
 
     def _google_ready(self, speech: str) -> None:
         failed = speech.startswith("Google did not") or speech.startswith("Google refused") or speech.startswith("Google sent")
