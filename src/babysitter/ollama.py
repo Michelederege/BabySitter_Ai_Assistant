@@ -181,7 +181,15 @@ class OllamaClient:
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
-    def port_open(self, timeout: float = 0.4) -> bool:
+    def port_open(self, timeout: float = 0.1) -> bool:
+        """Is something listening on Ollama's port on this PC?
+
+        On Windows a refused connection to 127.0.0.1 is retried until the
+        timeout, so a closed port always cost the full wait: 0.4 s, every 2
+        seconds in the status check and on the window's thread when it closed
+        or hid. An open loopback port answers in milliseconds, so 0.1 s is
+        plenty (measured 27 Nov: open 15 ms, closed = the timeout).
+        """
         try:
             with socket.create_connection((self.host, self.port), timeout=timeout):
                 return True

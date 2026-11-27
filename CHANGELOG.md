@@ -40,6 +40,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **Don't save conversations.** Settings, Privacy and data. Off: what you say is kept only while BabySitter is open, so follow-ups still work, and nothing goes into History.
 
+**Snappier while the AI is off.** Checking whether Ollama is running used to wait 0.4 seconds every time it was not, every 2 seconds and when the window closed. It now waits 0.1 seconds.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app
