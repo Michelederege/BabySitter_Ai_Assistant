@@ -102,10 +102,18 @@ def test_a_scan_asked_during_a_reply_runs_when_the_reply_is_over(tmp_path, monke
 
         shell._speaking = False
         shell._pending_offer = "The rest of the model answer."
+        import babysitter.pcreport as pcreport
+        from PySide6.QtWidgets import QApplication
+
+        monkeypatch.setattr(pcreport, "collect_rows", lambda sample_seconds=1.0: [])
+        monkeypatch.setattr(pcreport, "defender_threats", lambda run=None: [])
         assert job.finished.slots[0]() is True
         assert shell.turns.busy() is False
         assert shell._scan_when_free is False
         assert shell._pending_offer == ""
+        # The scan reads the PC on its own thread, then speaks.
+        assert shell._scan_job.wait(5000)
+        QApplication.instance().processEvents()
         assert shell._said
         assert "powershell" not in shell._said[-1].lower()
         assert "rest of the model answer" not in shell._said[-1].lower()
