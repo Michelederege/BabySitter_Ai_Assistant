@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 
 @dataclass(frozen=True)
@@ -1193,7 +1193,8 @@ def reminder_fields(text: str, when_text: str, now: datetime) -> tuple[str, str]
 
 
 _FOR_CLOCK = re.compile(
-    r"^(?:for\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.?|p\.m\.?))?)(?=\s*$|\s+(?:to|that|about|so)\b)",
+    r"^(?:for\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.?|p\.m\.?))?)"
+    r"(?=\s*$|\s+(?:to|that|about|so|tomorrow|today|tonight|on|next|this|in the)\b)",
     re.IGNORECASE,
 )
 
@@ -1254,9 +1255,11 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
             return QuickCommand("remind", detail=detail, when="")
         moment, span = located
         waking = label.startswith("wake")
-        if waking and not re.search(r"\b(?:am|pm|a\.m|p\.m|noon|midnight|tonight|evening)\b", detail.lower()) and moment.hour >= 13:
-            # "Wake me up at 7" means the morning, not 7 this evening.
-            moment = moment + timedelta(hours=12)
+        if waking and not re.search(r"\b(?:am|pm|a\.m|p\.m|noon|midnight|tonight|evening|afternoon)\b", detail.lower()) and moment.hour >= 13:
+            # "Wake me up at 7" means the morning, not 7 this evening: the
+            # same day's morning if it is still ahead, else the next one.
+            morning = _wall_clock(moment.date(), moment.hour - 12, moment.minute, now)
+            moment = morning if morning > now else _wall_clock(moment.date() + timedelta(days=1), moment.hour - 12, moment.minute, now)
         alarm = label in _ALARM_LABELS
         detail = _cut_when(detail, span) or ("Wake up" if waking else "Alarm" if alarm else "Reminder")
         return QuickCommand("remind", detail=detail, when=moment.isoformat(timespec="seconds"))
@@ -1377,8 +1380,8 @@ def _map_span(origin: list[int], span: tuple[int, int], length: int) -> tuple[in
     return orig_start, max(orig_start, orig_end)
 
 
-def _cover_words(folded: str, span: tuple[int, int]) -> tuple[int, int]:
-    """Include a leading 'at' and the word tomorrow, so they leave the note."""
+def _cover_words(folded: str, span: tuple[int, int], day_span: tuple[int, int] | None = None) -> tuple[int, int]:
+    """Include a leading 'at' and the day words ("tomorrow", "on Friday"), so they leave the note."""
     start, end = span
     lead = re.search(r"\bat\s+$", folded[:start])
     if lead:
@@ -1387,7 +1390,81 @@ def _cover_words(folded: str, span: tuple[int, int]) -> tuple[int, int]:
     if word:
         start = min(start, word.start())
         end = max(end, word.end())
+    if day_span is not None:
+        start = min(start, day_span[0])
+        end = max(end, day_span[1])
+    part = re.search(r"\b(?:this|in the|tomorrow)\s+(?:morning|afternoon|evening)\b|\btonight\b", folded)
+    if part:
+        start = min(start, part.start())
+        end = max(end, part.end())
     return start, end
+
+
+_WEEKDAYS = {
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3, "friday": 4, "saturday": 5, "sunday": 6,
+}
+_MONTHS = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3, "april": 4, "apr": 4,
+    "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7, "august": 8, "aug": 8,
+    "september": 9, "sept": 9, "sep": 9, "october": 10, "oct": 10, "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+_ORDINALS = {
+    "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8,
+    "ninth": 9, "tenth": 10, "eleventh": 11, "twelfth": 12, "thirteenth": 13, "fourteenth": 14,
+    "fifteenth": 15, "sixteenth": 16, "seventeenth": 17, "eighteenth": 18, "nineteenth": 19,
+    "twentieth": 20, "thirtieth": 30, "thirty first": 31,
+}
+for _word, _n in list(_ORDINALS.items()):
+    if 1 <= _n <= 9:
+        _ORDINALS[f"twenty {_word}"] = 20 + _n
+_DAY_NUMBER = r"(\d{1,2})(?:st|nd|rd|th)?|(" + "|".join(sorted(_ORDINALS, key=len, reverse=True)) + r")"
+_MONTH_NAMES = "|".join(sorted(_MONTHS, key=len, reverse=True))
+_MONTH_FIRST = re.compile(rf"\b(?:on\s+)?(?:the\s+)?({_MONTH_NAMES})\.?\s+(?:the\s+)?(?:{_DAY_NUMBER})\b")
+_DAY_FIRST = re.compile(rf"\b(?:on\s+)?the\s+(?:{_DAY_NUMBER})\s+of\s+({_MONTH_NAMES})\b")
+_WEEKDAY_RE = re.compile(r"\b(?:on\s+)?(?:(next|this|coming|this coming)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b")
+_DAY_AFTER = re.compile(r"\b(?:the\s+)?day after tomorrow\b")
+
+
+def _day_number(digits: str | None, word: str | None) -> int | None:
+    if digits:
+        return int(digits)
+    return _ORDINALS.get(" ".join((word or "").split()))
+
+
+def _named_day(folded: str, now: datetime) -> tuple[int, tuple[int, int], bool] | None:
+    """Days from today that the words name, their slice, and whether that day may roll a week on.
+
+    "Friday" said on a Friday after the time has passed means next Friday, so
+    a weekday naming today may move on seven days. A date never moves.
+    """
+    after = _DAY_AFTER.search(folded)
+    if after:
+        return 2, after.span(), False
+    for pattern, month_group, digit_group, word_group in ((_MONTH_FIRST, 1, 2, 3), (_DAY_FIRST, 3, 1, 2)):
+        match = pattern.search(folded)
+        if not match:
+            continue
+        number = _day_number(match.group(digit_group), match.group(word_group))
+        month = _MONTHS[match.group(month_group)]
+        if number is None or not 1 <= number <= 31:
+            continue
+        today = now.date()
+        for year in (today.year, today.year + 1):
+            try:
+                day = date(year, month, number)
+            except ValueError:
+                day = None
+            if day is not None and day >= today:
+                return (day - today).days, match.span(), False
+        return None
+    match = _WEEKDAY_RE.search(folded)
+    if match:
+        ahead = (_WEEKDAYS[match.group(2)] - now.weekday()) % 7
+        if match.group(1) == "next" and ahead == 0:
+            ahead = 7
+        return ahead, match.span(), ahead == 0
+    return None
 
 
 def _cut_when(detail: str, span: tuple[int, int]) -> str:
@@ -1438,8 +1515,8 @@ def _absolute_shift(base: int, delta: int, now: datetime, earliest: int) -> date
     return _next_clock(total // 60, total % 60, None, now, earliest, absolute=True)
 
 
-def _from_shift(match: re.Match[str], now: datetime, earliest: int) -> datetime | None:
-    kind, direction, hour_token, ampm = match.group(1), match.group(2), match.group(3), match.group(4)
+def _from_shift(match: re.Match[str], now: datetime, earliest: int, implied: str | None = None) -> datetime | None:
+    kind, direction, hour_token, ampm = match.group(1), match.group(2), match.group(3), match.group(4) or implied
     delta = 30 if kind == "half" else 15
     if direction in {"to", "till", "til"}:
         delta = -delta
@@ -1474,10 +1551,10 @@ def _from_shift(match: re.Match[str], now: datetime, earliest: int) -> datetime 
     return best
 
 
-def _from_at(match: re.Match[str], now: datetime, earliest: int) -> datetime | None:
+def _from_at(match: re.Match[str], now: datetime, earliest: int, implied: str | None = None) -> datetime | None:
     word = match.group(1)
     minute_word = match.group(2) or ""
-    ampm = match.group(3)
+    ampm = match.group(3) or implied
     minute = _minute_value(minute_word)
     if minute is None:
         return None
@@ -1542,15 +1619,30 @@ def _locate_when(
     if not (text or "").strip():
         return None
     folded, origin = _fold_clock(text)
+    named = None if clocks_only else _named_day(folded, now)
+    day_span = named[1] if named else None
 
     def placed(moment: datetime, span: tuple[int, int]) -> tuple[datetime, tuple[int, int]]:
-        return moment, _map_span(origin, _cover_words(folded, span), len(text))
+        return moment, _map_span(origin, _cover_words(folded, span, day_span), len(text))
 
     earliest = 1 if re.search(r"\btomorrow\b", folded) else 0
-    colon = re.search(r"\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b", folded)
+    if named is not None:
+        earliest = named[0]
+    # "Tomorrow morning at 8", "Friday evening at 7": the part of the day says am or pm.
+    implied = "am" if re.search(r"\bmorning\b", folded) else "pm" if re.search(r"\b(?:afternoon|evening|tonight)\b", folded) else None
+
+    def on_that_day(read) -> datetime | None:
+        moment = read(earliest)
+        if moment is not None and named is not None and moment.date() != (now + timedelta(days=earliest)).date():
+            # The time on the named day has gone: the same weekday next week, or
+            # for a date, no reading at all (it never slides to the day after).
+            moment = read(earliest + 7) if named[2] else None
+        return moment
+
+    colon = re.search(r"(?:\bat\s+)?\b(\d{1,2}):(\d{2})\s*(am|pm)?\b", folded)
     if colon:
-        moment = _next_clock(
-            int(colon.group(1)), int(colon.group(2)), colon.group(3), now, earliest
+        moment = on_that_day(
+            lambda day: _next_clock(int(colon.group(1)), int(colon.group(2)), colon.group(3) or implied, now, day)
         )
         if moment is not None:
             return placed(moment, colon.span())
@@ -1558,12 +1650,18 @@ def _locate_when(
         match = pattern.search(folded)
         if not match:
             continue
-        moment = reader(match, now, earliest)
+        moment = on_that_day(lambda day, match=match, reader=reader: reader(match, now, day, implied))
         if moment is None:
             continue
         return placed(moment, match.span())
     if clocks_only:
         return None
+    if named is not None and named[0] > 0 and not _REL_RE.search(folded):
+        said = folded[named[1][0]:named[1][1]]
+        # "Remind me on Friday to pay rent": that morning, like "tomorrow". A
+        # bare weekday inside the note ("the bins are Thursday") stays words.
+        if not (_WEEKDAY_RE.fullmatch(said) and re.match(r"(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", said)):
+            return placed(_on_day(now, named[0], 9, 0), named[1])
     stripped = folded.strip()
     pad = len(folded) - len(folded.lstrip())
     numbered = _BARE_AMPM.fullmatch(stripped)
@@ -1611,7 +1709,10 @@ def spoken_when(moment: datetime, now: datetime | None = None) -> str:
         return clock
     if moment.date() == (current + timedelta(days=1)).date():
         return f"{clock} tomorrow"
-    return f"{clock} on {moment.strftime('%b %d')}"
+    ahead = (moment.date() - current.date()).days
+    if 1 < ahead < 7:
+        return f"{clock} on {moment.strftime('%A')}"
+    return f"{clock} on {moment.strftime('%A, %B')} {moment.day}"
 
 
 def when_from(text: str, now: datetime) -> datetime | None:
