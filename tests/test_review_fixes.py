@@ -230,9 +230,9 @@ def test_keyboard_shortcuts_focus_command_box_and_switch_pages(tmp_path, monkeyp
     win = shell.window
     win.show()
 
-    # Ctrl+PageDown moves from Home (0) to Reminders (1).
+    # Ctrl+PageDown moves from Talk to the Board.
     win.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, Qt.Key_PageDown, Qt.ControlModifier))
-    assert win.current_page() is win.schedule_page
+    assert win.show_page_key(win.current_page()) == "board"
 
     # Ctrl+L returns to Home and focuses the typed command box.
     win.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, Qt.Key_L, Qt.ControlModifier))

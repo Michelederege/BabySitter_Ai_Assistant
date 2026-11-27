@@ -43,26 +43,39 @@ def test_frog_orb_plays_sprites_and_keeps_short_captions(tmp_path, monkeypatch):
     app.processEvents()
 
 
-def test_the_rail_holds_twelve_pages_in_three_groups(tmp_path, monkeypatch):
+
+def test_six_places_replace_the_twelve_pages(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     window = shell.window
-    assert len(window._page_order) == 12
-    assert window.nav_group.button(0).text() == "Home"
-    labels = [window.nav_group.button(i).text() for i in range(12)]
-    assert labels == [
-        "Home", "Reminders", "Journal", "Files",
-        "Voice", "Memory", "History", "Screen", "Tools",
-        "PC Health", "Models", "Settings",
-    ]
-    window.show_page(window.files_page)
-    assert window.current_page() is window.files_page
+    labels = [window.nav_group.button(i).property("navLabel") for i in range(6)]
+    assert labels == ["Talk", "Board", "Today", "Desk", "Memory", "Settings"]
+    # Every old page still opens, in its new place.
+    for page, place in (
+        (window.files_page, "desk"), (window.schedule_page, "today"), (window.history_page, "memory"),
+        (window.voice_page, "settings"), (window.health_page, "settings"), (window.models_page, "settings"),
+    ):
+        window.show_page(page)
+        assert window.current_page() is page
+        assert window.show_page_key(page) == place
     shell.show_window()
     assert window.current_page() is window.home
-    # Half and full screen are remembered in settings.
-    window._size_clicked(False)
-    app.processEvents()
-    assert controller.settings.window_expanded is False
-    assert window.half_button.isChecked() and not window.full_button.isChecked()
+    # No Half screen or Full screen buttons any more.
+    assert not hasattr(window, "half_button") and not hasattr(window, "full_button")
+    _close(app, controller, shell)
+
+
+def test_the_menu_reflows_from_labels_to_icons_to_a_bottom_bar(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    window = shell.window
+    window.show()
+    for width, side, bottom, text in ((1180, True, False, "◉  Talk"), (900, True, False, "◉"), (460, False, True, None)):
+        window.resize(width, 700)
+        app.processEvents()
+        assert window.side_menu.isVisible() is side, width
+        assert window.bottom_bar.isVisible() is bottom, width
+        if text is not None:
+            assert window.nav_group.button(0).text() == text
+        assert window.stack.currentWidget().horizontalScrollBar().maximum() == 0 if hasattr(window.stack.currentWidget(), "horizontalScrollBar") else True
     _close(app, controller, shell)
 
 
@@ -132,7 +145,7 @@ def test_a_typed_note_pins_and_a_reminder_shows_its_clock(tmp_path, monkeypatch)
     assert "go to bed" in shown
     assert "01:30" not in shown
     assert "1:30" in shown
-    assert shell.window.nav_group.button(1).text() == "Reminders"
+    assert shell.window.nav_group.button(2).property("navLabel") == "Today"
     assert shell.window.home.game.text() == "Game mode"
     assert shell.window.settings_page.game_mode_ask.isChecked() is False
     _close(app, controller, shell)
@@ -264,49 +277,45 @@ def test_listening_shows_on_the_state_pill(tmp_path, monkeypatch):
 def test_the_home_picture_fills_the_panel_and_follows_the_state(tmp_path, monkeypatch):
     app, _controller, shell = _shell(tmp_path, monkeypatch)
     home = shell.window.home
-    assert home.hero.height() == 170
-    home.set_detailed(True)
-    assert home.hero.height() == 150
+    # v3: the pond picture follows the window height, 118 px when short.
+    home.hero.set_window_height(600)
+    assert home.hero.height() == 118
+    home.hero.set_window_height(800)
+    assert home.hero.height() == 190
+    home.hero.set_window_height(2000)
+    assert home.hero.height() == 260
     home.set_phase("off", "The AI is off. Nothing is listening.")
     assert home.phase_word.text() == "Off"
     assert home.hero.frog._state == "off"
     home.set_phase("on", "Hold Mouse 4 or say the keyword.")
     assert home.hero._key == "on"
     assert home.phase_hint.text() == "Hold Mouse 4 or say the keyword."
-    home.set_detailed(False)
-    assert home.hero.height() == 170
     picture = next(
-        child for child in home.findChildren(type(home.hold)) if child.text() == "Choose my picture"
+        child for child in home.hero.findChildren(type(home.hold)) if child.text() == "Choose my picture"
     )
     assert picture.parent() is home.hero
     _close(app, _controller, shell)
 
 
-def test_the_keyword_control_stays_inside_a_narrow_window(tmp_path, monkeypatch):
+
+def test_the_state_menu_holds_power_intelligence_game_and_the_keyword(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     window = shell.window
     window.show()
-    window.resize(760, 640)
-    app.processEvents()
+    window.resize(460, 640)
     app.processEvents()
     home = window.home
-    viewport = home.parentWidget()
-    button = home.keyword_button
-    button.setText("Listening for the keyword")
+    menu = window._state_menu
+    for control in (home.power, home.keyword_button, home.keyword_edit, home.game, home.reload):
+        assert menu.isAncestorOf(control)
+    window.pill.click()
     app.processEvents()
-    right = button.mapTo(viewport, button.rect().bottomRight()).x()
-    assert right <= viewport.width()
-    assert button.width() >= button.sizeHint().width()
-    edit_right = home.keyword_edit.mapTo(viewport, home.keyword_edit.rect().bottomRight()).x()
-    assert edit_right <= viewport.width()
+    assert menu.isVisible()
+    assert controller.state == "off"  # opening the menu does not turn anything on
+    menu.hide()
+    # The Talk page never scrolls sideways in a narrow window.
     scroll = window.stack.currentWidget()
     assert scroll.horizontalScrollBar().maximum() == 0
-    picture = next(
-        child for child in home.findChildren(type(button)) if child.text() == "Choose my picture"
-    )
-    picture_right = picture.mapTo(viewport, picture.rect().bottomRight()).x()
-    assert picture_right <= viewport.width()
-    assert picture.width() >= picture.sizeHint().width()
     _close(app, controller, shell)
 
 
@@ -323,4 +332,52 @@ def test_the_state_pill_and_status_line_follow_the_controller(tmp_path, monkeypa
     controller.settings.google_enabled = False
     shell._refresh_privacy()
     assert shell.window.privacy_chip.text() == "Private to this computer"
+    _close(app, controller, shell)
+
+
+def test_talk_folds_details_and_fresh_start_keeps_pins(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    home = shell.window.home
+    home.set_reply("what is on my desk", "Three files.", "1. a.pdf\n2. b.stl")
+    assert not home.reply_detail.isVisible() and not home.details_button.isHidden()
+    shell.window.show()
+    home._toggle_details()
+    assert home.reply_detail.isVisible() and home.details_button.text() == "Hide details"
+    home.set_reply("time", "It's noon.", "")
+    assert home.details_button.isHidden()
+    shell._history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    shell._pin_note("Bins", "Thursday")
+    home.fresh_start.emit()
+    assert shell._history == []
+    assert "Fresh start" in home.spoken.text()
+    from babysitter.deskstore import load_list
+
+    assert load_list("pins.json")  # pins stay
+    assert home.hold.text() == "Turn the AI on"  # the AI is off
+    _close(app, controller, shell)
+
+
+def test_the_board_filters_locks_and_undoes_an_unpin(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    from babysitter.deskstore import load_list
+
+    home = shell.window.home
+    shell._pin_note("Bins", "Thursday")
+    shell._pin_note("Groceries", "1. eggs 2. milk")
+    pins = load_list("pins.json")
+    assert [pin["kind"] for pin in pins] == ["note", "list"] and all(pin.get("pinned") for pin in pins)
+    home._set_filter("list")
+    assert len(home.pin_grid._items) == 1
+    home._set_filter("all")
+    assert len(home.pin_grid._items) == 2
+    bins = pins[0]["id"]
+    shell._lock_pin(bins, True)
+    shell._unpin_card(bins)
+    assert len(load_list("pins.json")) == 2  # a locked card stays
+    shell._lock_pin(bins, False)
+    shell._unpin_card(bins)
+    assert [pin["title"] for pin in load_list("pins.json")] == ["Groceries"]
+    assert not home.undo_strip.isHidden()
+    home._undo_unpin()
+    assert sorted(pin["title"] for pin in load_list("pins.json")) == ["Bins", "Groceries"]
     _close(app, controller, shell)

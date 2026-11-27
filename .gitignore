@@ -33,3 +33,6 @@ models/
 # Editor and OS
 .DS_Store
 Thumbs.db
+
+# The v3 design package is reference material. Its stock photo is not licensed for the public repo.
+babysitter-ui-v3/

@@ -1953,7 +1953,7 @@ def _feature_accessibility_and_exe() -> list[Outcome]:
         from babysitter.ui.main_window import MainWindow
 
         win = MainWindow()
-        assert win.min_button.accessibleName() == "Minimize to the orb"
+        assert win.min_button.accessibleName() == "Minimize to the frog"
         assert win.close_button.accessibleName() == "Close window and turn AI off"
         assert win.close_button.focusPolicy() == Qt.TabFocus
         assert win.home.typed.accessibleName() == "Type a question or command"

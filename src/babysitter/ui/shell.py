@@ -911,7 +911,7 @@ class Shell:
         home = self.window.home
         settings = self.window.settings_page
         home.power.clicked.connect(self._on_power)
-        self.window.pill.clicked.connect(self._on_power)
+        # v3: the pill opens the state menu, which holds the power button.
         home.try_again.clicked.connect(self._turn_on)
         home.game.clicked.connect(self._on_game)
         self.window.emergency.clicked.connect(lambda: self.controller.turn_off(emergency=True))
@@ -1014,6 +1014,9 @@ class Shell:
         home.pin_reply.connect(self._pin_reply)
         home.pin_note.connect(self._pin_note)
         home.copy_reply.connect(self._copy_reply)
+        home.fresh_start.connect(self._fresh_start)
+        home.pin_lock.connect(self._lock_pin)
+        home.pin_restore.connect(self._restore_pin)
         home.copy_log.connect(self._copy_log)
         home.choose_hero.connect(self._choose_hero)
         self.window.voice_page.notice.connect(self._on_page_notice)
@@ -2869,6 +2872,16 @@ class Shell:
         if job is not None:
             job.close_input()
 
+    def _fresh_start(self) -> None:
+        """Forget this conversation's context. Pins, memory, and history files stay."""
+        self._history = []
+        self._full_reply = ""
+        self._more_text = ""
+        self._awaiting_more = False
+        self.window.home.set_reply("fresh start", "Fresh start. What's next?", "Pins and memory stay. The conversation so far is not sent with the next question.")
+        self.controller._remember("Fresh start. The conversation context was cleared.")
+        self.window.home.set_history(self.controller.history)
+
     def _pin_line(self, text: str) -> None:
         line = " ".join((text or "").split())
         if not line:
@@ -2885,7 +2898,13 @@ class Shell:
                 "pin", "The board is full.", "Twelve cards is the limit. Unpin one first."
             )
             return
-        add_item("pins.json", title=title or body[:80], body=body or title)
+        from babysitter.deskstore import pin_kind
+
+        kind = pin_kind({"body": body or title})
+        add_item(
+            "pins.json", title=title or body[:80], body=body or title, kind=kind,
+            pinned=datetime.now().isoformat(timespec="minutes"),
+        )
         self._refresh_pins()
         self.controller._remember("Pinned a note. It stays on this PC.")
         self.window.home.set_history(self.controller.history)
@@ -2901,7 +2920,7 @@ class Shell:
             )
             return
         title, body = last
-        add_item("pins.json", title=title, body=body)
+        add_item("pins.json", title=title, body=body, kind="reply", pinned=datetime.now().isoformat(timespec="minutes"))
         self._refresh_pins()
         self.window.home.set_reply(title, "Pinned.", "The card stays on this PC.")
 
@@ -3832,7 +3851,7 @@ class Shell:
         self.window.showNormal()
         self.window.raise_()
         self.window.activateWindow()
-        self.window.show_page(self.window.schedule_page)
+        self.window.show_page(self.window.home.pin_card)  # v3: goals are on the Board
         self.window.schedule_page.refresh_goals()
 
     def _apply_goal(self, quick: QuickCommand, text: str) -> None:
@@ -4085,7 +4104,9 @@ class Shell:
         from babysitter.deskstore import next_reminder_line
 
         self.window.schedule_page.tick()
-        self.window.home.set_countdown(next_reminder_line(load_list("schedule.json")))
+        line = next_reminder_line(load_list("schedule.json"))
+        self.window.home.set_countdown(line)
+        self.window.set_next(line)
 
     def _check_reminders(self) -> None:
         """Say a saved reminder once its clock time has arrived."""
@@ -4379,7 +4400,20 @@ class Shell:
         from babysitter.inbox import spoken
 
         self.window.tools_page.set_inbox(list(inbox.rows) or list(inbox.problems))
+        self._notice_expired(inbox)
         self._show_google(spoken(inbox, lead=lead), speak=not self.turns.busy())
+
+    def _notice_expired(self, inbox) -> None:
+        """An expired account is one notice with one fix. The rest keep working."""
+        expired = next((line for line in inbox.problems if "sign-in expired" in line), "")
+        if not expired:
+            return
+        account = expired.split(":", 1)[0]
+        self.window.show_notice(
+            f"{account}: sign-in expired. Mail and calendar from that account are paused; the rest still work.",
+            "Sign in again",
+            lambda: self.window.show_settings_section("accounts"),
+        )
 
     def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
         """Mail and calendar, said aloud, or only what is new since the last check.
@@ -4422,6 +4456,7 @@ class Shell:
 
         if inbox.rows:
             self.window.tools_page.set_inbox(list(inbox.rows))
+        self._notice_expired(inbox)
         only = kind if kind in {"mail", "calendar"} else ""
         self._google_ready(spoken(inbox, lead=kind, only=only) or "Nothing new on the linked accounts.")
 
@@ -4785,10 +4820,30 @@ class Shell:
     def _refresh_pins(self) -> None:
         self.window.set_pins(load_list("pins.json"))
 
+    def _lock_pin(self, pin_id: str, locked: bool) -> None:
+        from babysitter.deskstore import update_item
+
+        if update_item("pins.json", pin_id, locked="yes" if locked else ""):
+            self._refresh_pins()
+
+    def _restore_pin(self, pin: dict) -> None:
+        from babysitter.deskstore import restore_item
+
+        if isinstance(pin, dict) and pin.get("id"):
+            restore_item("pins.json", pin)
+            self._refresh_pins()
+            self.controller._remember("Put the card back on the board.")
+            self.window.home.set_history(self.controller.history)
+
     def _unpin_card(self, pin_id: str) -> None:
         if not pin_id:
             return
+        pin = next((item for item in load_list("pins.json") if item.get("id") == pin_id), None)
+        if pin is not None and str(pin.get("locked") or "") == "yes":
+            return  # a locked card stays until it is unlocked
         remove_item("pins.json", pin_id)
+        if pin is not None:
+            self.window.home.show_unpinned(pin)
         self._refresh_pins()
         self.controller._remember("Unpinned a card. Nothing else was deleted.")
         self.window.home.set_history(self.controller.history)

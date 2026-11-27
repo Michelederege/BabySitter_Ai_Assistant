@@ -143,6 +143,38 @@ def next_reminder_line(items: list[dict], now: datetime | None = None) -> str:
     return f"{words} — {left}{extra}"
 
 
+def update_item(name: str, item_id: str, **fields: str) -> bool:
+    """Change fields on one saved item. False when it is not there."""
+    items = load_list(name)
+    for item in items:
+        if item.get("id") == item_id:
+            item.update(fields)
+            save_list(name, items)
+            return True
+    return False
+
+
+def restore_item(name: str, item: dict) -> None:
+    """Put back an item that was just removed, as it was."""
+    items = [entry for entry in load_list(name) if entry.get("id") != item.get("id")]
+    items.append(dict(item))
+    save_list(name, items)
+
+
+def pin_kind(pin: dict) -> str:
+    """NOTE, LIST, REPLY, FACT, or PICTURE. Older pins have no kind, so it is worked out."""
+    kind = str(pin.get("kind") or "").lower()
+    if kind in {"note", "list", "reply", "fact", "picture"}:
+        return kind
+    body = str(pin.get("body") or "")
+    lines = [line.strip() for line in body.replace(" | ", "\n").split("\n") if line.strip()]
+    if len(lines) >= 2 and all(line[:2].rstrip(".").isdigit() or line.startswith(("-", "•")) for line in lines):
+        return "list"
+    if " 1. " in f" {body}" and " 2. " in body:
+        return "list"
+    return "note"
+
+
 def remove_item(name: str, item_id: str) -> None:
     items = [item for item in load_list(name) if item.get("id") != item_id]
     save_list(name, items)
