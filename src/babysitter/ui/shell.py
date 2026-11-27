@@ -225,12 +225,13 @@ def _png_base64(picture: QPixmap) -> str:
 class _BenchJob(QThread):
     finished_text = Signal(str)
 
-    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512) -> None:
+    def __init__(self, ollama, model: str, num_ctx: int, num_batch: int = 512, keep_alive="5m") -> None:
         super().__init__()
         self._ollama = ollama
         self._model = model
         self._num_ctx = num_ctx
         self._num_batch = num_batch
+        self._keep_alive = keep_alive
 
     def run(self) -> None:
         from babysitter.pictures import format_benchmark
@@ -244,6 +245,7 @@ class _BenchJob(QThread):
                     self._model,
                     "Reply with only the word ready.",
                     self._num_ctx,
+                    keep_alive=self._keep_alive,
                     num_batch=self._num_batch,
                 ):
                     stats = {}
@@ -951,6 +953,7 @@ class Shell:
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
         settings.microphone_chosen.connect(self._set_microphone)
         settings.hearing_chosen.connect(self._set_hearing_engine)
+        settings.context_chosen.connect(self._set_context)
         self.window.voice_page.pack_needed.connect(self._offer_pack)
         settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
@@ -1412,6 +1415,14 @@ class Shell:
     def _set_intel(self, mode_id: str) -> None:
         self.controller.set_intelligence(mode_id)
         self.window.home.set_intelligence(mode_id)
+        self.window.settings_page.set_context(0, mode_id)
+
+    def _set_context(self, tokens: int) -> None:
+        level = self.controller.set_context(tokens)
+        self.window.home.set_intelligence(level)
+        self.window.settings_page.set_context(self.controller.settings.context_tokens, level)
+        self.controller._remember(f"Memory set to {tokens:,} tokens, on {level.capitalize()}.")
+        self.window.home.set_history(self.controller.history)
 
     def _set_autostart(self, enabled: bool) -> None:
         message = self.controller.set_autostart(enabled)
@@ -1956,6 +1967,7 @@ class Shell:
         for toggle in toggles:
             toggle.blockSignals(False)
         self._fill_microphones()
+        page.set_context(self.controller.settings.context_tokens, self.controller.settings.intelligence)
         journal = self.window.journal_page
         journal.enabled.blockSignals(True)
         journal.enabled.setChecked(self.controller.settings.journal_enabled)
@@ -3015,6 +3027,9 @@ class Shell:
             return
         if text == "BENCHMARK":
             self._benchmark()
+            return
+        if text.startswith("BENCHMARK "):
+            self._benchmark(text.split(" ", 1)[1].strip())
             return
         if text.startswith("FOLLOWUP "):
             self._save_followup(text)
@@ -4646,7 +4661,11 @@ class Shell:
         self._note_local("weekly review", speech)
         self._speak(speech)
 
-    def _benchmark(self) -> None:
+    def _benchmark(self, model: str = "") -> None:
+        from babysitter.intelligence import BENCHMARK_ONLY
+
+        if model and model not in BENCHMARK_ONLY:
+            return
         if self.controller.state != "on":
             self.window.models_page.body.setPlainText("Turn the AI on before the benchmark. Nothing was sent.")
             return
@@ -4661,13 +4680,38 @@ class Shell:
                 "A reply is in progress. The benchmark waits so it does not load the card again."
             )
             return
-        job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
+        if model:
+            try:
+                installed = self.controller.ollama.installed_models()
+            except OllamaError as exc:
+                self.window.models_page.body.setPlainText(str(exc))
+                return
+            if not any(name == model or name.startswith(model) for name in installed):
+                self.window.models_page.body.setPlainText(
+                    f"{model} is not downloaded. BabySitter does not download it. "
+                    f"In a terminal: ollama pull {model}. It is about twice this card's memory."
+                )
+                return
+            # Timed with Low's context, dropped right after, then your own level loads again.
+            job = _BenchJob(self.controller.ollama, model, 4096, 512, keep_alive=0)
+            self._bench_reload = True
+            note = f"Timing {model} three times. It spills into system memory, so this is slow. Your own model loads again afterwards."
+        else:
+            job = _BenchJob(self.controller.ollama, mode.model, mode.num_ctx, mode.num_batch)
+            self._bench_reload = False
+            note = "Timing a fixed prompt three times. Thinking is off. Words are not saved."
         self._store_job("_bench_job", job)
-        self.window.models_page.body.setPlainText("Timing a fixed prompt three times. Thinking is off. Words are not saved.")
+        self.window.models_page.body.setPlainText(note)
         job.finished_text.connect(self._benchmark_done)
         job.start()
 
     def _benchmark_done(self, text: str) -> None:
+        if getattr(self, "_bench_reload", False):
+            # A benchmark-only model was timed. It is not kept: load your own level again.
+            self._bench_reload = False
+            self.window.models_page.body.setPlainText(text + "\n\nTiming only. Loading your own model again.")
+            self.controller.reload_model()
+            return
         samples = list(getattr(self._bench_job, "samples", []) or [])
         speeds = [int(sample.get("gen_tps", 0)) for sample in samples if isinstance(sample, dict)]
         speeds = [speed for speed in speeds if speed > 0]

@@ -26,6 +26,7 @@ class SettingsPage(QWidget):
     # The chosen microphone's full name. Empty means Windows' default.
     microphone_chosen = Signal(str)
     hearing_chosen = Signal(str)
+    context_chosen = Signal(int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -222,6 +223,27 @@ class SettingsPage(QWidget):
             lambda _index: self.microphone_chosen.emit(str(self.microphone.currentData() or ""))
         )
 
+        root.addWidget(self._label("How much of the conversation the AI keeps"))
+        from PySide6.QtWidgets import QSlider
+
+        from babysitter.intelligence import CONTEXT_STOPS
+
+        self._stops = CONTEXT_STOPS
+        self.context = QSlider(Qt.Orientation.Horizontal)
+        self.context.setAccessibleName("Conversation memory")
+        self.context.setRange(0, len(CONTEXT_STOPS) - 1)
+        self.context.setPageStep(1)
+        self.context.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.context.setToolTip("Applied when you let go. Low, Medium, and High are the first, middle, and last stops.")
+        self.context_label = QLabel("")
+        self.context_label.setObjectName("hint")
+        self.context.valueChanged.connect(self._show_context)
+        # Applied on release, not while dragging, so the model does not reload on every step.
+        self.context.sliderReleased.connect(self._context_released)
+        self.context.valueChanged.connect(lambda _v: None if self.context.isSliderDown() else self._context_released())
+        root.addWidget(self.context)
+        root.addWidget(self.context_label)
+
         root.addWidget(self._label("Speech recognition"))
         hearing_hint = QLabel(
             "One engine turns what you say into words, on the processor. Whisper is the default. "
@@ -395,6 +417,27 @@ class SettingsPage(QWidget):
         if not folders:
             self.search_folders.addItem("No extra folders yet.")
         self.folder.setText(data_folder)
+
+    def _show_context(self, index: int) -> None:
+        from babysitter.intelligence import level_for_context
+
+        tokens = self._stops[max(0, min(index, len(self._stops) - 1))]
+        level = level_for_context(tokens).capitalize()
+        self.context_label.setText(f"{tokens:,} tokens, about {tokens * 3 // 4:,} words. Uses the {level} model.")
+
+    def _context_released(self) -> None:
+        self.context_chosen.emit(self._stops[self.context.value()])
+
+    def set_context(self, tokens: int, level: str) -> None:
+        """Show the slider at this amount, or at the level's own stop."""
+        from babysitter.intelligence import MODES
+
+        value = tokens or MODES.get(level, MODES["medium"]).num_ctx
+        index = self._stops.index(value) if value in self._stops else 2
+        self.context.blockSignals(True)
+        self.context.setValue(index)
+        self.context.blockSignals(False)
+        self._show_context(index)
 
     def set_microphones(self, names: list[str], saved: str, default: str) -> None:
         """Fill the list. A saved microphone that is unplugged stays listed."""

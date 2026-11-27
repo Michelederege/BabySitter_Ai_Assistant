@@ -157,6 +157,9 @@ class Controller(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.settings: Settings = load_settings()
+        from babysitter.intelligence import set_context
+
+        set_context(self.settings.context_tokens)
         self.ollama = OllamaClient()
         self.audio = AudioGate()
         self.hotkeys = HotkeyBook()
@@ -388,6 +391,11 @@ class Controller(QObject):
         if mode_id not in {"low", "medium", "high"}:
             return
         self.settings.intelligence = mode_id
+        # A level picked by its button uses that level's own amount of memory.
+        self.settings.context_tokens = 0
+        from babysitter.intelligence import set_context
+
+        set_context(0)
         save_settings(self.settings)
         # A level you pick by hand replaces any switch-down a game made.
         self.budget.restore_to = ""
@@ -395,6 +403,22 @@ class Controller(QObject):
         self.reload_offered.emit(offer)
         if self.state == GAME:
             self._remember("Intelligence saved. It applies the next time the model loads.")
+
+    def set_context(self, tokens: int) -> str:
+        """The memory slider, once it is let go. Returns the level it belongs to."""
+        from babysitter.intelligence import level_for_context, set_context
+
+        tokens = set_context(tokens)
+        level = level_for_context(tokens) if tokens else self.settings.intelligence
+        self.settings.context_tokens = tokens
+        self.settings.intelligence = level
+        self.budget.restore_to = ""
+        save_settings(self.settings)
+        if self.state == ON and not self._busy:
+            self.reload_model()
+        elif self.state == GAME:
+            self._remember("The memory setting is saved. It applies the next time the model loads.")
+        return level
 
     def set_always_on_top(self, enabled: bool) -> None:
         self.settings.orb_always_on_top = enabled
