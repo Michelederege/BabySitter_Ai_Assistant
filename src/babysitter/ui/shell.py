@@ -6,6 +6,7 @@ import base64
 import ctypes
 import json
 import queue
+import re
 import sys
 import threading
 import time
@@ -4501,7 +4502,10 @@ class Shell:
             # "Find me a recipe for pancakes" or "find the capital of australia"
             # is a question, not a file. With nothing on disk to show, it goes
             # to the model as one, instead of "Nothing matching … in Documents".
-            self._pending_line = text
+            # "Find me a recipe" made the model start with "I can't search the web
+            # or browse files" before the recipe (checked live on qwen3.5:9b).
+            # Asked as "give me …", it just answers.
+            self._pending_line = re.sub(r"^\s*find me\b", "Give me", text, flags=re.IGNORECASE)
             self._skip_quick_once = True
             self._send_heard()
             return

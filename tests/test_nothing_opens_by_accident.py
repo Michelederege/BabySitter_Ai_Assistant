@@ -78,5 +78,7 @@ def test_a_search_with_nothing_found_hands_a_question_to_the_model(tmp_path, mon
         monkeypatch.setattr(shell, "_speak", lambda text, **kw: spoken.append(text))
         shell._finish_find("find the blue parrot", "the blue parrot", [], {})
         assert "Nothing matching" in spoken[-1] and len(sent) == 1
+        shell._finish_find("find me a recipe for pancakes", "me a recipe for pancakes", [], {})
+        assert sent[-1] == ("Give me a recipe for pancakes", True)
     finally:
         shell.window.close()
