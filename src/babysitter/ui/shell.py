@@ -1355,13 +1355,10 @@ class Shell:
                 "BabySitter's voice follows the Windows volume.",
             )
         if quick.kind == "voice_speed":
+            from babysitter.paths import read_json_dict
+
             path = data_dir() / "voice.json"
-            saved: dict = {}
-            try:
-                loaded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-                saved = loaded if isinstance(loaded, dict) else {}
-            except (OSError, ValueError):
-                saved = {}
+            saved = read_json_dict(path)
             try:
                 speed = int(saved.get("speed", 105))
             except (TypeError, ValueError):
@@ -3778,15 +3775,9 @@ class Shell:
         self.window.home.set_history(self.controller.history)
 
     def _voice_prefs(self) -> dict:
-        path = data_dir() / "voice.json"
-        saved: dict = {}
-        if path.is_file():
-            try:
-                loaded = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(loaded, dict):
-                    saved = loaded
-            except (OSError, json.JSONDecodeError):
-                saved = {}
+        from babysitter.paths import read_json_dict
+
+        saved = read_json_dict(data_dir() / "voice.json")
         name = str(saved.get("voice") or "Heart & Sarah blend")
         if name.endswith("Neural"):
             name = "Heart & Sarah blend"

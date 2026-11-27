@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from babysitter.paths import data_dir, write_text_safely
+from babysitter.paths import data_dir, read_json_dict, write_text_safely
 from babysitter.ui.pinbutton import pin_button
 
 
@@ -229,11 +229,8 @@ class VoicePage(QWidget):
         path = data_dir() / "voice.json"
         if not path.is_file():
             return
-        try:
-            saved = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return
-        if not isinstance(saved, dict):
+        saved = read_json_dict(path)
+        if not saved:
             return
         voice_name = str(saved.get("voice") or "")
         if voice_name:
@@ -272,13 +269,9 @@ class VoicePage(QWidget):
             return
         path = data_dir() / "voice.json"
         voice_name = self.voice.currentData()
-        if path.is_file():
-            try:
-                existing = json.loads(path.read_text(encoding="utf-8"))
-                if isinstance(existing, dict) and existing.get("voice"):
-                    voice_name = existing["voice"]
-            except (OSError, json.JSONDecodeError):
-                pass
+        existing = read_json_dict(path)
+        if existing.get("voice"):
+            voice_name = existing["voice"]
         payload = {
             "voice": voice_name,
             "speed": self.speed[1].value(),
@@ -328,8 +321,7 @@ class VoicePage(QWidget):
         path = data_dir() / "voice.json"
         if not path.is_file():
             return "No voice saved yet. The suggested start is Heart and Sarah, speed 1.05, pitch −1."
-        try:
-            saved = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        saved = read_json_dict(path)
+        if not saved.get("voice"):
             return "The saved voice file could not be read. Choose the voice again."
-        return f"Saved voice: {saved.get('voice', 'unknown')}."
+        return f"Saved voice: {saved['voice']}."

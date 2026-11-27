@@ -7,6 +7,7 @@ the program without touching your settings.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -43,6 +44,20 @@ def write_text_safely(path: Path, text: str) -> None:
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)
+
+
+def read_json_dict(path: Path) -> dict:
+    """A small settings-like JSON file as a dict, or {} if missing or damaged.
+
+    Damage comes in more shapes than bad JSON: binary garbage (a
+    UnicodeDecodeError), or valid JSON of the wrong kind (a list). Either
+    used to stop the window from opening when it was voice.json.
+    """
+    try:
+        loaded = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # ValueError covers JSON and Unicode errors
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def logs_dir() -> Path:
