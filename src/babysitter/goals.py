@@ -278,9 +278,9 @@ def goals_speech(items: list[dict]) -> str:
         return "Every goal is done."
     names = [" ".join(str(item.get("text") or "Goal").split()) for item in pending]
     if len(names) == 1:
-        return f"Your goal is {names[0]}."
+        return f"Your goal: {names[0]}."
     if len(names) == 2:
-        return f"Your goals are {names[0]} and {names[1]}."
+        return f"Your goals: {names[0]}, and {names[1]}."
     numbered = ". ".join(f"{number}. {name}" for number, name in enumerate(names, start=1))
     return f"You have {len(names)} goals. {numbered}."
 

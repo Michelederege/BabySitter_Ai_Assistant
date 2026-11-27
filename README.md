@@ -182,7 +182,11 @@ Open **Reminders** in the left rail, type what to remember, and a time such as `
 
 The time left is on Home, in large type, and on the reminder’s own row. It ticks every second until the reminder rings. When it reaches zero, BabySitter says it and shows a notification on this PC. That happens even if the AI is off. BabySitter has to be open, including in the tray. If you quit BabySitter, the countdown waits, and the reminder is said the next time the app is open and the time has passed. Nothing is sent off this PC.
 
+Days and dates work too: “remind me on Friday at 3 pm”, “next Tuesday at 4”, “on December 3 at 10 am”, “tomorrow morning at 8”, “this evening at 7”. A day with no hour is 9:00 AM. If Friday’s time has already gone today, it is next Friday.
+
 Say undo within 10 seconds to remove a new one, or press Remove on the Reminders page. A reminder with no time stays on the list and does not count down.
+
+**Your own words.** With the AI on, you do not have to use these exact phrases. “Put dentist on Friday at 3”, “give me twenty minutes on the clock”, or “my sister’s birthday is March 4” are worked out by the model on this PC, which says what it will do (“Set a reminder for 3:00 PM on Friday: go to the dentist?”) and waits for yes. It can only lead to a reminder, a timer, a remembered fact, a goal, or a journal task. It never opens anything, sends anything, or changes a setting. Anything that is not one of those goes to the model as an ordinary question.
 
 Goals are on that same page, above the reminders. A goal does not ring. Say “my goal is to finish the bracket”, then “say my goals”, and the list is shown and read out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. After the talk ends, “done” finishes a journal task again.
 

@@ -2356,6 +2356,7 @@ class Shell:
         if intent is None or answer != "yes":
             if intent is not None and intent.kind == "command":
                 self._suggested_command = None
+                self.window.home.set_reply(intent.query, "Okay, I left it.", "Nothing was changed.")
                 self._speak("Okay, I left it.")
                 return
             self._speak("Leaving it. Nothing was sent.")

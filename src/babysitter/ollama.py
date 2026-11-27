@@ -614,6 +614,8 @@ VOICE_SYSTEM = (
     "Do not paste shell commands, PowerShell, or Task Manager steps. "
     "A scan of this PC is performed before you are asked. Do not invent a scan result. "
     "Reminders, timers, the journal, and file search are saved on this PC before you are asked. "
+    "You cannot do things on this PC yourself: never say you set, saved, paused, opened, or changed something. "
+    "If asked to, say it isn't something you can do yet. "
     "When a clock note is given, it is background. Mention the time or date only when the question is about it, "
     "and do not explain time zones. "
     "How it sounds, by example. "
@@ -809,7 +811,7 @@ def chat_messages(
         line += " Saved facts from this PC: " + " | ".join(saved[:2])
     desk = (context_note or "").strip()
     if desk:
-        line += f" Active desk context on this PC: {desk}"
+        line += f" Background from this PC, to mention only if the question is about it: {desk}"
     messages.append({"role": "user", "content": line})
     return messages
 

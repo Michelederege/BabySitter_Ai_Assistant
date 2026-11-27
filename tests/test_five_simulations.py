@@ -1386,7 +1386,7 @@ def _feature_goals() -> list[Outcome]:
         assert turns[1].items[1]["text"] == "call Mom"
         assert "finish the bracket" in turns[2].speech and "call Mom" in turns[2].speech
         assert turns[3].items[1]["done"] == "yes"
-        assert turns[4].speech == "Your goal is finish the bracket."
+        assert turns[4].speech == "Your goal: finish the bracket."
         assert "Done. call Mom" in turns[4].detail
         return "call Mom is done."
 
