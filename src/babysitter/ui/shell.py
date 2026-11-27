@@ -3803,6 +3803,19 @@ class Shell:
         if quick.kind == "persona":
             self._save_persona(quick.detail)
             return True
+        if quick.kind == "my_name":
+            from babysitter.personality import persona_name
+
+            name = persona_name()
+            speech = (
+                f"I'm {name}. You gave me that name, and I'll keep it until you say be yourself."
+                if name
+                else "I'm BabySitter. You can give me any name you like. Just say, call yourself, and the name."
+            )
+            self.window.home.set_reply("name", speech, "Answered on this PC.")
+            self._note_local("name", speech)
+            self._speak(speech)
+            return True
         if quick.kind == "timer":
             self._begin_timer(quick.seconds, quick.detail)
             return True
@@ -4933,17 +4946,18 @@ class Shell:
 
         if not name:
             clear_persona()
-            speech = "Okay. I'll be myself again the next time the AI turns on."
+            speech = "Okay. I'm back to being BabySitter."
         else:
             try:
                 shown = save_persona(name)
             except ValueError as exc:
                 speech = str(exc)
             else:
-                speech = (
-                    f"Saved. I'll be {shown} the next time the AI turns on. "
-                    "Say be yourself to undo it."
-                )
+                speech = f"{shown} it is. I'll remember that, and I'll answer to it from now on."
+        # The name applies at once, not at the next start: it is saved, so it
+        # also comes back every time BabySitter opens.
+        if getattr(self, "_session_personality", "") or self.controller.state == "on":
+            self._session_personality = session_clause()
         note = "Only how I speak changes. The tools, and every confirm, stay the same."
         self.window.voice_page.status.setText(speech)
         self.window.home.set_reply("persona", speech, note)
@@ -5163,6 +5177,13 @@ class Shell:
             pass
         try:
             release_kokoro()
+        except Exception:
+            pass
+        try:
+            # The extra engines and the natural-voice helper, which holds the card.
+            from babysitter.plugins.voice.engines import release as release_engines
+
+            release_engines()
         except Exception:
             pass
         listener = getattr(self, "_listener", None)

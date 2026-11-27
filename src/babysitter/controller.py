@@ -220,10 +220,25 @@ class Controller(QObject):
         self.status_thread.start()
 
     def shutdown_threads(self) -> None:
+        self.stop_all_ai()
         self.status_thread.stop()
         self.worker.submit(("quit",))
         self.status_thread.wait(2000)
         self.worker.wait(2000)
+
+    def stop_all_ai(self) -> None:
+        """The last step before BabySitter exits: no model, helper, or Ollama it started stays behind."""
+        try:
+            from babysitter.plugins.voice.engines import release as release_engines
+
+            release_engines()
+        except Exception as exc:  # noqa: BLE001
+            log.error("Could not close the voice engines: %s", exc)
+        try:
+            if self.ollama.we_started_server:
+                self.ollama.stop_server()
+        except Exception as exc:  # noqa: BLE001
+            log.error("Could not stop Ollama at exit: %s", exc)
 
     def turn_on(self, *, ignore_old_version: bool = False, ollama_choice: str = "") -> None:
         if in_quiet_hours(
@@ -384,7 +399,8 @@ class Controller(QObject):
         """
         if self._busy:
             self._quit_after_off = True
-            self.turn_off(emergency=False, tray_choice="ask")
+            # Closing BabySitter leaves no AI behind, the tray's Ollama included.
+            self.turn_off(emergency=False, tray_choice="close")
             return "wait"
         if self.state in {ON, GAME, STARTING, ERROR} or self.ollama.port_open() or self.ollama.we_started_server:
             return "ask"

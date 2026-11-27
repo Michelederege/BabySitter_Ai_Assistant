@@ -85,6 +85,9 @@ class _Worker:
             text=True,
             encoding="utf-8",
         )
+        from babysitter.platform import end_with_this_app
+
+        end_with_this_app(self._proc)
         first = self._proc.stdout.readline() if self._proc.stdout else ""
         try:
             hello = json.loads(first)

@@ -67,6 +67,29 @@ def command_after_keyword(text: str, keyword: str) -> str | None:
     for index in range(len(words) - len(key) + 1):
         if words[index : index + len(key)] == key:
             return " ".join(words[index + len(key) :]).strip()
+    return _after_nickname(words)
+
+
+def _nickname_tokens() -> list[str]:
+    try:
+        from babysitter.personality import persona_name
+
+        return _tokens(persona_name())
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _after_nickname(words: list[str]) -> str | None:
+    """The nickname you gave works as a keyword too, at the start: "Jarvis, ..." or "hey Jarvis, ...".
+
+    Only at the start, so a name said in the middle of a sentence does not wake it.
+    """
+    name = _nickname_tokens()
+    if not name:
+        return None
+    start = 1 if words[:1] in (["hey"], ["okay"], ["ok"], ["hi"]) else 0
+    if words[start : start + len(name)] == name:
+        return " ".join(words[start + len(name) :]).strip()
     return None
 
 

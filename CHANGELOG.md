@@ -2,6 +2,12 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.27.0 — Overnight round (in progress)
+
+**Your nickname, from one sentence.** Say "I'll call you Jarvis", "your name is Nova", or "call yourself Friday". It is saved, it applies at once instead of at the next start, and it comes back every time BabySitter opens. Saying the nickname at the start of a sentence ("Jarvis, what time is it?") wakes it like the keyword. "What's your name?" is answered on this PC.
+
+**No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
+
 ## 0.26.1 — Natural voices in the built app
 
 The narrator voices run a small helper file in their own Python. BabySitter.exe now carries that file as a plain file, so the natural voices work from the desktop icon as well as from `Run BabySitter.bat`.

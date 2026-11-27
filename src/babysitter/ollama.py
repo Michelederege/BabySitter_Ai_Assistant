@@ -411,6 +411,9 @@ class OllamaClient:
         except OSError as exc:
             handle.close()
             raise OllamaError(f"Could not start Ollama ({exc}).") from exc
+        from babysitter.platform import end_with_this_app
+
+        end_with_this_app(proc)  # a crash or Task Manager never leaves it running
         with self._lock:
             self._proc = proc
             self._log_handle = handle

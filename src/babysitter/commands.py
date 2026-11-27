@@ -101,6 +101,8 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     persona = _persona(phrase)
     if persona is not None:
         return QuickCommand("persona", detail=persona)
+    if phrase in _NAME_QUESTIONS:
+        return QuickCommand("my_name")
     if phrase in {
         "what time is it",
         "whats the time",
@@ -431,18 +433,42 @@ _NOT_A_NAME = {
     "done", "a", "an", "the", "my", "it", "that", "this", "clear", "clearer", "specific",
     "precise", "patient", "silent", "still", "calm", "real", "straight", "fast", "faster",
     "slow", "slower", "louder", "softer", "better", "good", "creative", "detailed", "friendly",
+    "later", "tomorrow", "soon", "again", "sometime", "tonight", "when", "if", "what", "something",
+    "anything", "fine", "okay", "ok", "sure", "nothing", "whatever", "me", "you", "us", "him", "her",
 }
+
+
+_NAME_QUESTIONS = {
+    "what's your name", "what is your name", "whats your name", "who are you", "what do i call you",
+    "what should i call you", "what did i call you", "what's your nickname", "what is your nickname",
+    "do you remember your name", "do you remember what i call you", "what are you called",
+}
+
+# Every ordinary way of giving it a nickname. One sentence is the whole setup.
+_NAMING = (
+    r"(?:(?:okay|ok|so|alright|hey)\s+)?(?:from now on\s+)?"
+    r"(?:be|become|call yourself|your name is|your name's|be called|your new name is|"
+    r"your nickname is|your new nickname is|change your name to|rename yourself(?: to)?|"
+    r"(?:i'll|i will|i'm going to|i'm gonna|im going to|im gonna|i want to|i wanna|i'd like to|"
+    r"let me|let's|lets|can i|could i|may i|we'll|i shall)\s+call you|"
+    r"call you|you're called|you are called|answer to)\s+([a-z' -]{2,40})"
+)
+# Words that end the sentence but are not part of the name.
+_NAME_TAIL = {"please", "now", "okay", "ok", "instead", "from", "on", "then", "thanks", "thank", "you"}
 
 
 def _persona(phrase: str) -> str | None:
     """A name to answer to, or "" to drop it. None when this is not about a persona."""
     if phrase in {"be yourself", "go back to being yourself", "stop being edith", "drop the persona", "no persona"}:
         return ""
-    match = re.fullmatch(r"(?:be|become|call yourself|your name is|be called)\s+([a-z' -]{2,24})", phrase)
+    match = re.fullmatch(_NAMING, phrase)
     if not match:
         return None
     name = match.group(1).strip()
     words = name.split()
+    while words and words[-1] in _NAME_TAIL:
+        words.pop()
+    name = " ".join(words)
     if not 1 <= len(words) <= 2 or words[0] in _NOT_A_NAME:
         return None
     return name
