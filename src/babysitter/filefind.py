@@ -158,6 +158,67 @@ def parse_query(text: str) -> tuple[list[str], set[str]]:
     return words, extensions
 
 
+# Words that say a request is about a file on this PC, not a question.
+FILE_WORDS = {
+    "file", "files", "folder", "document", "doc", "docs", "paper", "essay", "notes", "note",
+    "photo", "picture", "pic", "screenshot", "model", "print", "spreadsheet", "sheet",
+    "slides", "slideshow", "presentation", "resume", "cv", "report", "homework", "assignment",
+    "project", "download", "video", "recording", "scan", "draft", "template", "invoice",
+    "receipt", "letter", "worksheet", "syllabus", "transcript",
+} | EXTENSION_WORDS
+
+
+def wants_a_file(text: str) -> bool:
+    """True when "find …" is about a file ("find my essay", "find the history paper",
+    "find a pdf"), false for a question ("find me a recipe for pancakes",
+    "find the capital of australia", "find time for a walk")."""
+    tokens = re.findall(r"[a-z0-9']+", (text or "").lower())
+    if not tokens:
+        return False
+    if tokens[0] in {"my", "our"}:
+        return True
+    return any(token in FILE_WORDS or (token.endswith("s") and token[:-1] in FILE_WORDS) for token in tokens)
+
+
+_QUESTION_STARTS = (
+    "me ", "out ", "how ", "what ", "why ", "when ", "where ", "who ", "which ",
+    "a way ", "ways ", "time ", "some time ", "directions ", "someone ", "somebody ",
+    "something ", "somewhere ", "the answer", "the meaning", "the best ", "a good ", "a nice ",
+)
+
+
+def sounds_like_a_question(text: str) -> bool:
+    """True when "find …" asks the assistant something rather than naming a file.
+
+    "find me a recipe", "find the capital of australia", "find a good movie to
+    watch", "find time for a walk". A short name ("the blue parrot", "all
+    dragons") and anything with a file word ("my essay", "the history paper")
+    stay file searches.
+    """
+    lowered = " ".join(re.findall(r"[a-z0-9']+", (text or "").lower()))
+    if not lowered or wants_a_file(lowered):
+        return False
+    if (lowered + " ").startswith(_QUESTION_STARTS):
+        return True
+    if re.search(r"\bthe \w+ of\b", lowered) or re.search(r"\bto (?:\w+)", lowered):
+        return True
+    return len(lowered.split()) >= 5
+
+
+def names_it(text: str, found: FoundFile) -> bool:
+    """Every name word is a whole word of the file's name, so opening it on its own
+    is safe. "find my keys" never opens keyset-backup.zip; "find my history essay"
+    opens History Essay.docx."""
+    words, _extensions = parse_query(text)
+    if not words:
+        return False
+    parts = set(re.findall(r"[a-z0-9]+", Path(found.name).stem.lower()))
+    return all(
+        word in parts or (word.endswith("s") and word[:-1] in parts) or (word + "s") in parts
+        for word in words
+    )
+
+
 def match_files(
     text: str,
     entries: list[FoundFile],
@@ -225,8 +286,13 @@ def search_reply(
     if len(matches) == 1:
         best = matches[0]
         label = when_label(best.last_used)
-        speech = f"Opening {best.name}" + (f", {label}." if label else ".")
-        return speech, best.path, best
+        if names_it(query, best) and not sounds_like_a_question(query):
+            speech = f"Opening {best.name}" + (f", {label}." if label else ".")
+            return speech, best.path, best
+        # A loose match (a word inside a longer name, or a request that does not
+        # sound like a file) is never opened on its own: you say so first.
+        speech = f"I found one: {best.name}" + (f", {label}" if label else "") + ". Say open it to open it."
+        return speech, f"1. {best.name} — {best.path}", None
     lines = []
     for index, found in enumerate(matches, start=1):
         label = when_label(found.last_used)

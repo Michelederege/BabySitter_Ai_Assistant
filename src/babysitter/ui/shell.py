@@ -28,6 +28,7 @@ from babysitter.filefind import (
     recently_opened,
     scan_folders,
     search_reply,
+    sounds_like_a_question,
 )
 from babysitter.games import foreground_process_name, should_hide_orb
 from babysitter.journal import (
@@ -2982,7 +2983,8 @@ class Shell:
         if not text:
             self.window.home.set_reply("nothing", "Type a line first.", "Nothing was sent.")
             return
-        if self._run_quick(text):
+        skip_quick, self._skip_quick_once = getattr(self, "_skip_quick_once", False), False
+        if not skip_quick and self._run_quick(text):
             return
         self._scan_when_free = False
         if self.controller.state == "game":
@@ -4418,6 +4420,14 @@ class Shell:
 
     def _finish_find(self, text: str, wanted: str, entries, opened) -> None:
         matches = match_files(wanted, entries, opened)
+        if not matches and sounds_like_a_question(wanted):
+            # "Find me a recipe for pancakes" or "find the capital of australia"
+            # is a question, not a file. With nothing on disk to show, it goes
+            # to the model as one, instead of "Nothing matching … in Documents".
+            self._pending_line = text
+            self._skip_quick_once = True
+            self._send_heard()
+            return
         speech, detail, best = search_reply(wanted, matches, self._search_places())
         self._found_files = matches
         self._found_at = time.time()

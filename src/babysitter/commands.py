@@ -665,7 +665,13 @@ _OPEN_WORDS = {
 
 
 def _open_index(phrase: str) -> int | None:
-    """'open number 2', 'open number two', and 'open the second one'."""
+    """'open number 2', 'open number two', and 'open the second one'.
+
+    'Open it' and 'open that one' mean the first (often the only) file just
+    found; with no list, the shell says to search first, and nothing opens.
+    """
+    if phrase in {"open it", "open that", "open that one", "open this one", "open that file", "open the file", "open it up"}:
+        return 1
     match = re.fullmatch(r"open (?:number |file |the )?([a-z0-9]+)(?: one)?", phrase)
     if not match:
         return None
