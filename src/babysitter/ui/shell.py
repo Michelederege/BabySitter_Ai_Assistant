@@ -2341,6 +2341,12 @@ class Shell:
                 return
             intent = _replace(intent, query=place, ask=f"Check the weather for {place}? The town name goes to Open-Meteo.")
         self._pending_tool = intent
+        if intent.kind == "command":
+            self.window.home.set_reply(
+                intent.query, intent.ask, "Worked out on this PC. Say yes to do it, or no to leave it."
+            )
+            self._speak(intent.ask)
+            return
         self.window.home.set_reply(intent.query or "tool", intent.ask, "Nothing is sent until you say yes.")
         self._speak(intent.ask)
 
@@ -2348,7 +2354,14 @@ class Shell:
         intent = self._pending_tool
         self._pending_tool = None
         if intent is None or answer != "yes":
+            if intent is not None and intent.kind == "command":
+                self._suggested_command = None
+                self._speak("Okay, I left it.")
+                return
             self._speak("Leaving it. Nothing was sent.")
+            return
+        if intent.kind == "command":
+            self._run_suggested()
             return
         self._tool_summary = intent.summary
         if intent.kind == "web":
@@ -4227,10 +4240,65 @@ class Shell:
                 self._goals_open = False
                 if self._maybe_house(text):
                     return True
+                if self._maybe_suggest(text):
+                    return True
                 return False
             self._goals_open = False
             self._offer_tool(intent)
             return True
+        return self._do_quick(quick, text)
+
+    def _maybe_suggest(self, text: str) -> bool:
+        """No command matched, but it sounds like one: ask the model on this PC which command it means.
+
+        The answer is parsed like anything you say, and only a reminder, timer,
+        fact, goal or journal task is offered. Nothing happens until you say yes.
+        Anything else, or any failure, goes on to the model as a question.
+        """
+        from babysitter.suggest import looks_like_action
+
+        if self.controller.state != "on" or not looks_like_action(text):
+            return False
+        running = getattr(self, "_suggest_job", None)
+        if running is not None and running.isRunning():
+            return False
+        from babysitter.suggest import suggest
+
+        mode = self.controller.reply_mode()
+        client = self.controller.ollama
+        alive = self._reply_keep_alive()
+        self.window.home.set_reply(text, "Working out what you'd like done…", "On this PC. Nothing is done until you say yes.")
+        self._show_mode("thinking", "Thinking.")
+        job = _CallJob(lambda: suggest(client, mode.model, text, mode.num_ctx, num_batch=mode.num_batch, keep_alive=alive))
+        self._store_job("_suggest_job", job)
+        job.ready.connect(lambda found, _problem, heard=text: self._suggested(heard, found))
+        job.start()
+        return True
+
+    def _suggested(self, heard: str, found) -> None:
+        from babysitter.intents import ToolIntent
+        from babysitter.suggest import confirm_line
+
+        if getattr(self, "_pending_line", "") != heard:
+            return  # something newer was said meanwhile
+        if not found:
+            self._skip_quick_once = True
+            self._send_heard()
+            return
+        command, parsed = found
+        self._suggested_command = (parsed, command)
+        self._offer_tool(ToolIntent("command", parsed.kind, command, confirm_line(parsed)))
+
+    def _run_suggested(self) -> None:
+        held = getattr(self, "_suggested_command", None)
+        self._suggested_command = None
+        if held is None:
+            return
+        parsed, command = held
+        self._pending_line = command
+        self._do_quick(parsed, command)
+
+    def _do_quick(self, quick: QuickCommand, text: str) -> bool:
         if quick.kind in {"goals", "goal_add", "goal_done", "goal_drop", "goal_show"}:
             self._apply_goal(quick, text)
             return True

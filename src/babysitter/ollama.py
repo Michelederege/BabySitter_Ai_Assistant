@@ -261,6 +261,44 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise OllamaError("Ollama answered with something that was not JSON.") from exc
 
+    def ask_json(
+        self,
+        model: str,
+        system: str,
+        prompt: str,
+        num_ctx: int,
+        schema: dict,
+        *,
+        num_batch=None,
+        keep_alive=IDLE_KEEP_ALIVE,
+        timeout: float = 30,
+    ) -> dict:
+        """One short answer shaped by a JSON schema, at temperature 0. Nothing is logged.
+
+        num_ctx and num_batch must match the chat's, or Ollama reloads the model.
+        """
+        options = {"num_ctx": int(num_ctx), "temperature": 0, "num_predict": 120}
+        if num_batch:
+            options["num_batch"] = int(num_batch)
+        body = {
+            "model": model,
+            "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+            "stream": False,
+            "think": False,
+            "format": schema,
+            "keep_alive": keep_alive,
+            "options": options,
+        }
+        reply = self._request("POST", "/api/chat", body, timeout=timeout)
+        content = str(((reply or {}).get("message") or {}).get("content") or "")
+        try:
+            value = json.loads(content)
+        except json.JSONDecodeError:
+            raise OllamaError("The model's answer was not the expected shape.") from None
+        if not isinstance(value, dict):
+            raise OllamaError("The model's answer was not the expected shape.")
+        return value
+
     def ask(self, model: str, prompt: str, num_ctx: int) -> str:
         """One local reply. The prompt and the reply are not written to the log."""
         parts = list(self.iter_reply(model, prompt, num_ctx))

@@ -976,6 +976,7 @@ HELP_DETAIL = "\n".join([
     "Look something up (asks before it goes online): look up …",
     "Talking: say that again · new topic · speak slower · speak faster · call yourself …",
     "Power: game mode · leave game mode · turn off the AI",
+    "Your own words work too (AI on): put dentist on Friday at 3 · give me twenty minutes · my sister's birthday is March 4. I'll say what I'll do and wait for yes.",
     "Anything else is a question for the AI.",
 ])
 
