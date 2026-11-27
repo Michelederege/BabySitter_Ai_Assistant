@@ -99,6 +99,42 @@ class PhraseBook:
             ),
         )
 
+    def thanks_reply(self) -> str:
+        return self._pick(
+            "thanks",
+            (
+                "You're welcome.",
+                "Anytime.",
+                "Happy to help.",
+                "Of course.",
+                "No problem.",
+                "Glad I could help.",
+            ),
+        )
+
+    def bye_reply(self, night: bool = False) -> str:
+        if night:
+            return self._pick("night", ("Good night.", "Sleep well.", "Night. Talk tomorrow."))
+        return self._pick(
+            "bye",
+            (
+                "Talk soon.",
+                "Okay. I'm here when you need me.",
+                "Bye for now.",
+                "Sounds good. Just say the word if you need anything.",
+            ),
+        )
+
+    def fresh_start_reply(self) -> str:
+        return self._pick(
+            "fresh",
+            (
+                "Fresh start. What's next?",
+                "Clean slate. What's on your mind?",
+                "Okay, new topic. Go ahead.",
+            ),
+        )
+
     def hush_reply(self) -> str:
         return self._pick(
             "hush",

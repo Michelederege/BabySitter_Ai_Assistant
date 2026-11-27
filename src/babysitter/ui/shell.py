@@ -3319,6 +3319,7 @@ class Shell:
         self._full_reply = ""
         self._more_text = ""
         self._awaiting_more = False
+        self._session_id = ""  # what comes next is its own conversation in History
         self.window.home.set_reply("fresh start", "Fresh start. What's next?", "Pins and memory stay. The conversation so far is not sent with the next question.")
         self.controller._remember("Fresh start. The conversation context was cleared.")
         self.window.home.set_history(self.controller.history)
@@ -4085,6 +4086,26 @@ class Shell:
             self._goals_open = False
         if quick.kind == "cancel_timer":
             self._cancel_timer(text)
+            return True
+        if quick.kind in {"thanks", "bye"}:
+            # Said here, without the model: a thank-you or a goodbye needs no
+            # answer from it, and with the AI off it would have loaded it.
+            if quick.kind == "thanks":
+                speech = self._phrases.thanks_reply()
+            else:
+                speech = self._phrases.bye_reply(night=quick.detail == "night")
+                self._goals_open = False
+                if getattr(self, "_followup_left", 0) > 0:
+                    self._close_followup()
+            self.window.home.set_reply(text, speech, "Said on this PC. The model was not asked.")
+            self._note_local(text, speech)
+            self._speak(speech)
+            return True
+        if quick.kind == "fresh_start":
+            self._fresh_start()
+            speech = self._phrases.fresh_start_reply()
+            self.window.home.set_reply(text, speech, "Pins and memory stay. The conversation so far is not sent with the next question.")
+            self._speak(speech)
             return True
         if quick.kind == "time":
             now = datetime.now().astimezone()

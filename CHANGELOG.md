@@ -2,6 +2,20 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.27.2 — Talking to it more naturally
+
+**Polite and filler words no longer get in the way.** "Could you please just tell me the time real quick", "um, what's on my calendar", "would you mind checking my email for me", and "I'd like you to be quiet" all reach the same commands as the short forms. "5 mins", "2 hrs", and "a couple of minutes" work in timers and reminders.
+
+**Many more everyday wordings.** About 150 new ones: "shut up", "hold on", "shh" stop the voice; "pardon", "sorry, what?", "I didn't catch that" say it again; "any reminders", "when's the timer done", "never mind the timer", "scratch that"; "do I have any new emails", "any appointments today"; "is my computer okay", "what can you see", "where were we", "save that".
+
+**Thanks and goodbye are answered on this PC.** "Thank you so much", "cheers", "great job", "bye", "good night", "that's all for now" get a short, varied reply without the model. With the AI off, a plain "thanks" used to load the model for about six seconds to say "you're welcome".
+
+**"New topic" starts fresh.** "New topic", "let's start over", "change the subject", "new conversation" clear the conversation, and what follows is its own conversation in History. It used to be a button only.
+
+**Yes and no, the way people say them.** "Sure thing", "go for it", "sounds good", "why not" are a yes; "not now", "maybe later", "I'm good", "don't bother" are a no. A longer sentence that only starts with "yeah" or "please" ("yeah, but what about tomorrow?") is now a new question instead of a yes.
+
+**Reminders and notes, said naturally.** "Wake me up at 7" (the morning, not 7 in the evening), "ping me in 5 mins to check the oven", "keep in mind that I'm allergic to nuts", "note to self: buy milk", and "my name is Alex" (saved as a fact). "Remember that my sister is Anna" saves "my sister is Anna". Questions that only sound like commands stay questions: "can you remind me what photosynthesis is", "remember when we talked about dogs", "ping me the details".
+
 ## 0.27.1 — Audit fixes
 
 **"Stop the timer" works at any time.** It used to count as "undo", which only reaches back 10 seconds, so after that it said "Nothing recent to undo" and the timer kept running. It now cancels the running timer, or says there isn't one.

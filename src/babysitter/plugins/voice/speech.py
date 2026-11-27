@@ -119,10 +119,24 @@ def lead_and_rest(text: str) -> tuple[str, str]:
     return lead, spoken[len(lead) :].strip()
 
 
-_YES = {"yes", "yeah", "yep", "yup", "sure", "please", "ok", "okay"}
-_NO = {"no", "nope", "nah"}
-_YES_PHRASES = {"tell me more", "read it", "read the rest", "go ahead", "go on"}
-_NO_PHRASES = {"no thanks", "no thank you", "thats enough", "that's enough", "stop"}
+_YES = {"yes", "yeah", "yep", "yup", "yea", "ya", "sure", "please", "ok", "okay", "absolutely", "definitely", "certainly", "alright"}
+_NO = {"no", "nope", "nah", "naw"}
+_YES_PHRASES = {
+    "tell me more", "read it", "read the rest", "go ahead", "go on", "go for it", "do it", "please do",
+    "yes please", "sure thing", "of course", "why not", "sounds good", "that sounds good", "i'd like that",
+    "id like that", "i would like that", "keep going", "let's hear it", "lets hear it", "let's do it",
+    "lets do it", "carry on", "continue", "more please", "and", "and then", "what else", "go on then",
+}
+_NO_PHRASES = {
+    "no thanks", "no thank you", "thats enough", "that's enough", "stop", "not now", "not right now",
+    "maybe later", "later", "i'm good", "im good", "i'm fine", "im fine", "all good", "that's fine",
+    "thats fine", "don't bother", "dont bother", "skip it", "forget it", "never mind", "nevermind",
+    "no need", "not really", "i'm okay", "im okay", "i'm all set", "im all set", "all set",
+    "that's it", "thats it", "that'll do", "thatll do", "pass",
+}
+# "Yeah, but what about tomorrow?" is a new question, not a yes. A yes or no
+# word counts on its own only in a short answer.
+_SHORT_ANSWER = 4
 
 
 def remainder_after(spoken_lead: str, reply: str) -> str:
@@ -159,9 +173,10 @@ def more_answer(text: str) -> str | None:
     if not words:
         return None
     phrase = " ".join(words)
-    if phrase in _NO_PHRASES or words[0] in _NO:
+    short = len(words) <= _SHORT_ANSWER
+    if phrase in _NO_PHRASES or (words[0] in _NO and short):
         return "no"
-    if phrase in _YES_PHRASES or words[0] in _YES:
+    if phrase in _YES_PHRASES or (words[0] in _YES and short):
         return "yes"
     return None
 
@@ -255,7 +270,12 @@ def followup_phrase(text: str) -> str | None:
     if not words:
         return None
     phrase = " ".join(words)
-    if phrase in {"thanks thats all", "thanks that's all", "thats all", "that's all", "never mind", "nevermind"}:
+    if phrase in {
+        "thanks thats all", "thanks that's all", "thats all", "that's all", "never mind", "nevermind",
+        "that's it", "thats it", "nothing else", "no that's all", "no thats all", "i'm good", "im good",
+        "all good", "we're done", "were done", "i'm done", "im done", "that'll be all", "thatll be all",
+        "i'm all set", "im all set", "all set",
+    }:
         return ""
     if phrase in {"tell me more", "read the rest"} or is_resume(text) or more_answer(text) == "yes":
         return phrase

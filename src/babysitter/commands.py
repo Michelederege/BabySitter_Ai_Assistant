@@ -16,24 +16,75 @@ class QuickCommand:
     when: str = ""
 
 
+# The polite and filler words people wrap around a request. "Could you
+# please just tell me the time real quick" is "tell me the time". Each is
+# taken off the front or the end, one at a time, until none is left.
 _LEAD = re.compile(
-    r"^(?:hey|okay|ok|baby\s*sitter|please|can you|could you|would you)\b[\s,]*",
+    r"^(?:hey there|hey|hi|hello|yo|okay|ok|alright|all right|so|um+|uh+|er+|right|"
+    r"baby\s*sitter|please|"
+    r"(?:can|could|would|will) you(?: please)?(?: just)?|"
+    r"(?:can|could) i get you to|are you able to|would you be able to|"
+    r"i (?:want|need) you to|i'?d like you to|i would like you to|"
+    r"do me a favou?r and|go ahead and|just|quickly|quick)\b[\s,]*",
     re.IGNORECASE,
 )
-_TRAIL = re.compile(r"[\s,]*(?:please|thanks|thank you)\s*$", re.IGNORECASE)
+_TRAIL = re.compile(
+    r"[\s,]*(?:please|thanks|thank you|for me|real quick|quickly|right now|"
+    r"if you can|if you could|if you don'?t mind|when you get a chance|for a sec(?:ond)?)\s*[.!?]*$",
+    re.IGNORECASE,
+)
 
 
 def strip_lead(text: str) -> str:
-    """Drop a leading keyword or 'please', and a trailing 'please'.
-
-    The words that were asked for stay, including their capital letters.
+    """Drop the openers and closers around a request ("could you please ...
+    for me"). The words that were asked for stay, capital letters included.
     """
     raw = (text or "").strip()
     previous = None
     while raw and previous != raw:
         previous = raw
+        mind = _MIND.match(raw)
+        if mind:
+            # "Would you mind telling me the time" asks for "tell me the time".
+            rest = raw[mind.end():]
+            first, _, after = rest.partition(" ")
+            plain = _GERUNDS.get(first.lower())
+            raw = f"{plain} {after}".strip() if plain else rest
+            continue
         raw = _LEAD.sub("", raw, count=1).strip()
-    return _TRAIL.sub("", raw).strip()
+        raw = _TRAIL.sub("", raw).strip()
+    return _unit_words(raw)
+
+
+_MIND = re.compile(r"^(?:would|do) you mind\s+", re.IGNORECASE)
+_GERUNDS = {
+    "telling": "tell", "checking": "check", "reading": "read", "setting": "set", "reminding": "remind",
+    "starting": "start", "pinning": "pin", "saying": "say", "repeating": "repeat", "finding": "find",
+    "looking": "look", "opening": "open", "cancelling": "cancel", "canceling": "cancel", "stopping": "stop",
+    "scanning": "scan", "summarizing": "summarize", "summarising": "summarise", "making": "make",
+    "noting": "note", "remembering": "remember", "giving": "give", "putting": "put", "showing": "show",
+}
+
+
+# "5 mins", "2 hrs", "30 secs", and "a couple of minutes", said as the
+# words the clock readers know. Only after a number, so a name like Min stays.
+_COUNT_WORD = (
+    r"(?:\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|"
+    r"fifteen|twenty|thirty|forty|forty five|fifty|sixty|ninety)"
+)
+_UNIT_SHORT = (
+    (re.compile(rf"\b({_COUNT_WORD})\s*mins?\b", re.IGNORECASE), r"\1 minutes"),
+    (re.compile(rf"\b({_COUNT_WORD})\s*hrs?\b", re.IGNORECASE), r"\1 hours"),
+    (re.compile(rf"\b({_COUNT_WORD})\s*secs?\b", re.IGNORECASE), r"\1 seconds"),
+    (re.compile(r"\ba couple(?: of)? (minutes|hours|seconds)\b", re.IGNORECASE), r"two \1"),
+    (re.compile(r"\ba few (minutes|seconds)\b", re.IGNORECASE), r"three \1"),
+)
+
+
+def _unit_words(text: str) -> str:
+    for pattern, replacement in _UNIT_SHORT:
+        text = pattern.sub(replacement, text)
+    return " ".join(text.split())
 
 
 def _tail(original: str, label: str) -> str:
@@ -135,6 +186,138 @@ _SAME_AS = {
     "what's on my schedule": "check my calendar",
     "do i have anything today": "check my calendar",
     "am i busy today": "check my calendar",
+    # Time and date
+    "what time's it": "what time is it",
+    "what times it": "what time is it",
+    "whats the time": "what time is it",
+    "do you have the time": "what time is it",
+    "have you got the time": "what time is it",
+    "what time is it right now": "what time is it",
+    "how late is it": "what time is it",
+    "what's the date": "what is the date",
+    "what date is it": "what is the date",
+    "what date is it today": "what is the date",
+    "what's today's date": "what is the date",
+    "what day of the month is it": "what is the date",
+    "what day are we on": "what day is it",
+    "what day is it again": "what day is it",
+    # Stop talking
+    "shut up": "stop talking",
+    "quiet": "stop talking",
+    "silence": "stop talking",
+    "shh": "stop talking",
+    "shhh": "stop talking",
+    "shush": "stop talking",
+    "stop": "stop talking",
+    "okay stop": "stop talking",
+    "ok stop": "stop talking",
+    "enough": "stop talking",
+    "enough now": "stop talking",
+    "zip it": "stop talking",
+    "pipe down": "stop talking",
+    "be silent": "stop talking",
+    "hold on": "stop talking",
+    "hang on": "stop talking",
+    "wait": "stop talking",
+    "wait wait": "stop talking",
+    "stop stop": "stop talking",
+    "stop it": "stop talking",
+    "that's plenty": "stop talking",
+    "thats plenty": "stop talking",
+    # Say it again
+    "pardon": "say that again",
+    "pardon me": "say that again",
+    "sorry what": "say that again",
+    "sorry come again": "say that again",
+    "what was that": "say that again",
+    "what did you just say": "say that again",
+    "say again": "say that again",
+    "say it again": "say that again",
+    "one more time": "say that again",
+    "repeat": "say that again",
+    "repeat it": "say that again",
+    "again": "say that again",
+    "huh": "say that again",
+    "what": "say that again",
+    "i didn't catch that": "say that again",
+    "i didnt catch that": "say that again",
+    "didn't catch that": "say that again",
+    "didnt catch that": "say that again",
+    "i missed that": "say that again",
+    "i didn't hear you": "say that again",
+    "i didnt hear you": "say that again",
+    # Reminders and timers
+    "any reminders": "what's my next reminder",
+    "do i have any reminders": "what's my next reminder",
+    "what are my reminders": "what's my next reminder",
+    "whats coming up": "what's my next reminder",
+    "what's coming up": "what's my next reminder",
+    "whens the timer done": "what's my next reminder",
+    "when's the timer done": "what's my next reminder",
+    "when is the timer done": "what's my next reminder",
+    "how long until the timer goes off": "what's my next reminder",
+    "forget the reminder": "cancel the reminder",
+    "never mind the reminder": "cancel the reminder",
+    "remove the reminder": "cancel the reminder",
+    "remove my reminder": "cancel the reminder",
+    "forget the timer": "cancel the timer",
+    "never mind the timer": "cancel the timer",
+    "turn off the timer": "cancel the timer",
+    "turn the timer off": "cancel the timer",
+    "get rid of the timer": "cancel the timer",
+    "scratch that": "undo",
+    "take that back": "undo",
+    "undo the last thing": "undo",
+    # Mail and calendar
+    "do i have mail": "check my email",
+    "do i have any mail": "check my email",
+    "do i have new mail": "check my email",
+    "do i have new email": "check my email",
+    "do i have any new email": "check my email",
+    "do i have any new emails": "check my email",
+    "got any mail": "check my email",
+    "new emails": "check my email",
+    "new email": "check my email",
+    "anything in my inbox": "check my email",
+    "read me my email": "read my email",
+    "what's in my email": "check my email",
+    "whats in my email": "check my email",
+    "anything on my calendar": "check my calendar",
+    "anything on my calendar today": "check my calendar",
+    "whats happening today": "check my calendar",
+    "what's happening today": "check my calendar",
+    "what's next on my calendar": "check my calendar",
+    "whats next on my calendar": "check my calendar",
+    "any appointments": "check my calendar",
+    "any appointments today": "check my calendar",
+    "do i have any appointments": "check my calendar",
+    "do i have any meetings": "check my calendar",
+    "do i have plans today": "check my calendar",
+    # The PC
+    "hows my pc doing": "how's my pc",
+    "how's my pc doing": "how's my pc",
+    "how is my pc doing": "how's my pc",
+    "hows the pc": "how's my pc",
+    "how's the pc": "how's my pc",
+    "is my computer ok": "how's my pc",
+    "is my computer okay": "how's my pc",
+    "is my pc ok": "how's my pc",
+    "is my pc okay": "how's my pc",
+    "how busy is my pc": "how's my pc",
+    "what do you see": "look at my screen",
+    "what can you see": "look at my screen",
+    "can you see my screen": "look at my screen",
+    "see my screen": "look at my screen",
+    "check my screen": "look at my screen",
+    # History and memory
+    "what were we talking about": "what did we talk about",
+    "what were we just talking about": "what did we talk about",
+    "where were we": "what did we talk about",
+    "what did we just talk about": "what did we talk about",
+    "pin that for later": "pin that",
+    "save that": "pin that",
+    "save that reply": "pin that",
+    "keep that": "pin that",
 }
 _COUNTDOWN = re.compile(
     r"(?:(?:set|start|make|put on|give me)\s+)?(?:a|an|me a)?\s*([a-z0-9]+(?:\s+and\s+a\s+half)?)\s*"
@@ -165,6 +348,12 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     phrase = " ".join(words)
     if not phrase:
         return None
+    if phrase in _THANKS:
+        return QuickCommand("thanks")
+    if phrase in _GOODBYE:
+        return QuickCommand("bye", detail="night" if "night" in phrase or "sleep" in phrase else "")
+    if phrase in _FRESH_START:
+        return QuickCommand("fresh_start")
     if phrase in _MEMORY_QUESTIONS:
         return QuickCommand("memories")
     if phrase in _BRIEFING:
@@ -297,9 +486,27 @@ def _match_quick_command(text: str) -> QuickCommand | None:
         return goal
     if phrase.startswith("remember "):
         detail = _tail(original, "remember")
+        # "Remember that my sister is Anna" saves "my sister is Anna".
+        first = detail.split()[0].lower().strip(",.") if detail.split() else ""
+        if first in _ASKING or detail.lower().startswith(("the time", "that time")):
+            return None  # "remember when we talked about dogs" is a question
+        detail = re.sub(r"^(?:that|this|:)\s+", "", detail, flags=re.IGNORECASE).strip()
         if detail:
             return QuickCommand("remember", detail=detail)
+    named = re.match(r"(?:my name is|my name's|my names) ([a-z' -]{2,40})$", phrase)
+    if (
+        named
+        and named.group(1).split()[0] not in _NOT_A_NAME
+        and len(named.group(1).split()) <= 3
+        and not set(named.group(1).split()) & _NOT_IN_A_NAME
+    ):
+        # Your own name, kept as a saved fact like any other.
+        name = " ".join(word.capitalize() for word in named.group(1).split())
+        return QuickCommand("remember", detail=f"My name is {name}")
     for label in (
+        "keep in mind that",
+        "keep in mind",
+        "note to self",
         "make a note that",
         "make a note",
         "note that",
@@ -310,6 +517,8 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     ):
         if phrase.startswith(label + " "):
             detail = _tail(original, label)
+            if detail.lower().startswith("down "):
+                return None  # "note that down is a phrase"
             if detail:
                 return QuickCommand("remember", detail=detail)
     if phrase in {
@@ -553,6 +762,13 @@ _NOT_A_NAME = {
 }
 
 
+# "My name is not important", "my name is spelled with a k": about the name, not the name.
+_NOT_IN_A_NAME = {
+    "not", "spelled", "spelt", "pronounced", "written", "important", "hard", "difficult", "weird",
+    "funny", "long", "short", "too", "very", "so", "really", "actually", "on", "in", "unusual", "common",
+}
+
+
 # UI v3, Today: the daily briefing. Said on request; it is never pushed at you.
 _BRIEFING = {
     "brief me", "daily briefing", "my briefing", "give me my briefing", "morning briefing",
@@ -560,7 +776,35 @@ _BRIEFING = {
     "what does my day look like", "catch me up", "fill me in", "what's up today", "whats up today",
 }
 
+# Said on its own, thanks gets a short reply here. Loading the model to say
+# "you're welcome" took about six seconds when the AI was off.
+_THANKS = {
+    "thanks", "thank you", "thanks a lot", "thanks so much", "thank you so much", "thank you very much",
+    "thanks very much", "many thanks", "cheers", "thx", "ty", "much appreciated", "appreciate it",
+    "i appreciate it", "i appreciate that", "thanks for that", "thank you for that", "thanks for the help",
+    "thank you for the help", "thanks for your help", "thank you for your help", "great thanks",
+    "perfect thanks", "awesome thanks", "cool thanks", "nice thanks", "ok thanks", "okay thanks",
+    "great thank you", "perfect thank you", "awesome thank you", "thanks buddy", "thanks mate",
+    "thank you kindly", "you're the best", "youre the best", "you're a star", "nice one", "good job",
+    "well done", "great job", "that was helpful", "that's helpful", "thats helpful", "very helpful",
+}
+_GOODBYE = {
+    "bye", "goodbye", "good bye", "bye bye", "bye for now", "see you", "see you later", "see ya",
+    "see ya later", "catch you later", "talk to you later", "talk later", "talk soon",
+    "good night", "goodnight", "night night", "nighty night", "sleep well",
+    "that's all", "thats all", "that's all for now", "thats all for now", "that's it for now",
+    "thats it for now", "that'll be all", "thatll be all", "that will be all",
+    "nothing else", "i'm all set", "im all set",
+}
+_FRESH_START = {
+    "fresh start", "start fresh", "start over", "let's start over", "lets start over", "new topic",
+    "change of subject", "change the subject", "let's change the subject", "lets change the subject",
+    "new conversation", "start a new conversation", "forget this conversation", "clear the conversation",
+    "reset the conversation", "clean slate", "forget what we were talking about",
+}
+
 _MEMORY_QUESTIONS = {
+    "tell me what you remember", "what have you learned about me", "what have you saved about me",
     "what do you remember about me", "what do you know about me", "what have you remembered",
     "what have you remembered about me", "what do you remember", "what have i told you",
     "what facts do you have", "what are my saved facts", "list my memories", "read my memories",
@@ -647,7 +891,18 @@ _MINUTE_WORDS = {
     "half": 30,
     "quarter": 15,
 }
+# These only mean a reminder when a time comes with them.
+_NEEDS_A_TIME = {"wake me up", "wake me", "ping me", "nudge me", "give me a shout"}
+# "Remind me what ..." and "remember when ..." ask about something; they save nothing.
+_ASKING = {"what", "what's", "whats", "who", "who's", "whos", "how", "why", "where", "which", "whether", "if", "of", "when"}
+
 _REMINDER_LABELS = (
+    "wake me up",
+    "wake me",
+    "ping me",
+    "nudge me",
+    "give me a shout",
+    "set me a reminder",
     "set a reminder",
     "set reminder",
     "add a reminder",
@@ -842,9 +1097,18 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
         now = datetime.now().astimezone()
         located = _locate_when(detail, now)
         if located is None:
+            if label in _NEEDS_A_TIME:
+                return None  # "ping me the details", "wake me up inside": not reminders
+            first = detail.split()[0].lower().strip(",.") if detail.split() else ""
+            if first in _ASKING - {"when", "if"}:
+                return None  # "remind me what photosynthesis is" is a question
             return QuickCommand("remind", detail=detail, when="")
         moment, span = located
-        detail = _cut_when(detail, span) or "Reminder"
+        waking = label.startswith("wake")
+        if waking and not re.search(r"\b(?:am|pm|a\.m|p\.m|noon|midnight|tonight|evening)\b", detail.lower()) and moment.hour >= 13:
+            # "Wake me up at 7" means the morning, not 7 this evening.
+            moment = moment + timedelta(hours=12)
+        detail = _cut_when(detail, span) or ("Wake up" if waking else "Reminder")
         return QuickCommand("remind", detail=detail, when=moment.isoformat(timespec="seconds"))
     return None
 

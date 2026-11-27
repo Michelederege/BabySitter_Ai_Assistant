@@ -136,15 +136,28 @@ def suggestion_answer(text: str) -> str | None:
     if not words:
         return None
     phrase = " ".join(words)
-    if words[0] in {"no", "nope", "nah", "deny", "skip"} or phrase in {
+    if (words[0] in {"no", "nope", "nah", "naw", "deny", "skip"} and len(words) <= 4) or phrase in {
         "leave it",
         "no thanks",
         "no thank you",
+        "not now",
+        "not right now",
+        "maybe later",
+        "leave it alone",
+        "don't",
+        "dont",
+        "don't do that",
+        "dont do that",
+        "forget it",
+        "never mind",
+        "nevermind",
+        "keep it",
+        "pass",
     }:
         return "no"
-    if phrase in {"go ahead", "do it"}:
+    if phrase in {"go ahead", "do it", "go for it", "please do", "yes please", "sure thing", "of course", "sounds good", "let's do it", "lets do it"}:
         return "yes"
-    if words[0] in {"yes", "yeah", "yep", "yup", "sure", "ok", "okay"} and len(words) <= 4:
+    if words[0] in {"yes", "yeah", "yep", "yup", "yea", "sure", "ok", "okay", "absolutely", "definitely", "alright"} and len(words) <= 4:
         return "yes"
     return None
 
