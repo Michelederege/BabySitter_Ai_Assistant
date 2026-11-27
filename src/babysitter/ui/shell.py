@@ -1096,6 +1096,7 @@ class Shell:
         settings.hide_orb_for_games.toggled.connect(lambda on: self._set_flag("hide_orb_for_games", on))
         settings.quiet_hours.toggled.connect(lambda on: self._set_flag("quiet_hours", on))
         settings.alerts_when_off.toggled.connect(self._set_alerts_when_off)
+        settings.save_conversations.toggled.connect(lambda on: self._set_flag("save_conversations", on))
         settings.side_button.toggled.connect(lambda on: self._set_flag("side_button", on))
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
         settings.weather_save.clicked.connect(lambda: self._save_town(settings.weather_town.text()))
@@ -3939,6 +3940,8 @@ class Shell:
             self._history.append({"role": "assistant", "content": assistant})
         del self._history[:-16]
         self._logged_turn = True
+        if not self.controller.settings.save_conversations:
+            return  # kept in memory for follow-ups only; nothing written to History
         try:
             if not self._session_id:
                 self._session_id = begin_session()
@@ -4094,6 +4097,9 @@ class Shell:
             return True
         if quick.kind == "persona":
             self._save_persona(quick.detail)
+            return True
+        if quick.kind == "briefing":
+            self._briefing(text)
             return True
         if quick.kind == "memories":
             facts = [str(item.get("text") or "").strip() for item in load_list("memory.json")]
@@ -4460,6 +4466,35 @@ class Shell:
         self.window.home.set_reply(text[:80] or "goals", speech, detail)
         self._note_local(text, speech)
         self._speak(speech)
+
+    def _briefing(self, text: str) -> None:
+        """The day in a few sentences: the date, the next reminder, open goals, then
+        the linked accounts if any. Weather is offered, not fetched: it still needs a yes."""
+        from babysitter.deskstore import next_reminder_line
+
+        now = datetime.now().astimezone()
+        hour = now.hour
+        greeting = "Good morning" if hour < 12 else ("Good afternoon" if hour < 18 else "Good evening")
+        parts = [f"{greeting}. It's {now.strftime('%A')}, {now.strftime('%B')} {now.day}."]
+        reminder = next_reminder_line(load_list("schedule.json"))
+        if reminder and not reminder.lower().startswith(("no reminder", "nothing")):
+            parts.append(reminder)
+        goals = [item for item in load_list("goals.json") if str(item.get("done") or "") != "yes"]
+        if goals:
+            first = str(goals[0].get("text") or goals[0].get("title") or "").strip()
+            parts.append(
+                f"You have {len(goals)} open goal{'s' if len(goals) != 1 else ''}"
+                + (f", starting with {first}." if first else ".")
+            )
+        if self.controller.settings.weather_place:
+            parts.append("Say what's the weather if you want the forecast.")
+        speech = " ".join(parts)
+        self.window.home.set_reply(text, speech, "Read from this PC. The linked accounts follow, if any.")
+        self._note_local("briefing", speech)
+        self._speak(speech)
+        settings = self.controller.settings
+        if settings.google_enabled or settings.microsoft_enabled:
+            self._start_google("both", speak_errors=False)
 
     def _speak_next_reminder(self, text: str) -> None:
         from babysitter.deskstore import next_reminder_line

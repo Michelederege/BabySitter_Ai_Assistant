@@ -94,3 +94,36 @@ def test_outlook_alone_is_still_read(tmp_path, monkeypatch):
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_the_briefing_and_not_saving_conversations(tmp_path, monkeypatch):
+    from babysitter.commands import match_quick_command
+    from babysitter.deskstore import save_list
+
+    assert match_quick_command("good morning").kind == "briefing"
+    assert match_quick_command("brief me").kind == "briefing"
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    try:
+        spoken: list = []
+        monkeypatch.setattr(shell, "_speak", lambda text, **kw: spoken.append(text))
+        controller.settings.save_conversations = False
+        save_list("goals.json", [{"id": "g1", "text": "finish the essay"}])
+        shell._briefing("brief me")
+        assert "It's" in spoken[-1] and "1 open goal, starting with finish the essay." in spoken[-1]
+        assert "No reminder" not in spoken[-1]
+
+        from babysitter.sessions import list_sessions
+
+        controller.settings.save_conversations = False
+        shell._logged_turn = False
+        shell._remember_exchange("a private question", "a private answer")
+        assert list_sessions() == []
+        assert shell._history[-1]["content"] == "a private answer"  # follow-ups still work
+        controller.settings.save_conversations = True
+        shell._logged_turn = False
+        shell._remember_exchange("a saved question", "a saved answer")
+        assert len(list_sessions()) == 1
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()

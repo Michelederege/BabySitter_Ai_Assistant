@@ -247,6 +247,13 @@ class SettingsPage(QWidget):
             "and close the microphone. A model is not left running."
         )
         self._sec('privacy').addWidget(self.quit_off)
+        self.save_conversations = QCheckBox("Save conversations in History")
+        self.save_conversations.setAccessibleName("Save conversations in History")
+        self.save_conversations.setToolTip(
+            "On by default, encrypted on this PC. Off: what you say is kept only while BabySitter is open, "
+            "so follow-up questions still work, and nothing is written to History."
+        )
+        self._sec('privacy').addWidget(self.save_conversations)
 
         self._sec('voice').addWidget(self._label("Microphone"))
         mic_hint = QLabel(
@@ -452,6 +459,7 @@ class SettingsPage(QWidget):
         self.hide_orb_for_games.setChecked(settings.hide_orb_for_games)
         self.quiet_hours.setChecked(settings.quiet_hours)
         self.alerts_when_off.setChecked(settings.alerts_when_off)
+        self.save_conversations.setChecked(settings.save_conversations)
         self.quiet_start.setText(settings.quiet_start)
         self.quiet_end.setText(settings.quiet_end)
         self.side_button.setChecked(settings.side_button)

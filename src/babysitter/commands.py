@@ -165,6 +165,8 @@ def _match_quick_command(text: str) -> QuickCommand | None:
         return None
     if phrase in _MEMORY_QUESTIONS:
         return QuickCommand("memories")
+    if phrase in _BRIEFING:
+        return QuickCommand("briefing")
     same = _same_as(phrase)
     if same != phrase:
         phrase = same
@@ -544,6 +546,13 @@ _NOT_A_NAME = {
     "anything", "fine", "okay", "ok", "sure", "nothing", "whatever", "me", "you", "us", "him", "her",
 }
 
+
+# UI v3, Today: the daily briefing. Said on request; it is never pushed at you.
+_BRIEFING = {
+    "brief me", "daily briefing", "my briefing", "give me my briefing", "morning briefing",
+    "good morning", "morning", "what's my day look like", "whats my day look like",
+    "what does my day look like", "catch me up", "fill me in", "what's up today", "whats up today",
+}
 
 _MEMORY_QUESTIONS = {
     "what do you remember about me", "what do you know about me", "what have you remembered",
