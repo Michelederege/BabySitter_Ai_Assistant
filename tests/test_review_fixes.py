@@ -114,7 +114,6 @@ def test_detected_store_game_hides_orb_and_is_left_alone_by_scan(tmp_path, monke
     captured_games = []
     import babysitter.ui.shell as shell_mod
 
-    monkeypatch.setattr(shell_mod, "collect_processes", lambda: [])
     monkeypatch.setattr(shell_mod, "collect_startups", lambda: [])
     original_scan = shell_mod.scan
 

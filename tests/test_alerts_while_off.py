@@ -37,7 +37,7 @@ def test_new_mail_is_said_in_the_windows_voice_while_off(tmp_path, monkeypatch):
         controller.power.state = "off"
         monkeypatch.setattr("babysitter.quiet.alerts_silenced", lambda *a, **k: False)
         started: list = []
-        monkeypatch.setattr(shell, "_start_google", lambda kind, **kw: started.append(kw))
+        monkeypatch.setattr(shell, "_start_google", lambda kind, **kw: started.append(kw) or True)
         monkeypatch.setattr(shell, "_warn_google_week", lambda: None)
         spoken: list = []
         monkeypatch.setattr(shell, "_speak", lambda text, **kw: spoken.append((text, kw)))
@@ -123,6 +123,57 @@ def test_the_briefing_and_not_saving_conversations(tmp_path, monkeypatch):
         shell._logged_turn = False
         shell._remember_exchange("a saved question", "a saved answer")
         assert len(list_sessions()) == 1
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()
+
+
+def test_one_mail_check_at_a_time_across_on_and_game(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    try:
+        controller.settings.google_enabled = True
+        controller.settings.alerts_when_off = True
+        started: list = []
+        monkeypatch.setattr(shell, "_start_google", lambda kind, **kw: started.append(kw) or True)
+        for name in ("_warm_voice", "_warm_hearing", "_arm_game_return", "_sync_keyword"):
+            monkeypatch.setattr(shell, name, lambda *a, **k: None)
+        controller.power.state = "on"
+        shell._on_state("on", "on")
+        assert shell._google_poll.isActive() and not shell._off_poll.isActive()
+        controller.power.state = "game"
+        shell._on_state("game", "game")
+        assert not shell._google_poll.isActive() and shell._off_poll.isActive()
+        controller.power.state = "on"
+        shell._on_state("on", "back from the game")
+        assert shell._google_poll.isActive() and not shell._off_poll.isActive()
+        assert len(started) == 1  # the first On reads once; the timer does the rest
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()
+
+
+def test_a_natural_voice_never_takes_the_card_while_off_or_in_a_game(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    try:
+        natural = {"engine": "extra", "name": "Narrator: Linda Johnson (LJ Speech)", "speed": 105, "pitch": -1, "label": "x"}
+        monkeypatch.setattr("babysitter.ui.shell.kokoro_ready", lambda: True)
+        controller.power.state = "on"
+        assert shell._off_time_voice(dict(natural)) == natural  # on: the chosen voice
+        for state in ("off", "game"):
+            controller.power.state = state
+            assert shell._off_time_voice(dict(natural))["engine"] == "kokoro"
+        monkeypatch.setattr("babysitter.ui.shell.kokoro_ready", lambda: False)
+        monkeypatch.setattr("babysitter.plugins.voice.windows_voice.available", lambda: True)
+        assert shell._off_time_voice(dict(natural))["engine"] == "windows"
+        released: list = []
+        monkeypatch.setattr("babysitter.ui.shell.release_kokoro", lambda: released.append("kokoro"))
+        shell._release_idle_voices()
+        assert released == ["kokoro"]
+        controller.power.state = "on"
+        shell._release_idle_voices()
+        assert released == ["kokoro"]  # on: voices stay warm
     finally:
         shell.registrar.clear()
         controller.shutdown_threads()

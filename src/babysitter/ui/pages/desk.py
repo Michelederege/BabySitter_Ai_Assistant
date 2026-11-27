@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
-    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -215,11 +214,17 @@ class SchedulePage(_Page):
             self.pin_line.emit,
         )
 
-    def tick(self) -> None:
-        """Refresh the time left on each row without rebuilding the pins."""
+    def tick(self, items: list | None = None) -> None:
+        """Refresh the time left on each row without rebuilding the pins.
+
+        Skipped while the page is not on screen: the next tick after it is
+        shown brings every row up to date within a second."""
         from PySide6.QtWidgets import QLabel
 
-        items = load_list("schedule.json")
+        if not self.isVisible():
+            return
+        if items is None:
+            items = load_list("schedule.json")
         by_id = {str(item.get("id") or ""): item for item in items}
         shown = [
             str(self.list.item(row).data(Qt.ItemDataRole.UserRole) or "")

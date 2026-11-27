@@ -307,3 +307,18 @@ def test_a_model_file_is_checked_before_it_loads(tmp_path, monkeypatch):
         security.require_loaded_file(url, model)
     with pytest.raises(ValueError):
         security.require_loaded_file(url, model)  # a failure is never remembered
+
+
+def test_the_on_load_keeps_the_model_loaded(monkeypatch):
+    """A model loaded at On must not unload after 5 quiet minutes."""
+    from babysitter.ollama import OllamaClient
+
+    client = OllamaClient()
+    seen: dict = {}
+    monkeypatch.setattr(client, "_request", lambda method, path, body=None, timeout=0: seen.update(body=body) or {})
+    client.we_started_server = True
+    client.preload("qwen3.5:9b", 4096, 256)
+    assert seen["body"]["keep_alive"] == -1
+    client.we_started_server = False
+    client.preload("qwen3.5:9b", 4096, 256)
+    assert seen["body"]["keep_alive"] == "30m"

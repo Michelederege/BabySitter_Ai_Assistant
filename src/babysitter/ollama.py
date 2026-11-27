@@ -354,6 +354,12 @@ class OllamaClient:
             raise OllamaError("Type or choose a model name first.")
         self._request("DELETE", "/api/delete", {"model": cleaned}, timeout=30)
 
+    def on_keep_alive(self):
+        """How long a model stays loaded while the AI is on. Until Off when
+        BabySitter started Ollama (Windows ends that Ollama with BabySitter);
+        30 minutes for an Ollama that was already running on its own."""
+        return -1 if self.we_started_server else "30m"
+
     def preload(self, model: str, num_ctx: int, num_batch: int | None = None) -> None:
         """Load a model and leave it in memory.
 
@@ -368,7 +374,10 @@ class OllamaClient:
             "model": model,
             "messages": [],
             "stream": False,
-            "keep_alive": IDLE_KEEP_ALIVE,
+            # The same rule as a reply's: it stays loaded while the AI is on. With
+            # 5 minutes here, turning On and waiting a while before the first
+            # question meant that question waited for the model to load again.
+            "keep_alive": self.on_keep_alive(),
             "options": options,
         }
         self._request("POST", "/api/chat", body, timeout=240)

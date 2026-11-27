@@ -630,5 +630,20 @@ def strip_wake(text: str, keyword: str) -> str:
         except KeywordError:
             return original
         if rest == "":
-            return " ".join(words[count:]).lstrip(" ,.!?:;-")
-    return original
+            return _strip_trailing_name(" ".join(words[count:]).lstrip(" ,.!?:;-"), keyword)
+    return _strip_trailing_name(original, keyword)
+
+
+def _strip_trailing_name(text: str, keyword: str) -> str:
+    """ "Good morning, Kari" and "thanks Kari" end with the name. Quick commands
+    match "good morning", so a name at the very end is dropped as well. Only an
+    exact name is dropped there, never a sound-alike, so "call Corey" stays whole."""
+    words = text.split()
+    plain = [re.sub(r"[^a-z']", "", word.lower()) for word in words]
+    keyword_tokens = _tokens(keyword)
+    while keyword_tokens[:1] and keyword_tokens[0] in _OPENERS:
+        keyword_tokens = keyword_tokens[1:]  # "hey Kari" ends a sentence as "Kari"
+    for name in (keyword_tokens, _nickname_tokens()):
+        if name and len(words) > len(name) and plain[-len(name):] == name:
+            return " ".join(words[: -len(name)]).rstrip(" ,.!?:;-")
+    return text

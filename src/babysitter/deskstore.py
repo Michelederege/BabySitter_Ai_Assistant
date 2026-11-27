@@ -38,10 +38,11 @@ def _keep_unreadable(path: Path) -> None:
     if not path.is_file():
         return
     backup = path.with_name(path.name + ".bak")
-    target = backup if not backup.exists() else path.with_name(path.name + ".broken")
+    # A second unreadable file gets its own dated name. The older copy is never
+    # deleted: it may be the only one left of your saved facts.
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    target = backup if not backup.exists() else path.with_name(f"{path.name}.broken-{stamp}")
     try:
-        if target.exists():
-            target.unlink()
         path.replace(target)
     except OSError:
         return

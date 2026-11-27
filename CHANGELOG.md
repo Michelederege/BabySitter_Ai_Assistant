@@ -2,7 +2,21 @@
 
 BabySitter uses version numbers like v1.2.3.
 
-## 0.27.0 — Overnight round (in progress)
+## 0.27.1 — Audit fixes
+
+**"Stop the timer" works at any time.** It used to count as "undo", which only reaches back 10 seconds, so after that it said "Nothing recent to undo" and the timer kept running. It now cancels the running timer, or says there isn't one.
+
+**A name at the end of a sentence.** "Good morning, Kari" and "thanks Kari" now reach the same quick commands as "good morning" and "thanks". Only the exact name is dropped, so "call Corey" or "a crying baby" stay whole.
+
+**The model stays loaded from the moment the AI turns on.** 0.27.0 kept it loaded after each reply, but the load at On still used 5 minutes, so waiting a while before the first question meant waiting for the model to load again.
+
+**One mail check at a time.** In game mode the AI-on check and the off-time check both ran every 15 minutes. Now the off-time one takes over in game mode, and the AI-on one comes back when the game ends, also when the first thing after On was a queued question. A check you ask for while one is running no longer changes how the running one reports.
+
+**A natural voice never takes the graphics card while the AI is off or a game runs.** A local reply then (the time, a reminder, the weather) is said with Heart and Sarah on the processor, or the Windows voice, and nothing stays loaded after it is said.
+
+**Smaller fixes.** "Undo that" and "undo it" mean undo. Asking for a Drive file while the last one is still being read says so instead of nothing. The reminder clock reads the reminder list once a second instead of three times, and the Schedule page skips its update while it is not on screen. A second unreadable copy of saved facts gets its own dated name; the older copy is never deleted. Unused imports removed.
+
+## 0.27.0 — Overnight round
 
 **Your nickname, from one sentence.** Say "I'll call you Jarvis", "your name is Nova", or "call yourself Friday". It is saved, it applies at once instead of at the next start, and it comes back every time BabySitter opens. Saying the nickname at the start of a sentence ("Jarvis, what time is it?") wakes it like the keyword. "What's your name?" is answered on this PC.
 

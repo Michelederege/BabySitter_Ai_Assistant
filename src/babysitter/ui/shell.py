@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 from babysitter.phrasing import PhraseBook
 from babysitter.ui.jobs import retain_until_finished, take_turn
 
-from babysitter.commands import QuickCommand, match_quick_command, spoken_clock, spoken_when, timer_label
+from babysitter.commands import QuickCommand, match_quick_command, spoken_when, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -90,7 +90,6 @@ from babysitter.plugins.voice.speech import (
     followup_phrase,
     interrupt_note,
     is_resume,
-    lead_and_rest,
     more_answer,
     unread_detail,
     remainder_after,
@@ -107,7 +106,6 @@ from babysitter.plugins.voice.windows_voice import WindowsVoiceError, speaker
 from babysitter.pcscan import (
     apply_startup,
     close_named,
-    collect_processes,
     collect_startups,
     pids_named,
     running_game_names,
@@ -119,25 +117,18 @@ from babysitter.pcscan import (
 )
 from babysitter.blackboard import (
     FeedError,
-    blackboard_rows,
-    blackboard_speech,
     default_feed_vault,
-    events_from_ics,
-    fetch_feed,
 )
 from babysitter.paths import google_school_token_path
 from babysitter.plugins.tools.google_account import (
     DpapiGoogleVault,
     GoogleError,
-    GoogleReader,
     authorization_url,
     default_google_vault,
     exchange_code,
     fresh_lines,
-    http_get_json,
     listen_for_code,
     pkce_pair,
-    read_account,
     refresh_access,
 )
 from babysitter.plugins.voice.silero_model import SileroError, download_silero
@@ -1393,6 +1384,9 @@ class Shell:
             if timer is not None:
                 timer.stop()
         if state == "game":
+            # The off-time check takes over in game mode (Windows voice, no model),
+            # so the AI-on check stops: two 15-minute reads would say the same mail twice.
+            self._google_poll.stop()
             # Game mode gives the card back: the natural-voice helper closes too.
             try:
                 from babysitter.plugins.voice.engines import release as release_engines
@@ -1408,15 +1402,17 @@ class Shell:
             self._warm_hearing()
             self._arm_game_return()
             queued = getattr(self, "_queued_after_load", "")
+            linked = self.controller.settings.google_enabled or self.controller.settings.microsoft_enabled
             if queued:
                 self._queued_after_load = ""
                 self._pending_line = queued
                 self._send_heard()
-            elif (
-                self.controller.settings.google_enabled or self.controller.settings.microsoft_enabled
-            ) and not self._google_notified:
+            elif linked and not self._google_notified:
                 self._google_notified = True
                 self._start_google("both", speak_errors=False, only_new=True)
+            # Started on every return to On, back from a game too, and also when
+            # a queued question was answered first.
+            if linked and not self._google_poll.isActive():
                 self._google_poll.start()
         self.window.emergency.setToolTip(
             f"The same as {self.controller.settings.emergency_hotkey}. "
@@ -1436,7 +1432,7 @@ class Shell:
             return "2m"
         if getattr(self.controller.ollama, "we_started_server", False):
             return -1
-        return "30m"
+        return "30m"  # the same as OllamaClient.on_keep_alive
 
     def _hearing_engine(self) -> str:
         """The engine that hears the question. A chosen one not downloaded yet falls back to Whisper."""
@@ -3706,7 +3702,7 @@ class Shell:
         allow_barge = self.controller.settings.talk_over and self.controller.settings.echo_cancel
         if getattr(self, "_listener", None) is not None and not allow_barge:
             self._listener.stop()
-        prefs = self._voice_prefs()
+        prefs = self._off_time_voice(self._voice_prefs())
         if alert and (windows_only or prefs.get("engine") != "kokoro" or not kokoro_ready()):
             from babysitter.plugins.voice.windows_voice import available as windows_voice_available
 
@@ -3747,6 +3743,40 @@ class Shell:
             self._sync_keyword()
             return
         self._start_speech(text, prefs, hold_open=hold_open)
+
+    def _off_time_voice(self, prefs: dict) -> dict:
+        """The natural voices run on the graphics card. While the AI is off or a
+        game has the card, a local reply (the time, the weather, the briefing) is
+        said with Heart and Sarah on the processor instead, or the Windows voice,
+        so the card is never taken for one sentence."""
+        if self.controller.state == "on" or prefs.get("engine") != "extra":
+            return prefs
+        from babysitter.plugins.voice.engines import is_natural
+        from babysitter.plugins.voice.kokoro_voice import DEFAULT_VOICE
+        from babysitter.plugins.voice.windows_voice import available as windows_voice_available
+
+        if not is_natural(str(prefs.get("name") or "")):
+            return prefs
+        kokoro = {
+            "engine": "kokoro",
+            "name": DEFAULT_VOICE,
+            "speed": prefs.get("speed"),
+            "pitch": prefs.get("pitch"),
+            "label": _voice_label(DEFAULT_VOICE),
+        }
+        return alert_voice(kokoro, kokoro_ready=kokoro_ready(), windows_ok=windows_voice_available()) or kokoro
+
+    def _release_idle_voices(self) -> None:
+        """With the AI off or in game mode, nothing stays loaded after a sentence is said."""
+        if self.controller.state not in {"off", "game"}:
+            return
+        release_kokoro()
+        try:
+            from babysitter.plugins.voice.engines import release as release_engines
+
+            release_engines()
+        except Exception:  # noqa: BLE001
+            pass
 
     def _offer_kokoro(self) -> None:
         agreed = ask_yes_no(
@@ -3887,6 +3917,7 @@ class Shell:
             self._start_speech(text, prefs, hold_open=hold_open)
             return
         self._speaking = False
+        self._release_idle_voices()
         if getattr(self, "_alert_speech", False):
             self._alert_speech = False
             self._show_mode(self.controller.state, "Reminder said.")
@@ -4031,6 +4062,9 @@ class Shell:
             return True
         if quick.kind not in {"repeat", "hush"}:
             self._goals_open = False
+        if quick.kind == "cancel_timer":
+            self._cancel_timer(text)
+            return True
         if quick.kind == "time":
             now = datetime.now().astimezone()
             speech = self._phrases.time_reply(now)
@@ -4343,6 +4377,9 @@ class Shell:
             return
         running = getattr(self, "_drive_job", None)
         if running is not None and running.isRunning():
+            speech = "I'm still reading the last Drive file. Ask again in a moment."
+            self.window.home.set_reply(text, speech, "Nothing new was sent.")
+            self._speak(speech)
             return
         self.window.home.set_reply(text, f"Looking in Drive for {name}…", "Only the file's text is read. Nothing is uploaded.")
         job = _DriveTextJob(self._token_for_google, name)
@@ -4596,6 +4633,22 @@ class Shell:
             f"It is a reminder for {label}. It stays on this PC and rings while BabySitter is open.",
         )
 
+    def _cancel_timer(self, text: str) -> None:
+        """Stop the running timer at any point before it rings."""
+        timer_id = str(getattr(self, "_active_timer_id", "") or "")
+        waiting = timer_id and any(
+            str(item.get("id") or "") == timer_id and str(item.get("fired") or "") != "yes"
+            for item in load_list("schedule.json")
+        )
+        if getattr(self, "_active_timer", None) is not None and waiting:
+            self._undo_until = time.time() + 1
+            self._undo_timer()
+            return
+        speech = "There isn't a timer running."
+        self.window.home.set_reply(text, speech, "Nothing was changed.")
+        self._note_local(text, speech)
+        self._speak(speech)
+
     def _undo_timer(self) -> None:
         now = time.time()
         if now <= getattr(self, "_undo_until", 0) and getattr(self, "_active_timer", None) is not None:
@@ -4691,23 +4744,28 @@ class Shell:
         return item
 
     def _tick_reminders(self) -> None:
-        self._check_reminders()
-        self._show_reminder_clock()
+        # One read of the list each second, shared by both steps.
+        items = load_list("schedule.json")
+        self._check_reminders(items)
+        self._show_reminder_clock(items)
 
-    def _show_reminder_clock(self) -> None:
+    def _show_reminder_clock(self, items: list | None = None) -> None:
         from babysitter.deskstore import next_reminder_line
 
-        self.window.schedule_page.tick()
-        line = next_reminder_line(load_list("schedule.json"))
+        if items is None:
+            items = load_list("schedule.json")
+        self.window.schedule_page.tick(items)
+        line = next_reminder_line(items)
         self.window.home.set_countdown(line)
         self.window.set_next(line)
 
-    def _check_reminders(self) -> None:
+    def _check_reminders(self, items: list | None = None) -> None:
         """Say a saved reminder once its clock time has arrived."""
         if getattr(self, "_speaking", False):
             return
         now = datetime.now().astimezone()
-        items = load_list("schedule.json")
+        if items is None:
+            items = load_list("schedule.json")
         pending = None
         for item in items:
             due = str(item.get("due") or "")
@@ -5101,12 +5159,18 @@ class Shell:
             lambda: self.window.show_settings_section("accounts"),
         )
 
-    def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> None:
+    def _start_google(self, kind: str, *, speak_errors: bool, only_new: bool = False) -> bool:
         """Mail and calendar, said aloud, or only what is new since the last check.
 
         Every linked account counts, school Google and Blackboard too, through
-        the same read as the Tools list.
+        the same read as the Tools list. True when a read started.
         """
+        running = getattr(self, "_google_job", None)
+        if running is not None and running.isRunning():
+            # The read already running keeps its own settings.
+            if not only_new:
+                self._show_google("I'm already checking Google.", speak=True)
+            return False
         self._google_speak_errors = speak_errors
         self._google_only_new = only_new
         settings_now = self.controller.settings
@@ -5115,7 +5179,7 @@ class Shell:
                 "Google mail and calendar are off. Turn them on under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
-            return
+            return False
         accounts = self._linked_accounts()
         feed = None if only_new else self._linked_feed()
         if not accounts and feed is None:
@@ -5123,12 +5187,7 @@ class Shell:
                 "Nothing is linked yet. Sign in with Google under Tools. Nothing was sent.",
                 speak=speak_errors,
             )
-            return
-        running = getattr(self, "_google_job", None)
-        if running is not None and running.isRunning():
-            if not only_new:
-                self._show_google("I'm already checking Google.", speak=True)
-            return
+            return False
         job = _LinkedJob(accounts, feed, want_fresh=only_new)
         self._store_job("_google_job", job)
         if only_new:
@@ -5137,6 +5196,7 @@ class Shell:
             job.ready.connect(lambda inbox, kind=kind: self._linked_spoken(inbox, kind))
             self.window.tools_page.show_google("Checking the linked accounts. Only reading.")
         job.start()
+        return True
 
     def _linked_spoken(self, inbox, kind: str) -> None:
         from babysitter.inbox import spoken
@@ -5257,8 +5317,9 @@ class Shell:
         settings = self.controller.settings
         if alerts_silenced(settings.quiet_hours, settings.quiet_start, settings.quiet_end):
             return
-        self._off_alert_pending = True
-        self._start_google("both", speak_errors=False, only_new=True)
+        # Marked only when this read really started, so a read you asked for is
+        # never mistaken for the off-time one.
+        self._off_alert_pending = bool(self._start_google("both", speak_errors=False, only_new=True))
         self._warn_google_week()
 
     def _google_poll_ready(self, speech: str, seen: list) -> None:

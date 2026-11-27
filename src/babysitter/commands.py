@@ -107,6 +107,8 @@ _SAME_AS = {
     "kill the timer": "cancel the timer",
     "cancel my timer": "cancel the timer",
     "cancel timer": "cancel the timer",
+    "undo that": "undo",
+    "undo it": "undo",
     "end the timer": "cancel the timer",
     "how long is left on the timer": "what's my next reminder",
     "how much time is left": "what's my next reminder",
@@ -172,8 +174,12 @@ def _match_quick_command(text: str) -> QuickCommand | None:
         phrase = same
         original = same
         words = phrase.split()
-    if phrase in {"undo", "cancel that", "cancel the timer"}:
+    if phrase in {"undo", "cancel that"}:
         return QuickCommand("undo", "Okay.")
+    if phrase == "cancel the timer":
+        # Not "undo": undo only reaches back 10 seconds, and a timer can be
+        # stopped at any point before it rings.
+        return QuickCommand("cancel_timer")
     if phrase in {"why did you say that", "why did you say that?"}:
         return QuickCommand("why")
     if phrase in {"weekly review", "review my week"}:

@@ -429,7 +429,7 @@ def _feature_timer() -> list[Outcome]:
 
 
 def _feature_undo() -> list[Outcome]:
-    hits = ("undo", "cancel that", "cancel the timer", "please undo", "baby sitter cancel that")
+    hits = ("undo", "cancel that", "undo please", "please undo", "baby sitter cancel that")
     misses = ("undo the last email", "why is my ram so high")
 
     def one(line):

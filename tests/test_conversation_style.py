@@ -70,7 +70,7 @@ def test_everyday_wordings_reach_the_same_commands():
         "whats the date today": "time",
         "start a 3 minute timer": "timer",
         "put a timer on for 15 minutes": "timer",
-        "stop the timer": "undo",
+        "stop the timer": "cancel_timer",
         "how much time is left": "next_reminder",
         "what do you remember about me": "memories",
         "read my emails": "mail",
@@ -83,3 +83,46 @@ def test_everyday_wordings_reach_the_same_commands():
     for said in ("whats the weather", "do i need an umbrella", "how cold is it outside"):
         assert match_tool(said).kind == "weather", said
     assert match_tool("I'm in trouble") is None  # not a town
+
+
+def test_a_name_at_the_end_does_not_hide_a_quick_command():
+    from babysitter.commands import match_quick_command
+    from babysitter.plugins.voice.keyword import strip_wake
+
+    assert strip_wake("Good morning, Kari.", "kari") == "Good morning"
+    assert match_quick_command(strip_wake("Good morning, Kari.", "kari")).kind == "briefing"
+    assert strip_wake("thanks baby sitter", "babysitter") == "thanks"
+    # Only the whole name, exactly: these stay as they were.
+    assert strip_wake("how do I calm a crying baby", "babysitter") == "how do I calm a crying baby"
+    assert strip_wake("call Corey", "kari") == "call Corey"
+    assert strip_wake("Kari", "kari") == "Kari"
+
+
+def test_the_timer_can_be_cancelled_after_the_undo_window(tmp_path, monkeypatch):
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    app = QApplication.instance() or QApplication([])
+    from babysitter.controller import Controller
+    from babysitter.deskstore import load_list
+    from babysitter.ui.shell import Shell
+
+    controller = Controller()
+    shell = Shell(controller)
+    try:
+        spoken: list = []
+        monkeypatch.setattr(shell, "_speak", lambda text, **kw: spoken.append(text))
+        shell._begin_timer(300, "the pasta")
+        shell._undo_until = time.time() - 1  # the 10 second undo window has passed
+        assert shell._run_quick("stop the timer")
+        assert spoken[-1] == "Cancelled the timer."
+        assert shell._active_timer is None
+        assert load_list("schedule.json") == []
+        assert shell._run_quick("cancel the timer")
+        assert spoken[-1] == "There isn't a timer running."
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()
