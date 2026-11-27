@@ -424,7 +424,17 @@ class KeywordListener:
         from babysitter.paths import data_dir
         from babysitter.plugins.voice.turntaking import open_vad
 
-        self._vad = open_vad(True, data_dir() / "models" / "silero" / "silero_vad.onnx")
+        silero = data_dir() / "models" / "silero" / "silero_vad.onnx"
+        try:
+            from babysitter.plugins.voice.silero_model import SILERO_URL
+            from babysitter.security import require_loaded_file
+
+            if silero.is_file():
+                require_loaded_file(SILERO_URL, silero)
+        except (ValueError, OSError):
+            # A Silero file that does not match is left unused. The quiet-versus-loud check runs instead.
+            silero = data_dir() / "models" / "silero" / "missing.onnx"
+        self._vad = open_vad(True, silero)
 
     def _speech(self, chunk: bytes) -> bool:
         vad = getattr(self, "_vad", None)

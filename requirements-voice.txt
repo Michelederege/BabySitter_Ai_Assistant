@@ -6,6 +6,11 @@
 # libraries open by path are on disk to be packed.
 #
 # Versions match the pins in the voice and memory code.
+#
+# Model files are not listed here. Their pinned SHA-256 hashes are the one list
+# DOWNLOAD_SHA256 in src/babysitter/security.py, checked on download and before
+# every load. This file pins Python packages, which pip installs.
+#
 
 kokoro-onnx==0.6.1
 sounddevice==0.5.6

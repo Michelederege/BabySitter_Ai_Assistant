@@ -391,9 +391,17 @@ def _loaded_engine():
                 raise KokoroError("Heart and Sarah is not downloaded yet.")
             from kokoro_onnx import Kokoro
 
+            from babysitter.security import require_loaded_file
+
             _limit_onnx_threads()
             folder = voice_dir()
-            _engine = Kokoro(str(folder / "kokoro-v1.0.onnx"), str(folder / "voices-v1.0.bin"))
+            model, voices = folder / "kokoro-v1.0.onnx", folder / "voices-v1.0.bin"
+            try:
+                require_loaded_file(MODEL_URL, model)
+                require_loaded_file(VOICES_URL, voices)
+            except ValueError as exc:
+                raise KokoroError(str(exc)) from None
+            _engine = Kokoro(str(model), str(voices))
         return _engine
 
 

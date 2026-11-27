@@ -259,3 +259,31 @@ def test_preload_loads_the_model_without_generating(monkeypatch):
     assert "num_predict" not in seen["body"]["options"]
     assert seen["body"]["options"]["num_ctx"] == 4096
     assert seen["body"]["options"]["num_batch"] == 256
+
+
+def test_a_model_file_is_checked_before_it_loads(tmp_path, monkeypatch):
+    import hashlib
+
+    import pytest
+
+    import babysitter.security as security
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    url = "https://example.test/model.onnx"
+    good = b"model bytes" * 100
+    monkeypatch.setitem(security.DOWNLOAD_SHA256, url, hashlib.sha256(good).hexdigest())
+    model = tmp_path / "model.onnx"
+    model.write_bytes(good)
+    hashed: list = []
+    real = security.require_matching_file
+    monkeypatch.setattr(security, "require_matching_file", lambda u, p: hashed.append(p) or real(u, p))
+
+    security.require_loaded_file(url, model)
+    security.require_loaded_file(url, model)
+    assert len(hashed) == 1  # remembered after the first check
+
+    model.write_bytes(b"swapped in by hand" * 60)
+    with pytest.raises(ValueError, match="was not loaded"):
+        security.require_loaded_file(url, model)
+    with pytest.raises(ValueError):
+        security.require_loaded_file(url, model)  # a failure is never remembered
