@@ -17,6 +17,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from babysitter import journal
 from babysitter.audio import AudioGate
+from babysitter.gamebudget import GameBudget, fitting_level, room_mib
 from babysitter.games import GameWatch, clean_process_name, first_matching_game, foreground_process_name
 from babysitter.quiet import in_quiet_hours, quiet_sentence
 from babysitter.hotkeys import HotkeyBook, HotkeyError, UnavailableRegistrar, canonical_hotkey
@@ -159,6 +160,12 @@ class Controller(QObject):
         self.probe = StatusCollector(self.ollama)
         self.power = PowerService(self.ollama, self.probe, self.audio, self.hotkeys)
         self.games = GameWatch()
+        self.budget = GameBudget()
+        # The level really loaded. A game can push it below the one you picked.
+        self.loaded_level = ""
+        # The window says when a reply is being written or spoken. Nothing
+        # switches level or unloads in the middle of one.
+        self.reply_busy = lambda: False
         self.cancel = threading.Event()
         self.version: VersionReport | None = None
         self.latest_status: StatusSnapshot | None = None
@@ -231,25 +238,62 @@ class Controller(QObject):
             self._remember("Still working on the last power change.")
             self.state_changed.emit(self.power.state, "Still working on the last power change.")
             return
-        mode = get_mode(self.settings.intelligence)
-        game_name = None
-        if self.settings.auto_game_mode and self.latest_status is not None:
-            game_name = self.games.auto_switch_target(self._game_match(self.latest_status))
+        level, game_name = self._level_for_start()
+        mode = get_mode(level)
+        self.loaded_level = level
         self.cancel.clear()
         self._emergency_latched = False
         self._set_busy(True)
         self.state_changed.emit(STARTING, f"Starting… loading {mode.model}.")
         self.worker.submit(("on", mode.model, mode.num_ctx, game_name))
 
-    def reload_model(self) -> None:
+    def _level_for_start(self) -> tuple[str, str | None]:
+        """The level to load, and a game name when game mode should start instead.
+
+        A game already running gets the highest level that fits beside it.
+        When none fits, game mode starts, unless you woke the model on purpose.
+        """
+        chosen = self.settings.intelligence
+        snap = self.latest_status
+        if not self.settings.auto_game_mode or snap is None:
+            return chosen, None
+        game = self._game_match(snap)
+        if game is None:
+            return chosen, None
+        may_unload = self.games.auto_switch_target(game) is not None
+        if snap.gpu is None:
+            return chosen, (game if may_unload else None)
+        room = room_mib(snap.gpu.total_mib, snap.gpu.used_mib, snap.gpu.ollama_mib)
+        level = fitting_level(chosen, room)
+        if level is None:
+            if may_unload:
+                self.budget.entered_game(chosen)
+                return chosen, game
+            return "low", None
+        if level != chosen:
+            self.budget.restore_to = chosen
+            self._remember(
+                f"{game} is running. About {room:,} MB of video memory is left, so "
+                f"{get_mode(level).label} is loading instead of {get_mode(chosen).label}."
+            )
+        return level, None
+
+    def reload_model(self, level: str | None = None) -> None:
+        """Load a level. Without one, the level you picked. Settings are not changed."""
         if self._busy:
             return
-        mode = get_mode(self.settings.intelligence)
+        if level is None:
+            # You asked for your own level. A game's switch-down is over.
+            self.budget.restore_to = ""
+        level = level or self.settings.intelligence
+        mode = get_mode(level)
+        self.loaded_level = level
         self.cancel.clear()
         self._set_busy(True)
         self.worker.submit(("reload", mode.model, mode.num_ctx))
 
-    def enter_game(self) -> None:
+    def enter_game(self, auto: bool = False) -> None:
+        """Game mode. `auto` means a game's memory use asked for it, not you."""
         if self._busy:
             return
         if self.state == OFF:
@@ -257,6 +301,11 @@ class Controller(QObject):
             return
         if self.state == GAME:
             return
+        if auto:
+            self.budget.entered_game(self.settings.intelligence)
+        else:
+            # Your own choice. It is not undone when a game closes.
+            self.budget.forget()
         self.games.suppress(None)
         self._set_busy(True)
         self.worker.submit(("game",))
@@ -266,6 +315,7 @@ class Controller(QObject):
         match = None
         if self.latest_status is not None:
             match = self._game_match(self.latest_status)
+        self.budget.forget()
         self.games.suppress(match)
         self.turn_on()
 
@@ -322,6 +372,8 @@ class Controller(QObject):
             return
         self.settings.intelligence = mode_id
         save_settings(self.settings)
+        # A level you pick by hand replaces any switch-down a game made.
+        self.budget.restore_to = ""
         offer = self.state == ON
         self.reload_offered.emit(offer)
         if self.state == GAME:
@@ -464,19 +516,53 @@ class Controller(QObject):
         self.latest_status = snap
         self.status_changed.emit(snap)
         self._journal_tick()
-        if self._busy or not self.settings.auto_game_mode or self.state != ON:
+        if self._busy or not self.settings.auto_game_mode or self.state not in {ON, GAME}:
             return
-        target = self.games.auto_switch_target(self._game_match(snap))
-        if not target:
+        if self.reply_busy():
+            # Never switch or unload while an answer is written or spoken.
             return
-        if self.settings.game_mode_ask:
-            if self._game_prompt_open:
+        game = self._game_match(snap)
+        may_unload = game is not None and self.games.auto_switch_target(game) is not None
+        if game is None:
+            self.games.auto_switch_target(None)
+        gpu = None
+        if snap.gpu is not None:
+            gpu = (snap.gpu.total_mib, snap.gpu.used_mib, snap.gpu.ollama_mib)
+        ram_free = None
+        if snap.ram_total_bytes:
+            ram_free = max(0, int(snap.ram_total_bytes) - int(snap.ram_used_bytes))
+        action = self.budget.decide(
+            game=game,
+            state=self.state,
+            chosen=self.settings.intelligence,
+            loaded=self.loaded_level or self.settings.intelligence,
+            gpu=gpu,
+            ram_free=ram_free,
+            may_unload=may_unload,
+        )
+        self._carry_out(action, game)
+
+    def _carry_out(self, action, game: str | None) -> None:
+        if action.kind == "lower":
+            label = get_mode(action.level).label
+            self._remember(f"{action.reason} Switching to {label} until the game closes.")
+            self.reload_model(action.level)
+        elif action.kind == "restore":
+            label = get_mode(action.level).label
+            self._remember(f"{action.reason} Going back to {label}.")
+            self.reload_model(action.level)
+        elif action.kind == "leave_game":
+            self._remember(f"{action.reason} Leaving game mode and loading the model again.")
+            self.turn_on()
+        elif action.kind == "game" and game:
+            if self.settings.game_mode_ask:
+                if self._game_prompt_open:
+                    return
+                self._game_prompt_open = True
+                self.game_offer.emit(game)
                 return
-            self._game_prompt_open = True
-            self.game_offer.emit(target)
-            return
-        self._remember(f"{target} is running. Switching to game mode.")
-        self.enter_game()
+            self._remember(f"{action.reason} Switching to game mode.")
+            self.enter_game(auto=True)
 
     def _journal_tick(self) -> None:
         """About twice a minute, write down the front program's name.
