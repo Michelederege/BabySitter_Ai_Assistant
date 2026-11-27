@@ -19,7 +19,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QFileDialog, QMenu
 from babysitter.phrasing import PhraseBook
 from babysitter.ui.jobs import retain_until_finished, take_turn
 
-from babysitter.commands import QuickCommand, match_quick_command, spoken_when, timer_label
+from babysitter.commands import HELP_DETAIL, HELP_SPEECH, QuickCommand, match_quick_command, spoken_when, timer_label
 from babysitter.filefind import (
     CACHE_SECONDS,
     default_folders,
@@ -1338,6 +1338,72 @@ class Shell:
 
     def _turn_on(self) -> None:
         self.controller.turn_on()
+
+    def _local_control(self, quick) -> tuple[str, str]:
+        """Help, voice speed, volume, and power by voice, answered here (0.29.0).
+
+        Before, these went to the model, which cannot change any of them, so it
+        said "Sure, I'll slow down" and nothing changed, or made up abilities.
+        """
+        state = self.controller.state
+        if quick.kind == "help":
+            return HELP_SPEECH, HELP_DETAIL
+        if quick.kind == "volume":
+            return (
+                "I can't change the volume myself. Use your volume keys, or the speaker icon on the taskbar.",
+                "BabySitter's voice follows the Windows volume.",
+            )
+        if quick.kind == "voice_speed":
+            path = data_dir() / "voice.json"
+            saved: dict = {}
+            try:
+                loaded = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+                saved = loaded if isinstance(loaded, dict) else {}
+            except (OSError, ValueError):
+                saved = {}
+            try:
+                speed = int(saved.get("speed", 105))
+            except (TypeError, ValueError):
+                speed = 105
+            wanted = max(80, min(130, speed + int(quick.seconds)))
+            if wanted == speed:
+                edge = "slowest" if quick.seconds < 0 else "fastest"
+                return f"That's already my {edge} setting.", "Voice speed goes from 80 to 130 on the Voice page."
+            saved["speed"] = wanted
+            saved.setdefault("voice", self._voice_prefs().get("name") or "Heart & Sarah blend")
+            from babysitter.paths import write_text_safely
+
+            write_text_safely(path, json.dumps(saved, indent=2) + "\n")
+            try:
+                self.window.voice_page.speed[1].setValue(wanted)
+            except Exception:  # noqa: BLE001 - the slider is a mirror of the file
+                pass
+            word = "slower" if quick.seconds < 0 else "faster"
+            return f"Okay, a little {word}.", f"Voice speed is now {wanted} (it was {speed}). Saved on this PC."
+        if quick.kind == "power_off":
+            if state == "off" and not self.controller._busy:
+                return "The AI is already off.", ""
+            self.controller.turn_off()
+            return "Turning the AI off.", "Same as the Off button. Say or press On to start it again."
+        if quick.kind == "game_mode":
+            if state == "game":
+                return "Game mode is already on.", ""
+            if state != "on":
+                return "The AI is off, so the graphics card is already free.", "Game mode only matters while the AI is on."
+            self._return_to_game = False
+            timer = getattr(self, "_game_return_timer", None)
+            if timer is not None:
+                timer.stop()
+            self.controller.enter_game()
+            return "Game mode. Unloading the model so the graphics card is free.", ""
+        if quick.kind == "leave_game":
+            if state == "game":
+                self._on_game()
+                return "Loading the model again.", ""
+            if state == "on":
+                return "I'm here.", ""
+            return "The AI is off. Press On, or the turn-on key, to start it.", ""
+        return "", ""
 
     def _on_game(self) -> None:
         # Game mode or Leave by hand replaces a "Load the brain?" visit. Its
@@ -4253,6 +4319,13 @@ class Shell:
             self._note_local("memories", speech)
             self._speak(speech)
             return True
+        if quick.kind in {"help", "voice_speed", "volume", "power_off", "game_mode", "leave_game"}:
+            speech, detail = self._local_control(quick)
+            self.window.home.set_reply(text, speech, detail)
+            self._note_local(text, speech)
+            if speech:
+                self._speak(speech)
+            return True
         if quick.kind == "my_name":
             from babysitter.personality import persona_name
 
@@ -4685,7 +4758,7 @@ class Shell:
             self._active_timer = None
         self.window.schedule_page.refresh()
         words = " ".join(str(target.get("text") or "Reminder").split()) or "Reminder"
-        speech = f"Cancelled the reminder. {words}"
+        speech = "Cancelled the alarm." if words.lower() == "alarm" else f"Cancelled the reminder: {words}."
         self.window.home.set_reply(text, speech, "It was removed on this PC. Nothing was sent.")
         self._note_local(text, speech)
         self._speak(speech)
@@ -4894,8 +4967,9 @@ class Shell:
         pending["fired"] = "yes"
         save_list("schedule.json", items)
         self.window.schedule_page.refresh()
-        words = str(pending.get("text") or "Reminder.")
-        speech = f"Reminder. {words}"
+        from babysitter.phrasing import PhraseBook
+
+        speech = PhraseBook.ring_line(str(pending.get("text") or ""))
         self.window.home.set_reply(
             "reminder",
             speech,
@@ -5578,7 +5652,9 @@ class Shell:
             save_list("schedule.json", items)
             self.window.schedule_page.refresh()
             words = str(target.get("text") or label)
-        speech = f"Reminder. {words}"
+        from babysitter.phrasing import PhraseBook
+
+        speech = PhraseBook.ring_line(words)
         self.window.home.set_reply(
             "reminder",
             speech,

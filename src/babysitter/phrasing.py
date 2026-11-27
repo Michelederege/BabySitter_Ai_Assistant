@@ -66,9 +66,29 @@ class PhraseBook:
             ),
         )
 
+    @staticmethod
+    def ring_line(note: str) -> str:
+        """What is said when a reminder rings. It used to be "Reminder. to call mom"."""
+        clean = " ".join((note or "").split()).rstrip(".")
+        lowered = clean.lower()
+        if lowered in {"", "reminder"}:
+            return "Here's your reminder."
+        if lowered == "alarm":
+            return "It's time. This is your alarm."
+        if lowered == "wake up":
+            return "Time to wake up."
+        if lowered.startswith("to "):
+            return f"Time to {clean[3:].strip()}."
+        return f"Reminder: {clean}."
+
     def reminder_saved_reply(self, when_text: str, note: str = "") -> str:
         clean = " ".join((note or "").split())
-        subject = f" to {clean}" if clean and clean.lower() not in {"reminder", "timer"} else ""
+        # The note often already starts with "to" ("remind me at 5 to call mom"),
+        # which said "remind you to to call mom". The default labels (an alarm,
+        # a wake-up) are not a subject at all.
+        if clean.lower().startswith("to "):
+            clean = clean[3:].strip()
+        subject = f" to {clean}" if clean and clean.lower() not in {"reminder", "timer", "alarm", "wake up"} else ""
         return self._pick(
             "reminder_saved",
             (

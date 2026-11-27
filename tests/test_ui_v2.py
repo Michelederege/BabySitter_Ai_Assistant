@@ -238,7 +238,7 @@ def test_a_due_reminder_rings_while_the_ai_is_off(tmp_path, monkeypatch):
     monkeypatch.setattr(shell.tray, "notify", lambda title, body: notes.append((title, body)))
     shell._check_reminders()
     assert load_list("schedule.json")[0]["fired"] == "yes"
-    assert spoken[0][0] == "Reminder. stretch"
+    assert spoken[0][0] == "Reminder: stretch."  # 0.29.0: PhraseBook.ring_line
     assert spoken[0][1]["alert"] is True
     assert notes[0][0] == "Reminder"
     assert controller.state == "off"

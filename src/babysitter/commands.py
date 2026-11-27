@@ -256,6 +256,15 @@ _SAME_AS = {
     "when's the timer done": "what's my next reminder",
     "when is the timer done": "what's my next reminder",
     "how long until the timer goes off": "what's my next reminder",
+    "cancel my alarm": "cancel the reminder",
+    "cancel the alarm": "cancel the reminder",
+    "turn off my alarm": "cancel the reminder",
+    "turn off the alarm": "cancel the reminder",
+    "delete my alarm": "cancel the reminder",
+    "when is my alarm": "what's my next reminder",
+    "when's my alarm": "what's my next reminder",
+    "whens my alarm": "what's my next reminder",
+    "what time is my alarm": "what's my next reminder",
     "forget the reminder": "cancel the reminder",
     "never mind the reminder": "cancel the reminder",
     "remove the reminder": "cancel the reminder",
@@ -282,6 +291,16 @@ _SAME_AS = {
     "read me my email": "read my email",
     "what's in my email": "check my email",
     "whats in my email": "check my email",
+    "whats on my calendar today": "check my calendar",
+    "what's on my calendar today": "check my calendar",
+    "what is on my calendar today": "check my calendar",
+    "whats my next meeting": "check my calendar",
+    "what's my next meeting": "check my calendar",
+    "when is my next meeting": "check my calendar",
+    "whats my next appointment": "check my calendar",
+    "what's my next appointment": "check my calendar",
+    "what's on my calendar tomorrow": "check my calendar",
+    "whats on my calendar tomorrow": "check my calendar",
     "anything on my calendar": "check my calendar",
     "anything on my calendar today": "check my calendar",
     "whats happening today": "check my calendar",
@@ -347,6 +366,17 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     words = re.findall(r"[a-z0-9']+", original.lower())
     phrase = " ".join(words)
     if not phrase:
+        # "Thanks", "thank you", "ok thanks": the polite-word trimming takes
+        # these off the end of a request ("what time is it, thanks"), so on
+        # their own nothing was left and the most common thanks went to the
+        # model. Look at the words as said, after any opener.
+        said = re.findall(r"[a-z0-9']+", (text or "").lower())
+        for start in range(len(said)):
+            tail = " ".join(said[start:])
+            if tail in _THANKS:
+                return QuickCommand("thanks")
+            if tail in _GOODBYE:
+                return QuickCommand("bye", detail="night" if "night" in tail or "sleep" in tail else "")
         return None
     if phrase in _THANKS:
         return QuickCommand("thanks")
@@ -898,11 +928,17 @@ _MINUTE_WORDS = {
     "quarter": 15,
 }
 # These only mean a reminder when a time comes with them.
-_NEEDS_A_TIME = {"wake me up", "wake me", "ping me", "nudge me", "give me a shout"}
+_ALARM_LABELS = (
+    "set an alarm for", "set an alarm at", "set my alarm for", "set the alarm for",
+    "set alarm for", "set an alarm", "set alarm", "alarm for", "alarm at",
+)
+_NEEDS_A_TIME = {"wake me up", "wake me", "ping me", "nudge me", "give me a shout", *_ALARM_LABELS}
 # "Remind me what ..." and "remember when ..." ask about something; they save nothing.
 _ASKING = {"what", "what's", "whats", "who", "who's", "whos", "how", "why", "where", "which", "whether", "if", "of", "when"}
 
 _REMINDER_LABELS = (
+    # An alarm is a reminder at a clock time; it rings like one. Longest first.
+    *_ALARM_LABELS,
     "wake me up",
     "wake me",
     "ping me",
@@ -920,9 +956,72 @@ _REMINDER_LABELS = (
 )
 
 
+# Said for "what can you do". Only things that really work, so the model is
+# never the one guessing what BabySitter can do.
+HELP_SPEECH = (
+    "I can tell the time, set timers, reminders and alarms, read your mail and calendar, "
+    "give you a morning briefing, find files on this PC, remember things you tell me, "
+    "and answer questions. The full list is on the screen."
+)
+HELP_DETAIL = "\n".join([
+    "Time: what time is it · what's the date",
+    "Timers: set a timer for 10 minutes · how long is left · stop the timer",
+    "Reminders: remind me at 5 to call mom · set an alarm for 7 am · what's my next reminder · cancel the reminder",
+    "Mail and calendar (once an account is linked): check my email · what's on my calendar · brief me",
+    "Weather (asks before it goes online): what's the weather · will it rain today · my town is …",
+    "Files: find my essay · open number 2 · open it · summarize number 1 · read my drive file …",
+    "Memory: remember that … · what do you remember about me · note to self …",
+    "Goals: what are my goals · add a goal to … · mark goal done",
+    "Your PC: scan my PC · check for updates",
+    "Look something up (asks before it goes online): look up …",
+    "Talking: say that again · new topic · speak slower · speak faster · call yourself …",
+    "Power: game mode · leave game mode · turn off the AI",
+    "Anything else is a question for the AI.",
+])
+
+_HELP = {
+    "help", "help me", "what can you do", "what can i say", "what can i ask you", "what can i ask",
+    "what commands do you know", "what are your commands", "list your commands", "how do i use you",
+    "how do you work", "what do you do", "what are you able to do", "what can you help me with",
+}
+_SLOWER = {
+    "speak slower", "talk slower", "speak more slowly", "talk more slowly", "slow down", "slower",
+    "slow down please", "you're talking too fast", "youre talking too fast", "you talk too fast",
+}
+_FASTER = {
+    "speak faster", "talk faster", "speak more quickly", "talk more quickly", "speed up", "faster",
+    "hurry up", "you're talking too slow", "youre talking too slow", "you talk too slow", "you talk too slowly",
+}
+_VOLUME = {
+    "louder", "speak up", "speak louder", "talk louder", "turn it up", "turn the volume up", "volume up",
+    "turn up the volume", "turn it down", "turn the volume down", "volume down", "turn down the volume",
+    "mute", "unmute", "softer", "speak softer", "talk softer", "be louder",
+}
+_POWER_OFF = {
+    "turn off the ai", "turn the ai off", "turn yourself off", "switch off the ai", "switch the ai off",
+    "shut yourself down", "shut down the ai", "power off", "power down", "ai off", "go to sleep",
+}
+_GAME_ON = {"game mode", "switch to game mode", "go to game mode", "enter game mode", "gaming mode", "turn on game mode", "i'm gaming", "im gaming"}
+_GAME_OFF = {"leave game mode", "exit game mode", "stop game mode", "turn off game mode", "come back", "load the brain", "wake up"}
+
+
 def _local_extra(phrase: str, original: str) -> QuickCommand | None:
     """Phrases that name one local action and carry no extra words."""
     del original
+    if phrase in _HELP:
+        return QuickCommand("help")
+    if phrase in _SLOWER:
+        return QuickCommand("voice_speed", seconds=-10)
+    if phrase in _FASTER:
+        return QuickCommand("voice_speed", seconds=10)
+    if phrase in _VOLUME:
+        return QuickCommand("volume")
+    if phrase in _POWER_OFF:
+        return QuickCommand("power_off")
+    if phrase in _GAME_ON:
+        return QuickCommand("game_mode")
+    if phrase in _GAME_OFF:
+        return QuickCommand("leave_game")
     if phrase in {
         "check for updates",
         "check for an update",
@@ -1093,6 +1192,38 @@ def reminder_fields(text: str, when_text: str, now: datetime) -> tuple[str, str]
     return note, due
 
 
+_FOR_CLOCK = re.compile(
+    r"^(?:for\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.?|p\.m\.?))?)(?=\s*$|\s+(?:to|that|about|so)\b)",
+    re.IGNORECASE,
+)
+
+
+def _for_clock(detail: str, *, alarm: bool = False) -> str:
+    """ "for 5 to call mom" and an alarm's bare "7" name a clock time: "at 5 …", "at 7".
+
+    Before 0.29.0, "set a reminder for 5 to call mom" was saved with no time at
+    all. "For 5 minutes" is a length of time and is left alone, and a bare
+    number only counts after an alarm's words ("set an alarm for 7").
+    """
+    text = detail.strip()
+    starts_with_for = text.lower().startswith("for ")
+    if not starts_with_for and not alarm:
+        return detail
+    # "set a reminder for 5 minutes to stretch" is "in 5 minutes".
+    length = re.match(
+        r"^for\s+((?:\d+|a|an|one|two|three|four|five|ten|fifteen|twenty|thirty|forty five|a couple of|a few)\s+"
+        r"(?:seconds?|secs?|minutes?|mins?|hours?|hrs?))\b",
+        text,
+        re.IGNORECASE,
+    )
+    if length:
+        return f"in {length.group(1)}{text[length.end():]}"
+    match = _FOR_CLOCK.match(text)
+    if not match:
+        return detail
+    return f"at {match.group(1)}{text[match.end():]}"
+
+
 def _reminder(phrase: str, original: str) -> QuickCommand | None:
     for label in _REMINDER_LABELS:
         if phrase != label and not phrase.startswith(label + " "):
@@ -1100,6 +1231,7 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
         detail = _tail(original, label)
         if not detail:
             return None
+        detail = _for_clock(detail, alarm=label in _ALARM_LABELS)
         now = datetime.now().astimezone()
         located = _locate_when(detail, now)
         if located is None:
@@ -1114,7 +1246,8 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
         if waking and not re.search(r"\b(?:am|pm|a\.m|p\.m|noon|midnight|tonight|evening)\b", detail.lower()) and moment.hour >= 13:
             # "Wake me up at 7" means the morning, not 7 this evening.
             moment = moment + timedelta(hours=12)
-        detail = _cut_when(detail, span) or ("Wake up" if waking else "Reminder")
+        alarm = label in _ALARM_LABELS
+        detail = _cut_when(detail, span) or ("Wake up" if waking else "Alarm" if alarm else "Reminder")
         return QuickCommand("remind", detail=detail, when=moment.isoformat(timespec="seconds"))
     return None
 
