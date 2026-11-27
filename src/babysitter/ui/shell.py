@@ -742,6 +742,20 @@ class _LinkedJob(QThread):
         self.ready.emit(result)
 
 
+# The conversation sent with each question: up to HISTORY_MAX lines, cut back
+# to HISTORY_KEEP in one step. Dropping the oldest two lines on every turn
+# changed the start of the prompt each time, so Ollama could not reuse what
+# it had already read and went through the whole conversation again before
+# each answer. Cut in steps, the start stays the same for four exchanges.
+HISTORY_MAX = 20
+HISTORY_KEEP = 12
+
+
+def trim_history(history: list) -> None:
+    if len(history) > HISTORY_MAX:
+        del history[:-HISTORY_KEEP]
+
+
 class _CallJob(QThread):
     """One call that may reach the network, off the window's thread. Returns (result, problem)."""
 
@@ -3976,7 +3990,7 @@ class Shell:
             self._history.append({"role": "user", "content": user})
         if assistant:
             self._history.append({"role": "assistant", "content": assistant})
-        del self._history[:-16]
+        trim_history(self._history)
         self._logged_turn = True
         if not self.controller.settings.save_conversations:
             return  # kept in memory for follow-ups only; nothing written to History

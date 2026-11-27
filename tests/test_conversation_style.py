@@ -126,3 +126,19 @@ def test_the_timer_can_be_cancelled_after_the_undo_window(tmp_path, monkeypatch)
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_history_is_cut_in_steps_so_the_prompt_start_stays_the_same():
+    from babysitter.ui.shell import HISTORY_KEEP, HISTORY_MAX, trim_history
+
+    history: list = []
+    starts = []
+    for turn in range(30):
+        history += [{"role": "user", "content": f"q{turn}"}, {"role": "assistant", "content": f"a{turn}"}]
+        trim_history(history)
+        assert len(history) <= HISTORY_MAX
+        starts.append(history[0]["content"])
+    # The first line changes only when a cut happens, not on every turn.
+    changes = sum(1 for before, after in zip(starts, starts[1:]) if before != after)
+    assert changes <= 30 // ((HISTORY_MAX - HISTORY_KEEP) // 2) + 1
+    assert len(history) >= HISTORY_KEEP

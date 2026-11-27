@@ -22,6 +22,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **The window opens faster.** About 0.8 seconds of building is now 0.58: the Memory page no longer loads numpy and onnxruntime just to word a button, and the microphones are listed once at start instead of on every Settings refresh (the Refresh button still lists them again).
 
+**Long conversations answer sooner.** The conversation sent with each question is cut back in steps (to 12 lines once it passes 20) instead of dropping the oldest two lines every turn. Dropping two each turn changed the start of the prompt, so after 8 exchanges Ollama had to read the whole conversation again before every answer; now it reuses what it already read for four exchanges at a time.
+
 **A smaller exe.** The build leaves out Qt pieces the program never uses (the software OpenGL renderer, the Direct2D plugin, unused image formats, and Qt's translations): 8 MB smaller and 91 fewer files to unpack each time it opens.
 
 ## 0.27.0 — Overnight round
