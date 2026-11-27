@@ -29,7 +29,10 @@ class SettingsError(Exception):
 @dataclass
 class Settings:
     schema_version: int = SCHEMA_VERSION
-    intelligence: str = "medium"
+    # Low (qwen3.5:9b) since 0.30.0: on his PC it answered 12 of 12 test questions
+    # right against Medium's 11, started speaking in 0.13 s against 0.30 s, and
+    # leaves 2 GB more for a game. Medium stays for long writing.
+    intelligence: str = "low"
     start_with_windows: bool = False
     orb_always_on_top: bool = True
     emergency_hotkey: str = DEFAULT_EMERGENCY
@@ -423,13 +426,13 @@ def _clean_keyword(value: object, notices: list[str]) -> str:
 
 def settings_from_dict(data: dict) -> Settings:
     notices: list[str] = []
-    intelligence = data.get("intelligence", "medium")
+    intelligence = data.get("intelligence", "low")
     if intelligence not in MODES:
         notices.append(
             f"Saved intelligence '{intelligence}' is not Low, Medium, or High. "
-            "Using Medium."
+            "Using Low."
         )
-        intelligence = "medium"
+        intelligence = "low"
     emergency = str(data.get("emergency_hotkey") or DEFAULT_EMERGENCY)
     power_on = str(data.get("power_on_hotkey") or DEFAULT_POWER_ON)
     try:

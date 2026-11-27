@@ -10,7 +10,7 @@ def test_fresh_settings_are_off_and_versioned(tmp_path, monkeypatch):
     settings = load_settings()
     assert settings.schema_version == SCHEMA_VERSION
     assert settings.start_with_windows is False
-    assert settings.intelligence == "medium"
+    assert settings.intelligence == "low"  # 0.30.0: measured the better voice model
     assert settings.emergency_hotkey == "Ctrl+Alt+F12"
     assert settings.power_on_hotkey == "Ctrl+Alt+F11"
     assert settings.auto_game_mode is True
@@ -101,7 +101,7 @@ def test_bad_intelligence_falls_back(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     settings = load_settings()
-    assert settings.intelligence == "medium"
+    assert settings.intelligence == "low"
     assert settings.start_with_windows is True
     assert settings.notices
 
@@ -150,7 +150,7 @@ def test_json_that_is_not_settings_is_replaced(tmp_path, monkeypatch):
         path = tmp_path / "settings.json"
         path.write_text(text, encoding="utf-8")
         settings = load_settings(path)
-        assert settings.intelligence == "medium"
+        assert settings.intelligence == "low"  # the fresh default
         assert "could not be read" in settings.notices[0]
         assert (tmp_path / "settings.json.bak").read_text(encoding="utf-8") == text
 
