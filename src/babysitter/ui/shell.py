@@ -445,7 +445,9 @@ class _SpeakJob(QThread):
         prefs = self._prefs
         try:
             # The voice hears "3.7 gigabytes"; the screen keeps "3.7 GB".
-            pieces = speech_chunks(speakable(text), limit=self._limit)
+            # The processor and natural voices make a whole piece before any of
+            # it plays, so the first piece is kept short (see QUICK_FIRST).
+            pieces = speech_chunks(speakable(text), limit=self._limit, quick_start=prefs.get("engine") != "windows")
             if prefs.get("engine") == "windows":
                 announced = False
                 pending = list(pieces)
@@ -2368,7 +2370,12 @@ class Shell:
         page.fill(self.controller.settings, self.controller.data_folder())
         for toggle in toggles:
             toggle.blockSignals(False)
-        self._fill_microphones()
+        if not getattr(self, "_microphones_listed", False):
+            # Once at start. Listing starts the sound library and asks Windows
+            # for every device, so later refills keep the list; the Refresh
+            # button next to it lists them again.
+            self._microphones_listed = True
+            self._fill_microphones()
         page.set_context(self.controller.settings.context_tokens, self.controller.settings.intelligence)
         journal = self.window.journal_page
         journal.enabled.blockSignals(True)

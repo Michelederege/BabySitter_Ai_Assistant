@@ -11,11 +11,10 @@ orb while a watched game is in front.
 
 from __future__ import annotations
 
-import json
 import sys
 
 from PySide6.QtCore import QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
 from babysitter.paths import asset_path
@@ -42,23 +41,15 @@ def _animations_wanted() -> bool:
         return True
 
 
-def _load_sprites() -> tuple[dict, int, int]:
-    """Read the sprite strips. Returns ({state: (pixmap, frames)}, frame_px, fps)."""
-    folder = asset_path("orb")
-    meta_path = folder / "sprites.json"
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        frame_px = int(meta["frameSize"])
-        fps = int(meta["fps"])
-        strips: dict[str, tuple[QPixmap, int]] = {}
-        for state, info in meta["states"].items():
-            pixmap = QPixmap(str(folder / str(info["file"])))
-            if pixmap.isNull():
-                return {}, 0, 0
-            strips[state] = (pixmap, int(info["frames"]))
-        return strips, frame_px, fps
-    except Exception:
+def _load_sprites():
+    """The shared sprite strips: (state -> (pixmap, frames), frame_px, fps).
+    A strip is decoded the first time its state is drawn."""
+    from babysitter.ui.sprites import frog_strips
+
+    strips = frog_strips(asset_path("orb"))
+    if not strips:
         return {}, 0, 0
+    return strips, strips.frame_px, strips.fps
 
 
 class Orb(QWidget):

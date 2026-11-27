@@ -16,6 +16,14 @@ BabySitter uses version numbers like v1.2.3.
 
 **Smaller fixes.** "Undo that" and "undo it" mean undo. Asking for a Drive file while the last one is still being read says so instead of nothing. The reminder clock reads the reminder list once a second instead of three times, and the Schedule page skips its update while it is not on screen. A second unreadable copy of saved facts gets its own dated name; the older copy is never deleted. The frog orb stops animating while it is hidden. Filling the Settings page no longer fires the two new switches (alerts while off, save conversations). Unused imports removed.
 
+**The voice starts sooner.** The first piece said is now the first sentence alone, or its first clause when it is long. Before, sentences were joined up to 220 characters, so the briefing waited about 2.2 seconds before the first word; now it starts after about 0.3 seconds while the rest is made. The Windows voice is unchanged.
+
+**About 110 MB less memory.** The frog animations are decoded only when their state is first shown, and the floating orb and the picture on Home share one copy. Both used to decode all eight animations at start. The picture's frog also stops animating while the window is in the tray.
+
+**The window opens faster.** About 0.8 seconds of building is now 0.58: the Memory page no longer loads numpy and onnxruntime just to word a button, and the microphones are listed once at start instead of on every Settings refresh (the Refresh button still lists them again).
+
+**A smaller exe.** The build leaves out Qt pieces the program never uses (the software OpenGL renderer, the Direct2D plugin, unused image formats, and Qt's translations): 8 MB smaller and 91 fewer files to unpack each time it opens.
+
 ## 0.27.0 — Overnight round
 
 **Your nickname, from one sentence.** Say "I'll call you Jarvis", "your name is Nova", or "call yourself Friday". It is saved, it applies at once instead of at the next start, and it comes back every time BabySitter opens. Saying the nickname at the start of a sentence ("Jarvis, what time is it?") wakes it like the keyword. "What's your name?" is answered on this PC.

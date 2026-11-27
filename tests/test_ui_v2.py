@@ -381,3 +381,20 @@ def test_the_board_filters_locks_and_undoes_an_unpin(tmp_path, monkeypatch):
     home._undo_unpin()
     assert sorted(pin["title"] for pin in load_list("pins.json")) == ["Bins", "Groceries"]
     _close(app, controller, shell)
+
+
+def test_frog_strips_are_shared_and_decoded_on_first_use():
+    QApplication.instance() or QApplication([])
+    from babysitter.paths import asset_path
+    from babysitter.ui.hero_banner import FrogSprite
+    from babysitter.ui.orb import Orb
+    from babysitter.ui.sprites import FrogStrips, frog_strips
+
+    fresh = FrogStrips(asset_path("orb"))
+    assert fresh.loaded_states() == []  # nothing decoded until a state is drawn
+    assert fresh.get("off")[1] > 0
+    assert fresh.loaded_states() == ["off"]
+    orb = Orb()
+    picture = FrogSprite(asset_path("orb"))
+    assert orb._strips is picture._strips is frog_strips(asset_path("orb"))  # one copy for both frogs
+    assert fresh.get("no such state") is None

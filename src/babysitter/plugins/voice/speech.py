@@ -382,8 +382,27 @@ def beat_after_opener(text: str) -> list[str]:
     return [match.group(1), stripped[match.end():].strip()]
 
 
-def speech_chunks(text: str, limit: int = 400) -> list[str]:
-    """Break a long reading into sentence-sized pieces the voice can say."""
+# A first sentence longer than this is cut at its first comma, so the first
+# sound comes sooner. Measured with Kokoro on this PC: 20 characters take
+# 0.42 s to make, 76 take 1.1 s, and 175 take 2.2 s.
+QUICK_FIRST = 90
+
+
+def _quick_first(sentence: str) -> list[str]:
+    if len(sentence) <= QUICK_FIRST:
+        return [sentence]
+    cut = sentence.find(", ", 20, QUICK_FIRST)
+    if cut < 0:
+        return [sentence]
+    return [sentence[: cut + 1].strip(), sentence[cut + 1 :].strip()]
+
+
+def speech_chunks(text: str, limit: int = 400, quick_start: bool = False) -> list[str]:
+    """Break a long reading into sentence-sized pieces the voice can say.
+
+    With quick_start, the first piece is the first sentence alone (its first
+    clause when it is long), so the voice starts while the rest is made.
+    Later pieces are joined up to the limit as before."""
     spoken = plain_speech(text)
     if not spoken:
         return []
@@ -404,6 +423,10 @@ def speech_chunks(text: str, limit: int = 400) -> list[str]:
             bounded.append(sentence)
             continue
         bounded.extend(_split_long(sentence, limit))
+    if quick_start and len(bounded) > 0:
+        first = _quick_first(bounded[0])
+        chunks.append(first[0])
+        bounded = first[1:] + bounded[1:]
     for sentence in bounded:
         if current and len(current) + 1 + len(sentence) > limit:
             chunks.append(current)

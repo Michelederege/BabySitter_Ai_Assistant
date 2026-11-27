@@ -135,3 +135,21 @@ def test_a_long_sentence_breaks_at_a_comma_not_mid_phrase():
     pieces = speech_chunks(sentence, limit=90)
     assert pieces[0].endswith("computer,")
     assert " ".join(pieces) == sentence
+
+
+def test_the_first_piece_is_short_so_the_voice_starts_sooner():
+    from babysitter.plugins.voice.speech import speech_chunks
+
+    text = (
+        "Good morning. It's Friday, November 27. Reminder at three, call the dentist. "
+        "You have two open goals, starting with finish the history essay before the weekend."
+    )
+    joined = speech_chunks(text, limit=220)
+    assert joined[0].startswith("Good morning. It's Friday")  # the old way: one long first piece
+    quick = speech_chunks(text, limit=220, quick_start=True)
+    assert quick[0] == "Good morning."
+    assert " ".join(quick) == " ".join(joined)  # nothing lost or reordered
+    long_first = "When you get home tonight, remember that the oven needs to be preheated to two hundred degrees first."
+    pieces = speech_chunks(long_first, limit=220, quick_start=True)
+    assert pieces[0] == "When you get home tonight,"
+    assert speech_chunks("Hi.", limit=220, quick_start=True) == ["Hi."]

@@ -7,7 +7,6 @@ top right. The frog, the state word, and the hint sit on the picture.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt, QTimer, QVariantAnimation
@@ -77,7 +76,7 @@ class FrogSprite(QWidget):
         self.setFixedSize(size, size)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._px = 168
-        self._strips: dict[str, tuple[QPixmap, int]] = {}
+        self._strips = {}
         self._state = "off"
         self._frame = 0
         self._timer = QTimer(self)
@@ -85,18 +84,27 @@ class FrogSprite(QWidget):
         self._load(Path(sprites_dir))
 
     def _load(self, folder: Path) -> None:
-        meta_path = folder / "sprites.json"
-        if not meta_path.is_file():
+        # The same shared strips as the orb, each decoded on first use.
+        from babysitter.ui.sprites import frog_strips
+
+        strips = frog_strips(folder)
+        if not strips:
             return
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        self._px = int(meta["frameSize"])
-        for state, info in meta["states"].items():
-            pixmap = QPixmap(str(folder / info["file"]))
-            if pixmap.isNull():
-                continue
-            self._strips[state] = (pixmap, int(info["frames"]))
-        if self._strips:
-            self._timer.start(int(1000 / int(meta["fps"])))
+        self._strips = strips
+        self._px = strips.frame_px
+        self._interval = int(1000 / max(1, strips.fps))
+        self._timer.start(self._interval)
+
+    def hideEvent(self, event) -> None:  # noqa: N802
+        # The window is in the tray: no frames are drawn, so the clock rests.
+        self._resume = self._timer.isActive()
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        if getattr(self, "_resume", False) and self._strips and not self._timer.isActive():
+            self._timer.start(getattr(self, "_interval", 50))
+        super().showEvent(event)
 
     def set_state(self, state: str) -> None:
         if state in self._strips and state != self._state:
@@ -113,6 +121,8 @@ class FrogSprite(QWidget):
             self._timer.start()
 
     def _tick(self) -> None:
+        if self._state not in self._strips:
+            return
         frames = self._strips[self._state][1]
         self._frame = (self._frame + 1) % frames
         self.update()

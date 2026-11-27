@@ -169,7 +169,19 @@ def packages_installed() -> bool:
 
 
 def ready() -> bool:
-    return packages_installed() and model_ready()
+    return model_ready() and packages_installed()
+
+
+def looks_ready() -> bool:
+    """For a label only: the files are there and the libraries are on disk.
+    It does not import them, so the window opens without loading numpy and
+    onnxruntime (about 0.17 s and 30 MB) just to word a button."""
+    from importlib.util import find_spec
+
+    try:
+        return model_ready() and all(find_spec(name) is not None for name in ("numpy", "onnxruntime"))
+    except (ImportError, ValueError):
+        return False
 
 
 def install_command() -> list[str]:

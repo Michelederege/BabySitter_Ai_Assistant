@@ -171,6 +171,26 @@ a = Analysis(
     noarchive=False,
 )
 
+# Qt pieces BabySitter never uses, left out because the one-file exe unpacks
+# everything on every start: the software OpenGL renderer (about 20 MB; the
+# window is plain widgets), the Direct2D platform plugin (qwindows is the one
+# used), image formats it never opens, and the Qt translations (the program
+# is in English only). About 25 MB less to unpack each time it opens.
+def _unused_qt(dest: str) -> bool:
+    name = dest.replace("\\", "/").lower()
+    if not name.startswith("pyside6/"):
+        return False
+    return (
+        name.endswith("/opengl32sw.dll")
+        or "/translations/" in name
+        or name.endswith("/platforms/qdirect2d.dll")
+        or name.endswith(("/imageformats/qtiff.dll", "/imageformats/qwebp.dll", "/imageformats/qicns.dll", "/imageformats/qtga.dll", "/imageformats/qwbmp.dll", "/imageformats/qpdf.dll"))
+    )
+
+
+a.binaries = [entry for entry in a.binaries if not _unused_qt(entry[0])]
+a.datas = [entry for entry in a.datas if not _unused_qt(entry[0])]
+
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # One file. Copy dist/BabySitter.exe to the desktop or any other folder.

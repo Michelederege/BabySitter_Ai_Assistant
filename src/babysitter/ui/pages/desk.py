@@ -309,9 +309,9 @@ class MemoryPage(_Page):
         self.refresh()
 
     def refresh_sharper(self) -> None:
-        from babysitter.embedder import ready as embedder_ready
+        from babysitter.embedder import looks_ready
 
-        if embedder_ready():
+        if looks_ready():
             self.sharper.setText("Sharper matching is on")
             self.sharper.setEnabled(False)
 
