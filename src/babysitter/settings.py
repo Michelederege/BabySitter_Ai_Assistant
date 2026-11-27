@@ -72,6 +72,9 @@ class Settings:
     hearing_engine: str = "whisper"
     # The memory slider, in tokens. 0 means the level's own amount.
     context_tokens: int = 0
+    # Outlook / Microsoft 365, read-only. The id is the app registration's, not a secret.
+    microsoft_enabled: bool = False
+    microsoft_client_id: str = ""
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -117,6 +120,8 @@ class Settings:
             "microphone": self.microphone,
             "hearing_engine": self.hearing_engine,
             "context_tokens": self.context_tokens,
+            "microsoft_enabled": self.microsoft_enabled,
+            "microsoft_client_id": self.microsoft_client_id,
         }
 
 
@@ -310,6 +315,16 @@ def _port(value: object) -> int:
     return number
 
 
+def _microsoft_id(value: object) -> str:
+    from babysitter.plugins.tools.microsoft_account import clean_client_id
+    from babysitter.secrets import SecretsError
+
+    try:
+        return clean_client_id(str(value or "")) if value else ""
+    except SecretsError:
+        return ""
+
+
 def _context_tokens(value: object) -> int:
     from babysitter.intelligence import CONTEXT_STOPS
 
@@ -419,6 +434,8 @@ def settings_from_dict(data: dict) -> Settings:
         search_folders=_clean_folders(data.get("search_folders")),
         microphone=" ".join(str(data.get("microphone") or "").split())[:200],
         context_tokens=_context_tokens(data.get("context_tokens", 0)),
+        microsoft_enabled=bool(data.get("microsoft_enabled", False)),
+        microsoft_client_id=_microsoft_id(data.get("microsoft_client_id", "")),
         hearing_engine=(
             str(data.get("hearing_engine") or "whisper")
             if str(data.get("hearing_engine") or "whisper") in {"whisper", "moonshine", "parakeet"}

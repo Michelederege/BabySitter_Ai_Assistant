@@ -49,6 +49,11 @@ def test_http_targets_are_local_or_documented_pages():
         # Model packs for Moonshine, Parakeet, Piper, and Supertonic. Each file is
         # pinned to a SHA-256 in modelpacks.py and downloads only after a yes.
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/",
+        # Outlook: Microsoft's sign-in pages, read-only Graph reads of your own
+        # account, and the sign-in's return page on this PC.
+        "https://login.microsoftonline.com/common/oauth2/v2.0/",
+        "https://graph.microsoft.com/v1.0/me/",
+        "http://localhost",
         "https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b/",
         # Built only after the host is checked to be 127.0.0.1.
         "http://{self.host}:{self.port}",

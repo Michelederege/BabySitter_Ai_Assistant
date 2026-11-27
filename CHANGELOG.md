@@ -2,6 +2,14 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.25.0 — Google sign-in that finishes, and Outlook
+
+**Sign in with Google could never finish.** A Google "Desktop app" client needs its secret when the sign-in code is swapped for a token, and BabySitter never sent it, so Google answered "client_secret is missing". Settings, Accounts and home now has **Choose the Google client file…**: pick the client_secret_….json file Google gives you. The id is saved in Settings, the secret is encrypted on this PC, and the sign-in and every refresh send it. The old tip about adding a redirect address is gone; Desktop clients do not have one.
+
+**Outlook and Microsoft 365.** Read-only Outlook mail, the Outlook calendar, and OneDrive file names, for an Outlook.com or Hotmail account or a school or work account. Sign in with Microsoft opens Microsoft's own page; the sign-in is encrypted on this PC. Outlook joins the same inbox as Google and Blackboard: it shows in Today, in "check my mail", and in the 15-minute check. It never sends, moves, or deletes anything. A school that must approve the app says so in one sentence.
+
+Both need a free, one-time app registration in your own account. The steps are in docs/agent-memory.md and in Settings.
+
 ## 0.24.0 — The calm window (UI v3)
 
 **Six places instead of twelve pages.** Talk, Board, Today, Desk, Memory, and Settings. Every feature is still here; it only moved. Reminders and the inbox are in Today. Your paper, look-up, the screen, and file search are in Desk. About me, History, and the Journal are in Memory. Voice, the models, PC Health, and every setting are in Settings, one section at a time.

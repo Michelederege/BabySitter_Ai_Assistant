@@ -746,6 +746,39 @@ class _DraftJob(QThread):
         self.ready.emit(speech, note)
 
 
+class _MicrosoftSignInJob(QThread):
+    """Microsoft's sign-in page, then one local page on port 8765 for the code."""
+
+    open_browser = Signal(str)
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, client_id: str, verifier: str, state: str, url: str) -> None:
+        super().__init__()
+        self._client_id = client_id
+        self._verifier = verifier
+        self._state = state
+        self._url = url
+        self.bundle: dict | None = None
+
+    def run(self) -> None:
+        from babysitter.plugins.tools.microsoft_account import MicrosoftError, exchange_code
+
+        try:
+            code = listen_for_code(self._state, on_ready=lambda: self.open_browser.emit(self._url))
+            self.bundle = exchange_code(self._client_id, code, self._verifier)
+        except GoogleError as exc:
+            self.failed.emit(str(exc).replace("Google", "Microsoft"))
+            return
+        except MicrosoftError as exc:
+            self.failed.emit(str(exc))
+            return
+        except Exception:
+            self.failed.emit("Microsoft sign-in stopped before it finished. Nothing was saved.")
+            return
+        self.finished_ok.emit()
+
+
 class _SignInJob(QThread):
     open_browser = Signal(str)
     finished_ok = Signal()
@@ -990,6 +1023,9 @@ class Shell:
         tools.google_check.connect(self._google_from_button)
         tools.google_sign_in_requested.connect(lambda client: self._google_sign_in(client, "personal"))
         tools.google_client_file_requested.connect(self._choose_google_client_file)
+        tools.microsoft_sign_in_requested.connect(self._microsoft_sign_in)
+        tools.microsoft_sign_out_requested.connect(self._microsoft_sign_out)
+        tools.microsoft_client.setText(self.controller.settings.microsoft_client_id)
         tools.school_sign_in_requested.connect(lambda client: self._google_sign_in(client, "school"))
         tools.inbox_refresh.connect(self._refresh_inbox)
         tools.blackboard_save.connect(self._save_blackboard)
@@ -1079,8 +1115,9 @@ class Shell:
 
     def _refresh_privacy(self) -> None:
         settings = self.controller.settings
-        self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
-        self.window.set_privacy(settings.social_search_enabled or settings.google_enabled)
+        linked = settings.google_enabled or settings.microsoft_enabled
+        self.window.home.set_privacy(settings.social_search_enabled, linked)
+        self.window.set_privacy(settings.social_search_enabled or linked)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -4370,7 +4407,99 @@ class Shell:
                 linked = False
             if linked:
                 accounts.append(Account(name, mail, calendar, drive, lambda v=vault: self._token_for_google(v)))
-        return accounts
+        return accounts + self._microsoft_accounts()
+
+    # ---------- Outlook / Microsoft 365 ----------
+    def _microsoft_vault(self):
+        vault = getattr(self, "_ms_vault", None)
+        if vault is None:
+            from babysitter.plugins.tools.microsoft_account import MicrosoftVault
+
+            vault = self._ms_vault = MicrosoftVault()
+        return vault
+
+    def _microsoft_accounts(self):
+        from babysitter.inbox import Account
+        from babysitter.plugins.tools.microsoft_account import outlook_index, read_outlook
+
+        settings = self.controller.settings
+        try:
+            linked = settings.microsoft_enabled and self._microsoft_vault().has_token()
+        except Exception:
+            linked = False
+        if not linked:
+            return []
+        return [Account("Outlook", "Outlook", "Outlook calendar", "OneDrive", self._token_for_microsoft,
+                        reader=read_outlook, indexer=outlook_index)]
+
+    def _token_for_microsoft(self) -> str | None:
+        """Runs inside the background read, so a refresh never freezes the window."""
+        from babysitter.plugins.tools.microsoft_account import MicrosoftError, refresh_access
+
+        vault = self._microsoft_vault()
+        bundle = vault.load_bundle()
+        if not bundle:
+            return None
+        refresh = str(bundle.get("refresh_token") or "")
+        client_id = self.controller.settings.microsoft_client_id
+        if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
+            try:
+                bundle = refresh_access(client_id, refresh)
+            except MicrosoftError as exc:
+                raise GoogleError("The Microsoft sign-in expired. Sign in again on Accounts and home.") from exc
+            vault.save_bundle(bundle)
+        return str(bundle.get("access_token") or "") or None
+
+    def _microsoft_sign_in(self, client_id: str) -> None:
+        from babysitter.plugins.tools.microsoft_account import authorization_url, clean_client_id, pkce_pair
+
+        page = self.window.tools_page
+        try:
+            cleaned = clean_client_id(client_id)
+        except SecretsError as exc:
+            page.microsoft_status.setText(str(exc))
+            return
+        if not self._microsoft_vault().available:
+            page.microsoft_status.setText("Saving the Microsoft sign-in needs Windows. Nothing was sent.")
+            return
+        self.controller.settings.microsoft_client_id = cleaned
+        save_settings(self.controller.settings)
+        verifier, challenge = pkce_pair()
+        state = verifier[:16]
+        job = _MicrosoftSignInJob(cleaned, verifier, state, authorization_url(cleaned, state, challenge))
+        self._store_job("_ms_sign_in_job", job)
+        job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
+        job.finished_ok.connect(self._microsoft_signed_in)
+        job.failed.connect(page.microsoft_status.setText)
+        job.start()
+        page.microsoft_status.setText("Waiting for your Microsoft account in your browser. Read-only mail, calendar, and OneDrive.")
+
+    def _microsoft_signed_in(self) -> None:
+        job = getattr(self, "_ms_sign_in_job", None)
+        bundle = getattr(job, "bundle", None)
+        if job is not None:
+            job.bundle = None
+        page = self.window.tools_page
+        if not bundle:
+            page.microsoft_status.setText("Microsoft sign-in did not return a token. Nothing was saved.")
+            return
+        try:
+            self._microsoft_vault().save_bundle(bundle)
+        except SecretsError as exc:
+            page.microsoft_status.setText(str(exc))
+            return
+        self.controller.settings.microsoft_enabled = True
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+        page.microsoft_status.setText("Signed in to Microsoft. The sign-in is encrypted on this PC. Outlook shows in Today.")
+        self._refresh_inbox("mail")
+
+    def _microsoft_sign_out(self) -> None:
+        self._microsoft_vault().delete()
+        self.controller.settings.microsoft_enabled = False
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+        self.window.tools_page.microsoft_status.setText("Signed out. The Microsoft sign-in was deleted from this PC.")
 
     def _linked_feed(self):
         if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
