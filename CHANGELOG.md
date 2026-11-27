@@ -2,6 +2,14 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.22.0 — Use only what a question needs
+
+**The paper goes with a question only when it matters.** With Google on, every question used to fetch the doc you changed in the last two hours and send its text along, even "what time is it". On Low, that crowded out the question, and every question waited on Google first. Now the doc goes with a question only when a Google Docs window is in front, or the question is about the writing: the paper, the essay, a paragraph, a citation, a rewrite. Any other question never reaches Google at all. "What am I writing" still finds a doc you changed in the last two hours.
+
+**On asks about an Ollama that is already running.** When Ollama's own tray app started it, BabySitter's settings are not on it: the this-PC-only address, the smaller memory cache, and cloud models off. On now asks whether to restart it under BabySitter so they apply, or use it as it is without them. The answer is kept until BabySitter closes. Leave it running, in the quit dialog, now says the same.
+
+**A folder named Games is not a game by itself.** Steam, Epic, GOG, the Xbox app, and Riot folders still count, and so does any name in your list. A game kept in a plain Games folder needs its name added in Settings. Settings shows example paths and how each one is read.
+
 ## 0.21.1 — A voice that sounds like a person
 
 **Pauses where a person would take them.** Every sentence used to end with the same short gap, whether it was a full stop, a question, or a sentence cut in half. Now a full stop gets a real pause, a question a little longer, a comma a short breath, and a long sentence runs on where it had to be split. A long sentence is split at a comma where it can be, not in the middle of a phrase.
