@@ -89,3 +89,30 @@ def test_the_window_never_fetches_a_token_itself(tmp_path, monkeypatch):
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_an_expired_account_is_one_notice_with_one_fix(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "data"))
+    app = QApplication.instance() or QApplication([])
+    from babysitter.controller import Controller
+    from babysitter.inbox import Inbox
+    from babysitter.ui.shell import Shell
+
+    controller = Controller()
+    shell = Shell(controller)
+    monkeypatch.setattr(shell, "_speak", lambda *a, **k: None)  # no real voice in a test
+    try:
+        shell._inbox_ready(Inbox(rows=["Mail · a · Lunch"], problems=["School Google: the sign-in expired. Sign in again on Tools."]), "all")
+        window = shell.window
+        assert not window.notice_strip.isHidden()
+        assert window.notice_text.text().startswith("School Google: sign-in expired.")
+        window.notice_action.click()
+        assert window.notice_strip.isHidden()
+        assert window.show_page_key(window.current_page()) == "settings"
+        assert window._section_keys[window.section_list.currentRow()] == "accounts"
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()

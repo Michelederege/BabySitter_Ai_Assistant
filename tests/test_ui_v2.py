@@ -333,3 +333,51 @@ def test_the_state_pill_and_status_line_follow_the_controller(tmp_path, monkeypa
     shell._refresh_privacy()
     assert shell.window.privacy_chip.text() == "Private to this computer"
     _close(app, controller, shell)
+
+
+def test_talk_folds_details_and_fresh_start_keeps_pins(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    home = shell.window.home
+    home.set_reply("what is on my desk", "Three files.", "1. a.pdf\n2. b.stl")
+    assert not home.reply_detail.isVisible() and not home.details_button.isHidden()
+    shell.window.show()
+    home._toggle_details()
+    assert home.reply_detail.isVisible() and home.details_button.text() == "Hide details"
+    home.set_reply("time", "It's noon.", "")
+    assert home.details_button.isHidden()
+    shell._history = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    shell._pin_note("Bins", "Thursday")
+    home.fresh_start.emit()
+    assert shell._history == []
+    assert "Fresh start" in home.spoken.text()
+    from babysitter.deskstore import load_list
+
+    assert load_list("pins.json")  # pins stay
+    assert home.hold.text() == "Turn the AI on"  # the AI is off
+    _close(app, controller, shell)
+
+
+def test_the_board_filters_locks_and_undoes_an_unpin(tmp_path, monkeypatch):
+    app, controller, shell = _shell(tmp_path, monkeypatch)
+    from babysitter.deskstore import load_list
+
+    home = shell.window.home
+    shell._pin_note("Bins", "Thursday")
+    shell._pin_note("Groceries", "1. eggs 2. milk")
+    pins = load_list("pins.json")
+    assert [pin["kind"] for pin in pins] == ["note", "list"] and all(pin.get("pinned") for pin in pins)
+    home._set_filter("list")
+    assert len(home.pin_grid._items) == 1
+    home._set_filter("all")
+    assert len(home.pin_grid._items) == 2
+    bins = pins[0]["id"]
+    shell._lock_pin(bins, True)
+    shell._unpin_card(bins)
+    assert len(load_list("pins.json")) == 2  # a locked card stays
+    shell._lock_pin(bins, False)
+    shell._unpin_card(bins)
+    assert [pin["title"] for pin in load_list("pins.json")] == ["Groceries"]
+    assert not home.undo_strip.isHidden()
+    home._undo_unpin()
+    assert sorted(pin["title"] for pin in load_list("pins.json")) == ["Bins", "Groceries"]
+    _close(app, controller, shell)

@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from babysitter.ui.flow import WrapGrid
 from babysitter.ui.frameless import FramelessWindow, content_class, window_class
 from babysitter.ui.pages.desk import (
     HealthPage,
@@ -113,40 +114,6 @@ def _card(title: str = "", hint: str = "") -> tuple[QFrame, QVBoxLayout]:
     return card, layout
 
 
-class WrapGrid(QWidget):
-    """Cards in as many columns as fit, never a fixed two columns."""
-
-    def __init__(self, min_column: int = 360) -> None:
-        super().__init__()
-        self._min = min_column
-        self._items: list[QWidget] = []
-        self._columns = 0
-        self._grid = QGridLayout(self)
-        self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setSpacing(14)
-
-    def add(self, widget: QWidget) -> None:
-        self._items.append(widget)
-        self._columns = 0
-        self._reflow()
-
-    def _reflow(self) -> None:
-        columns = max(1, min(len(self._items) or 1, self.width() // self._min if self.width() > 0 else 1))
-        if columns == self._columns:
-            return
-        self._columns = columns
-        for item in self._items:
-            self._grid.removeWidget(item)
-        for index, item in enumerate(self._items):
-            self._grid.addWidget(item, index // columns, index % columns, Qt.AlignTop)
-        for column in range(4):
-            self._grid.setColumnStretch(column, 1 if column < columns else 0)
-
-    def resizeEvent(self, event) -> None:  # noqa: N802
-        super().resizeEvent(event)
-        self._reflow()
-
-
 class _StateMenu(QFrame):
     """Opens from the state pill: power, intelligence, game mode, keyword."""
 
@@ -215,6 +182,25 @@ class MainWindow(FramelessWindow):
         self.notice_layout.setSpacing(8)
         self.notice_layout.addWidget(self.home.version_banner)
         self.notice_layout.addWidget(self.home.tray_banner)
+        # v3: one notice at a time, with one action and Later.
+        self.notice_strip = QFrame()
+        self.notice_strip.setObjectName("noticeStrip")
+        strip = QHBoxLayout(self.notice_strip)
+        strip.setContentsMargins(12, 8, 12, 8)
+        self.notice_text = QLabel("")
+        self.notice_text.setWordWrap(True)
+        self.notice_action = QPushButton("")
+        self.notice_action.setObjectName("primary")
+        later = QPushButton("Later")
+        later.setObjectName("quiet")
+        later.clicked.connect(self.notice_strip.hide)
+        strip.addWidget(self.notice_text, 1)
+        strip.addWidget(self.notice_action)
+        strip.addWidget(later)
+        self.notice_strip.hide()
+        self._notice_callback = None
+        self.notice_action.clicked.connect(self._notice_clicked)
+        self.notice_layout.addWidget(self.notice_strip)
         outer.addWidget(self.notice_host)
 
         middle = QHBoxLayout()
@@ -815,6 +801,24 @@ class MainWindow(FramelessWindow):
 
     def set_next(self, text: str) -> None:
         self.next_chip.setText(f"Next · {text}" if text else "Next · nothing counting down")
+
+    def show_notice(self, text: str, action: str, callback) -> None:
+        """One notice at a time. A newer one replaces the older; the drawer keeps every line."""
+        self.notice_text.setText(text)
+        self.notice_action.setText(action)
+        self._notice_callback = callback
+        self.notice_strip.show()
+
+    def _notice_clicked(self) -> None:
+        self.notice_strip.hide()
+        callback, self._notice_callback = self._notice_callback, None
+        if callback is not None:
+            callback()
+
+    def show_settings_section(self, key: str) -> None:
+        self.show_place("settings")
+        if key in self._section_keys:
+            self.section_list.setCurrentRow(self._section_keys.index(key))
 
     def toggle_size(self) -> None:
         self.toggle_maximized()

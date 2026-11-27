@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -55,6 +56,9 @@ class HomePage(QWidget):
     choose_hero = Signal()
     pin_open = Signal(str)
     pin_unpin = Signal(str)
+    fresh_start = Signal()
+    pin_lock = Signal(str, bool)
+    pin_restore = Signal(object)
 
     def __init__(self) -> None:
         super().__init__()
@@ -325,11 +329,40 @@ class HomePage(QWidget):
         layout.addWidget(self.pin_title)
         layout.addWidget(self.pin_body)
         layout.addWidget(submit)
-        self.pin_host = QWidget()
-        self.pin_list = QVBoxLayout(self.pin_host)
-        self.pin_list.setContentsMargins(0, 0, 0, 0)
-        self.pin_list.setSpacing(8)
-        layout.addWidget(self.pin_host)
+        filters = QHBoxLayout()
+        self._filter = "all"
+        self.filter_buttons: dict[str, QPushButton] = {}
+        for key, label in (("all", "All"), ("list", "Lists"), ("reply", "Replies"), ("note", "Notes")):
+            button = QPushButton(label)
+            button.setObjectName("segment")
+            button.setCheckable(True)
+            button.setChecked(key == "all")
+            button.clicked.connect(lambda _c=False, key=key: self._set_filter(key))
+            self.filter_buttons[key] = button
+            filters.addWidget(button)
+        filters.addStretch(1)
+        layout.addLayout(filters)
+        # Unpin shows this for ten seconds, with Undo.
+        self.undo_strip = QFrame()
+        self.undo_strip.setObjectName("banner")
+        undo_row = QHBoxLayout(self.undo_strip)
+        undo_row.setContentsMargins(10, 6, 10, 6)
+        self.undo_label = QLabel("")
+        undo = QPushButton("Undo")
+        undo.clicked.connect(self._undo_unpin)
+        undo_row.addWidget(self.undo_label, 1)
+        undo_row.addWidget(undo)
+        self.undo_strip.hide()
+        layout.addWidget(self.undo_strip)
+        self._last_unpinned: dict | None = None
+        self._undo_timer = QTimer(self)
+        self._undo_timer.setSingleShot(True)
+        self._undo_timer.timeout.connect(self._forget_unpin)
+        from babysitter.ui.flow import WrapGrid
+
+        self.pin_grid = WrapGrid(250)
+        layout.addWidget(self.pin_grid)
+        self._all_pins: list[dict] = []
         layout.addStretch(1)
         self.pins = QLabel("Nothing is pinned yet. Type a note above, or pin a reply.")
         self.pins.setWordWrap(True)
@@ -347,14 +380,39 @@ class HomePage(QWidget):
         self.pin_title.clear()
         self.pin_body.clear()
 
+    def _set_filter(self, key: str) -> None:
+        self._filter = key
+        for name, button in self.filter_buttons.items():
+            button.setChecked(name == key)
+        self.set_pins(self._all_pins)
+
+    def show_unpinned(self, pin: dict) -> None:
+        self._last_unpinned = dict(pin)
+        title = str(pin.get("title") or "The card")
+        self.undo_label.setText(f"Unpinned {title[:60]}.")
+        self.undo_strip.show()
+        self._undo_timer.start(10_000)
+
+    def _undo_unpin(self) -> None:
+        if self._last_unpinned is not None:
+            self.pin_restore.emit(self._last_unpinned)
+        self._forget_unpin()
+
+    def _forget_unpin(self) -> None:
+        self._last_unpinned = None
+        self.undo_strip.hide()
+
     def set_pins(self, pins: list[dict]) -> None:
-        while self.pin_list.count():
-            item = self.pin_list.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        shown = pins[-MAX_PINS:]
-        self.pin_count.setText(f"{len(shown)} of {MAX_PINS}")
+        from babysitter.deskstore import pin_kind
+
+        self._all_pins = list(pins)
+        self.pin_grid.clear()
+        shown = [pin for pin in pins[-MAX_PINS:] if self._filter == "all" or pin_kind(pin) == self._filter]
+        self.pin_count.setText(f"{len(pins[-MAX_PINS:])} of {MAX_PINS}")
+        if not shown and pins and self._filter != "all":
+            self.pins.setText("Nothing pinned of that kind.")
+            self.pins.show()
+            return
         if not shown:
             self.pins.setText("Nothing is pinned yet. Type a note above, or pin a reply.")
             self.pins.show()
@@ -365,7 +423,7 @@ class HomePage(QWidget):
         else:
             self.pins.hide()
         for pin in shown:
-            self.pin_list.addWidget(self._pin_item(pin))
+            self.pin_grid.add(self._pin_item(pin))
 
     def _pin_item(self, pin: dict) -> QFrame:
         frame = QFrame()
@@ -373,9 +431,25 @@ class HomePage(QWidget):
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
+        from babysitter.deskstore import pin_kind
+
         title = str(pin.get("title") or "Pinned")
         body = str(pin.get("body") or "")
         pin_id = str(pin.get("id") or "")
+        locked = str(pin.get("locked") or "") == "yes"
+        top = QHBoxLayout()
+        tag = QLabel(pin_kind(pin).upper())
+        tag.setObjectName(f"tag_{pin_kind(pin)}")
+        top.addWidget(tag)
+        when = str(pin.get("pinned") or "")[:16].replace("T", " ")
+        if when:
+            stamp = QLabel(when)
+            stamp.setObjectName("hint")
+            top.addWidget(stamp)
+        top.addStretch(1)
+        if locked:
+            top.addWidget(QLabel("🔒"))
+        layout.addLayout(top)
         title_label = QLabel(title)
         title_label.setWordWrap(True)
         title_label.setToolTip(body)
@@ -386,15 +460,26 @@ class HomePage(QWidget):
             preview.setWordWrap(True)
             layout.addWidget(preview)
         row = QHBoxLayout()
+        copy = QPushButton("Copy")
+        copy.setObjectName("textButton")
+        copy.setToolTip("Copies the title and the note.")
+        copy.clicked.connect(lambda _c=False, text=f"{title}\n{body}".strip(): QApplication.clipboard().setText(text))
         open_button = QPushButton("Open")
+        open_button.setObjectName("textButton")
         open_button.setToolTip("Shows the whole card so you can copy it.")
         open_button.clicked.connect(lambda _c=False, item=pin_id: self.pin_open.emit(item))
+        lock = QPushButton("Unlock" if locked else "Lock")
+        lock.setObjectName("textButton")
+        lock.setToolTip("A locked card cannot be unpinned until it is unlocked.")
+        lock.clicked.connect(lambda _c=False, item=pin_id, now=locked: self.pin_lock.emit(item, not now))
         unpin = QPushButton("Unpin")
-        unpin.setToolTip("Takes the card off the board. Nothing else is deleted.")
+        unpin.setObjectName("textButton")
+        unpin.setEnabled(not locked)
+        unpin.setToolTip("Locked. Unlock it first." if locked else "Takes the card off the board. Undo puts it back.")
         unpin.clicked.connect(lambda _c=False, item=pin_id: self.pin_unpin.emit(item))
+        for button in (copy, open_button, lock, unpin):
+            row.addWidget(button)
         row.addStretch(1)
-        row.addWidget(open_button)
-        row.addWidget(unpin)
         layout.addLayout(row)
         return frame
 
@@ -423,44 +508,59 @@ class HomePage(QWidget):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(14, 12, 14, 12)
         layout.setSpacing(8)
-        layout.addWidget(self._section("ASSISTANT"))
-
         self.heard = QLabel("You: nothing yet.")
         self.heard.setWordWrap(True)
         self.heard.setObjectName("hint")
         layout.addWidget(self.heard)
-        layout.addWidget(self._section("SAID"))
+        # v3: the spoken answer leads, in large type.
         self.spoken = QLabel("")
-        self.spoken.setObjectName("spoken")
+        self.spoken.setObjectName("spokenLarge")
         self.spoken.setWordWrap(True)
         self.spoken.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.spoken)
-        layout.addWidget(self._section("ON SCREEN"))
+        # Lists, paths, and numbers open only when asked.
         self.reply_detail = QLabel("")
+        self.reply_detail.setObjectName("detailMono")
         self.reply_detail.setWordWrap(True)
         self.reply_detail.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.reply_detail.hide()
         layout.addWidget(self.reply_detail)
 
         actions = QHBoxLayout()
-        copy = QPushButton("Copy reply")
+        actions.setSpacing(14)
+        self.details_button = QPushButton("Show details")
+        self.details_button.setObjectName("textButton")
+        self.details_button.setToolTip("The lists, paths, and numbers behind the spoken answer.")
+        self.details_button.clicked.connect(self._toggle_details)
+        pin = QPushButton("Pin")
+        pin.setObjectName("textButton")
+        pin.setToolTip("Pin this reply on the Board. It stays on this PC.")
+        pin.clicked.connect(self.pin_reply.emit)
+        copy = QPushButton("Copy")
+        copy.setObjectName("textButton")
         copy.setToolTip("Copies the reply that is on screen.")
         copy.clicked.connect(self.copy_reply.emit)
-        pin = pin_button()
-        pin.setToolTip("Pin this reply on the board. It stays on this PC.")
-        pin.clicked.connect(self.pin_reply.emit)
+        fresh = QPushButton("Fresh start")
+        fresh.setObjectName("textButton")
+        fresh.setToolTip("Clears this conversation's context. Pins and memory stay.")
+        fresh.clicked.connect(self.fresh_start.emit)
         send = QPushButton("Send what I heard")
+        send.setObjectName("textButton")
         send.setToolTip("Sends the line to the local model. Nothing else goes with it.")
         send.clicked.connect(self.send_heard.emit)
-        self.hold = QPushButton("Hold to talk")
+        for button in (self.details_button, pin, copy, fresh, send):
+            actions.addWidget(button)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+
+        talk_bar = QHBoxLayout()
+        self.hold = QPushButton("Turn the AI on")
         self.hold.setObjectName("primary")
         self.hold.setToolTip("The microphone opens only while this is held. Space or Enter works too.")
         self.hold.pressed.connect(self.hold_pressed.emit)
         self.hold.released.connect(self.hold_released.emit)
-        actions.addWidget(copy)
-        actions.addWidget(pin)
-        actions.addWidget(send)
-        actions.addWidget(self.hold)
-        layout.addLayout(actions)
+        talk_bar.addWidget(self.hold)
+        layout.addLayout(talk_bar)
 
         type_row = QHBoxLayout()
         self.typed = QLineEdit()
@@ -474,8 +574,16 @@ class HomePage(QWidget):
         type_row.addWidget(self.typed, 1)
         type_row.addWidget(run)
         layout.addLayout(type_row)
+        mic = QLabel("The microphone opens only while you hold the button.")
+        mic.setObjectName("hint")
+        layout.addWidget(mic)
         layout.addStretch(1)
         return card
+
+    def _toggle_details(self) -> None:
+        showing = not self.reply_detail.isVisible()
+        self.reply_detail.setVisible(showing and bool(self.reply_detail.text().strip()))
+        self.details_button.setText("Hide details" if showing else "Show details")
 
     # ---------- this PC ----------
     def _pc_card(self) -> QFrame:
@@ -589,6 +697,10 @@ class HomePage(QWidget):
         self.heard.setText(f"You: {heard}")
         self.spoken.setText(spoken)
         self.reply_detail.setText(detail)
+        # Each new reply starts with its details folded away.
+        self.reply_detail.hide()
+        self.details_button.setText("Show details")
+        self.details_button.setVisible(bool((detail or "").strip()))
 
     def set_phase(self, phase: str, hint: str) -> None:
         self.hero.show_phase(phase, STATE_WORDS.get(phase, "On"), hint)
@@ -617,6 +729,8 @@ class HomePage(QWidget):
         self.power_word.setStyleSheet(f"color: {STATE_COLORS.get(state, STATE_COLORS['error'])};")
         self.power_hint.setText(CLICK_HINT.get(state, CLICK_HINT["error"]))
         self.try_again.setVisible(state == "error")
+        # The one orange button says what a press will do.
+        self.hold.setText("Turn the AI on" if state == "off" else "Hold to talk")
         self.set_phase(state, detail)
         if state == "game":
             self.game.setText("Leave")

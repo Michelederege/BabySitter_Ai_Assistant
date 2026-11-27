@@ -8,7 +8,7 @@ layout; wrap_wide_rows swaps any wide row of controls for one, in place.
 from __future__ import annotations
 
 from PySide6.QtCore import QPoint, QRect, QSize, Qt
-from PySide6.QtWidgets import QHBoxLayout, QLayout, QLineEdit, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLayout, QLineEdit, QSizePolicy, QWidget
 
 
 class FlowLayout(QLayout):
@@ -108,3 +108,44 @@ def wrap_wide_rows(root: QWidget, threshold: int = 300) -> int:
         parent.insertWidget(index, host)
         swapped += 1
     return swapped
+
+
+class WrapGrid(QWidget):
+    """Cards in as many columns as fit, never a fixed two columns."""
+
+    def __init__(self, min_column: int = 360) -> None:
+        super().__init__()
+        self._min = min_column
+        self._items: list[QWidget] = []
+        self._columns = 0
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(14)
+
+    def clear(self) -> None:
+        for item in self._items:
+            self._grid.removeWidget(item)
+            item.deleteLater()
+        self._items = []
+        self._columns = 0
+
+    def add(self, widget: QWidget) -> None:
+        self._items.append(widget)
+        self._columns = 0
+        self._reflow()
+
+    def _reflow(self) -> None:
+        columns = max(1, min(len(self._items) or 1, self.width() // self._min if self.width() > 0 else 1))
+        if columns == self._columns:
+            return
+        self._columns = columns
+        for item in self._items:
+            self._grid.removeWidget(item)
+        for index, item in enumerate(self._items):
+            self._grid.addWidget(item, index // columns, index % columns, Qt.AlignTop)
+        for column in range(4):
+            self._grid.setColumnStretch(column, 1 if column < columns else 0)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._reflow()

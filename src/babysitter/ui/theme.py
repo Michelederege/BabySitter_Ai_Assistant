@@ -343,6 +343,18 @@ QToolTip {
 #appRoot QMenu::separator { height: 1px; background: #38436a; margin: 4px 6px; }
 
 /* ---------- v3: the calm window ---------- */
+QLabel#tag_reply { background: #4a4232; color: #f6e2bb; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+QLabel#tag_note { background: #38436a; color: #dfe4ee; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+QLabel#tag_list { background: #3a4a3f; color: #c7f0d6; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+QLabel#tag_picture { background: #2f3d5e; color: #c6d8ff; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+QLabel#tag_fact { background: #3f3550; color: #e2d4ff; border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 700; }
+QFrame#noticeStrip { background: #3b3426; border: 1px solid #6b5426; border-radius: 10px; }
+QFrame#noticeStrip QLabel { color: #f6e2bb; }
+QLabel#spokenLarge { color: #e8ecf4; font-size: 24px; font-weight: 600; }
+QLabel#detailMono { font-family: "JetBrains Mono", Consolas, monospace; color: #c6cddc; font-size: 12px;
+    background: #1a2136; border: 1px solid #2f395a; border-radius: 9px; padding: 10px; }
+QPushButton#textButton { background: transparent; border: none; color: #f6b977; padding: 2px 0; font-weight: 600; }
+QPushButton#textButton:hover { color: #f8b866; text-decoration: underline; }
 #appRoot QFrame#sideMenu { background-color: #1d2439; border-right: 1px solid #2f395a; }
 #appRoot QFrame#bottomBar { background-color: #1d2439; border-top: 1px solid #2f395a; }
 #appRoot QPushButton#place, #appRoot QPushButton#placeBottom {
