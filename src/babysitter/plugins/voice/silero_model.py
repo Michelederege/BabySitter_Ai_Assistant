@@ -9,7 +9,7 @@ from __future__ import annotations
 import urllib.request
 
 from babysitter.paths import data_dir
-from babysitter.security import require_matching_bytes, require_silero_url
+from babysitter.security import keep_if_matching, require_matching_bytes, require_silero_url
 
 
 SILERO_URL = "https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
@@ -26,7 +26,7 @@ def silero_path():
 def download_silero(opener=None) -> str:
     require_silero_url(SILERO_URL)
     destination = silero_path()
-    if destination.is_file() and destination.stat().st_size > 1000:
+    if keep_if_matching(SILERO_URL, destination):
         return "The sharper voice detector is already on this PC. Turn it on in Settings."
     destination.parent.mkdir(parents=True, exist_ok=True)
     open_url = opener or urllib.request.urlopen

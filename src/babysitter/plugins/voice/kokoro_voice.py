@@ -84,12 +84,13 @@ def download() -> str:
 
 
 def _fetch(url: str, dest) -> None:
+    from babysitter.security import keep_if_matching, require_matching_file
+
     require_kokoro_model_url(url)
-    if dest.is_file() and dest.stat().st_size > 0:
+    if keep_if_matching(url, dest):
         return
     from urllib import request as urlrequest
 
-    from babysitter.security import require_matching_file
 
     temporary = dest.with_suffix(dest.suffix + ".part")
     with urlrequest.urlopen(url, timeout=180) as response, temporary.open("wb") as handle:

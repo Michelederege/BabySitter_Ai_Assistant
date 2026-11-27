@@ -179,7 +179,7 @@ def install_command() -> list[str]:
 def download() -> str:
     """Download the sharper memory. The user must confirm before this runs."""
     from babysitter.platform import run_hidden
-    from babysitter.security import require_embedder_url, require_matching_file
+    from babysitter.security import keep_if_matching, require_embedder_url, require_matching_file
 
     for url in (MODEL_URL, VOCAB_URL):
         require_embedder_url(url)
@@ -198,7 +198,7 @@ def download() -> str:
     folder = embedder_dir()
     for url, filename in ((MODEL_URL, "model.onnx"), (VOCAB_URL, "vocab.txt")):
         destination = folder / filename
-        if destination.is_file() and destination.stat().st_size > 0:
+        if keep_if_matching(url, destination):
             continue
         from urllib import request as urlrequest
 

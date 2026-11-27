@@ -174,6 +174,27 @@ def require_matching_file(url: str, path) -> None:
         )
 
 
+def keep_if_matching(url: str, path) -> bool:
+    """True when a file already on disk has the recorded SHA-256.
+
+    A file that is there but does not match is deleted, so the caller
+    downloads a fresh copy. A file someone copied in by hand, or one an
+    earlier version saved without a check, gets the same check as a new
+    download.
+    """
+    from pathlib import Path
+
+    path = Path(path)
+    if not path.is_file():
+        return False
+    try:
+        require_matching_file(url, path)
+    except ValueError:
+        path.unlink(missing_ok=True)
+        return False
+    return True
+
+
 def require_google_oauth_url(url: str) -> None:
     """Sign-in and token refresh. Not Gmail, and not a place that sends mail."""
     allowed = {

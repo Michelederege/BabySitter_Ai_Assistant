@@ -1077,11 +1077,21 @@ def _feature_games() -> list[Outcome]:
     def steam():
         path = r"D:\Steam\steamapps\common\Baldurs Gate 3\bg3.exe"
         assert looks_like_game_path(path)
+        # A helper word inside a game's own folder name is not a helper.
+        assert looks_like_game_path(r"D:\Steam\steamapps\common\TheSetup\game.exe")
+        assert looks_like_game_path(r"D:\Games\DirectX Quest\dxq.exe")
+        assert looks_like_game_path(r"C:\Riot Games\Launcher Wars\wars.exe")
         return "bg3.exe"
 
     def launcher():
         path = r"D:\Steam\steamapps\common\EasyAntiCheat\EasyAntiCheat.exe"
         assert not looks_like_game_path(path)
+        assert not looks_like_game_path(
+            r"D:\Steam\steamapps\common\Steamworks Shared\_CommonRedist\vcredist\2019\VC_redist.x64.exe"
+        )
+        assert not looks_like_game_path(r"C:\Riot Games\Riot Client\RiotClientServices.exe")
+        assert not looks_like_game_path(r"D:\Steam\steamapps\common\Some Game\_CommonRedist\DirectX\Jun2010\DXSETUP.exe")
+        assert not looks_like_game_path(r"D:\Steam\steamapps\common\Some Game\unins000.exe")
         return "The anti-cheat helper is left alone."
 
     def notepad():

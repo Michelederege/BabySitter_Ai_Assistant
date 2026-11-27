@@ -24,6 +24,9 @@ def test_bat_launcher_stops_and_shows_a_missing_python_folder():
 
 def test_startup_failure_is_written(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    # Take the console path. On Windows the real path opens a message box
+    # that waits for a click, which stalls the test run on a desktop.
+    monkeypatch.setattr("babysitter.startup_error.sys.platform", "linux")
     show_startup_failure("the window toolkit is missing")
     saved = (tmp_path / "logs" / "startup-error.txt").read_text(encoding="utf-8")
     assert saved == "the window toolkit is missing"

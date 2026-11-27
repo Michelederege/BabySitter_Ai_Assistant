@@ -183,6 +183,52 @@ def test_a_tampered_voice_detector_is_not_saved(tmp_path, monkeypatch):
     assert silero_path().is_file()
 
 
+def test_a_model_file_already_on_disk_is_checked(tmp_path, monkeypatch):
+    import contextlib
+    import hashlib
+
+    from babysitter.plugins.voice.silero_model import download_silero, silero_path
+    from babysitter.security import DOWNLOAD_SHA256, SILERO_MODEL_URL, keep_if_matching
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    good = b"g" * 2000
+    fetched: list[str] = []
+
+    @contextlib.contextmanager
+    def opener(url, timeout=0):
+        fetched.append(url)
+
+        class Response:
+            def read(self, _limit):
+                return good
+
+        yield Response()
+
+    saved = DOWNLOAD_SHA256[SILERO_MODEL_URL]
+    try:
+        DOWNLOAD_SHA256[SILERO_MODEL_URL] = hashlib.sha256(good).hexdigest()
+
+        # A big file that is not the recorded one is replaced, not trusted.
+        silero_path().parent.mkdir(parents=True, exist_ok=True)
+        silero_path().write_bytes(b"t" * 5000)
+        download_silero(opener=opener)
+        assert fetched == [SILERO_MODEL_URL]
+        assert silero_path().read_bytes() == good
+
+        # The right file is kept without a second download.
+        download_silero(opener=opener)
+        assert fetched == [SILERO_MODEL_URL]
+        assert keep_if_matching(SILERO_MODEL_URL, silero_path())
+    finally:
+        DOWNLOAD_SHA256[SILERO_MODEL_URL] = saved
+
+    stray = tmp_path / "stray.onnx"
+    stray.write_bytes(b"not it")
+    assert not keep_if_matching(SILERO_MODEL_URL, stray)
+    assert not stray.exists()
+    assert not keep_if_matching("https://example.com/unknown", tmp_path / "missing")
+
+
 def test_borrowed_text_is_labeled_before_the_model_reads_it():
     from babysitter.intents import BORROWED_GUARD, guarded_prompt
 
