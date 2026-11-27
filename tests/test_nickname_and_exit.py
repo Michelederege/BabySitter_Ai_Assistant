@@ -177,3 +177,12 @@ def test_one_zip_holds_the_memory_and_never_the_sign_ins(tmp_path, monkeypatch):
     assert {"memory.json", "persona.json", "journal/2026-11-27.json", "READ ME.txt"} <= names
     assert count == 3
     assert not any(name.startswith(("secrets/", "models/")) for name in names)
+
+
+def test_the_nickname_is_the_name_in_the_instructions():
+    from babysitter.ollama import system_prompt
+
+    prompt = system_prompt(name="Kari")
+    assert prompt.startswith("You are Kari,")
+    assert "BabySitter" not in prompt.split(".")[0]
+    assert system_prompt(name="").startswith("You are ")

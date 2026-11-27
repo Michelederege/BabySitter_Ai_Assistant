@@ -38,11 +38,16 @@ def test_voice_turns_skip_hidden_thinking():
     medium = chat_body("gemma4:12b", "what time is it", 8192)
     assert low["think"] is False
     assert medium["think"] is False
-    assert "two or three plain sentences" in low["messages"][0]["content"]
-    assert "Start with the answer" in low["messages"][0]["content"]
+    assert "one to three short sentences, the answer first" in low["messages"][0]["content"]
+    assert "spoken aloud by a voice" in low["messages"][0]["content"]
     assert low["options"]["temperature"] == 0.7
+    # Gemma gets Google's own sampling, not Qwen's.
+    assert medium["options"]["temperature"] == 1.0 and medium["options"]["top_k"] == 64
+    assert "presence_penalty" not in medium["options"]
+    # The question comes first; the clock is background after it.
+    assert low["messages"][-1]["content"].startswith("what time is it")
     assert low["options"]["num_predict"] == 512
-    assert "Continue from what was just said" in low["messages"][0]["content"]
+    assert "answer what was just asked" in low["messages"][0]["content"]
     assert "November" not in low["messages"][0]["content"]
 
 
@@ -54,9 +59,10 @@ def test_the_clock_stays_on_the_newest_message():
     messages = chat_messages("And France?", history, now=datetime(2026, 11, 13, 17, 46))
     assert messages[1]["content"] == "What is the capital of Germany?"
     assert "Current local time" not in messages[1]["content"]
-    assert "And France?" in messages[-1]["content"]
-    assert "November 13, 2026" in messages[-1]["content"]
-    assert "05:46 PM" in messages[-1]["content"]
+    assert messages[-1]["content"] == "And France?"  # no clock on a question that is not about time
+    timed = chat_messages("And what day is it?", history, now=datetime(2026, 11, 13, 17, 46))
+    assert "November 13, 2026" in timed[-1]["content"]
+    assert "05:46 PM" in timed[-1]["content"]
     again = chat_messages("Something else", history, now=datetime(2026, 11, 13, 18, 1))
     assert messages[0]["content"] == again[0]["content"]
 

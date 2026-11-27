@@ -7,6 +7,7 @@ through http://127.0.0.1:11434. This module never uses a shell.
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import socket
@@ -517,28 +518,83 @@ def server_environment(base, host: str, port: int, num_ctx: int = 4096) -> dict:
     return environment
 
 
-STABLE_SYSTEM = (
-    "Role: You are BabySitter, a warm, grounded voice companion living on this one PC. "
-    "Personality: Natural, friendly, and brief, like a thoughtful friend sitting nearby. "
-    "A little dry warmth or light humor is welcome, never at the user's expense. "
-    "Drop the humor after a mistake or when something has failed. "
-    "Disagree plainly and kindly when the user is wrong. Do not flatter or praise ideas by default. "
-    "Never open with stiff filler like 'Certainly!', 'Of course!', 'Great question!', or 'As an AI'. "
-    "Vary your openings and phrasing from turn to turn; do not repeat the same phrase twice. "
-    "Speech: Answer in two or three plain sentences, like a person in the room. "
-    "Use contractions and ordinary spoken rhythm that sounds natural read aloud. "
-    "Put lists, code, and long detail after those sentences. "
-    "Conversation: Start with the answer. Continue from what was just said, weaving in earlier "
-    "details from the conversation naturally when they help. "
+# The three examples are chosen to be unlikely questions: a 9B model copied an
+# earlier octopus example word for word when asked for "something interesting".
+# Digits, not words, for numbers: asked to spell numbers out, it wrote "thirty
+# thousand miles" to the moon and "two hundred and zero-six" bones (tested on
+# 27 Nov). The voice reads digits properly by itself.
+# Written for the ear. Every word of the reply is spoken by a voice, so the
+# rules are the ones voice-agent guides agree on (Deepgram, LiveKit, Vapi,
+# Layercode): say that it is spoken, keep turns short, say numbers and symbols
+# as words, no markup. The name is filled in from the nickname you gave it.
+# This text stays the same for a whole session so Ollama's prompt cache holds.
+VOICE_SYSTEM = (
+    "You are {name}, a warm, quick-witted voice companion living on this one PC. "
+    "Everything you write is spoken aloud by a voice, so write the way a person talks, not the way a page reads. "
+    "Personality: natural, curious, and easy to talk to, like a sharp friend sitting nearby. "
+    "Dry warmth and light humor are welcome, never at the user's expense; drop them after a mistake or bad news. "
+    "Have real opinions and give them when asked. Disagree plainly and kindly when the user is wrong. "
+    "Do not flatter, and do not praise a question. "
+    "Never open with stiff filler like 'Certainly!', 'Of course!', 'Great question!', 'Absolutely!', or 'As an AI'. "
+    "Speech: answer in one to three short sentences, the answer first. "
+    "Use contractions, everyday words, and the rhythm of speech; a 'so', 'well', or 'honestly' is fine now and then. "
+    "Vary your words and openings from turn to turn. Pick the precise, vivid word over the generic one, "
+    "and match the user's tone: playful with playful, calm and careful with worry or stress. "
+    "When feelings come up, acknowledge them in a few words before helping. "
+    "Write numbers as digits, like 384,000 or 206; the voice reads them correctly. "
+    "No lists, headings, bold, emoji, tables, or parentheses in the spoken part. "
+    "Put code, long lists, or detail after those sentences, and only when asked for. "
+    "Conversation: answer what was just asked. Bring up something from earlier only when it "
+    "directly matters to this question, never as a habit. "
+    "Most replies end without a question. Ask one short question back only when you need the answer to help. "
+    "If you did not understand, say so briefly and ask. "
     "Do not repeat the whole answer, and do not ask them to confirm a chat. "
     "A yes or a no is for one change to this PC, or for something that leaves it. "
-    "Rules: Use the conversation so far, including local tool, file, reminder, or scan turns. "
-    "Do not invent a memory you were not given. "
+    "Rules: use the conversation so far, including local tool, file, reminder, or scan turns. "
+    "Do not invent a memory you were not given, or a fact you are unsure of; say you are not sure instead. "
     "Do not paste shell commands, PowerShell, or Task Manager steps. "
     "A scan of this PC is performed before you are asked. Do not invent a scan result. "
     "Reminders, timers, the journal, and file search are saved on this PC before you are asked. "
-    "The clock on the newest message is context. Do not explain time zones."
+    "When a clock note is given, it is background. Mention the time or date only when the question is about it, "
+    "and do not explain time zones. "
+    "How it sounds, by example. "
+    "User: Should I paint the hallway grey or green? You: Green, if it gets any daylight; grey can feel like a "
+    "waiting room. A soft sage is hard to get wrong. "
+    "User: My code keeps crashing and I'm fed up. You: That's maddening, especially when you can't see why. "
+    "Paste the last error and we'll find it. "
+    "User: Is a tomato a fruit? You: Botanically, yes, it's a berry. In the kitchen it's a vegetable, so you're "
+    "right either way."
 )
+STABLE_SYSTEM = VOICE_SYSTEM.format(name="BabySitter")
+
+
+_TIME_WORDS = re.compile(
+    r"\b(time|date|day|days|today|tonight|tomorrow|yesterday|morning|afternoon|evening|night|week|weekend|"
+    r"month|year|hour|hours|minute|minutes|now|late|early|soon|when|schedule|calendar|remind|reminder|deadline|"
+    r"due|o'?clock|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|march|april|may|"
+    r"june|july|august|september|october|november|december|birthday|holiday|christmas|sleep|bed|bedtime|wake|"
+    r"breakfast|lunch|dinner|season|age|old|ago|until|left|countdown|plan|plans|exam|class|meeting)\b",
+    re.IGNORECASE,
+)
+
+
+def clock_matters(prompt: str) -> bool:
+    """True when the question is about time, days, or plans, so the clock helps."""
+    return bool(_TIME_WORDS.search(prompt or ""))
+
+
+def sampling_for(model: str) -> dict:
+    """Each model family's own recommended sampling for chat.
+
+    Qwen 3.x non-thinking: temperature 0.7, top_p 0.8, top_k 20, presence 1.5
+    (the model card). Gemma: Google's defaults, temperature 1.0, top_p 0.95,
+    top_k 64. Gemma was getting Qwen's numbers, which make it flatter and
+    more repetitive than it is meant to be.
+    """
+    name = (model or "").lower()
+    if name.startswith("gemma"):
+        return {"temperature": 1.0, "top_p": 0.95, "top_k": 64}
+    return {"temperature": 0.7, "top_p": 0.8, "top_k": 20, "presence_penalty": 1.5}
 
 
 def chat_body(
@@ -559,10 +615,7 @@ def chat_body(
     """
     options = {
         "num_ctx": int(num_ctx),
-        "temperature": 0.7,
-        "top_p": 0.8,
-        "top_k": 20,
-        "presence_penalty": 1.5,
+        **sampling_for(model),
         # A voice turn that runs for thousands of tokens is the long pause.
         # 512 is enough for the short spoken part and the rest on the screen.
         "num_predict": 512,
@@ -643,12 +696,25 @@ def stats_from_stream_line(line: str) -> dict[str, int]:
     return stats
 
 
-def system_prompt(personality: str = "") -> str:
-    """The standing instructions. A rating sentence is added only when one exists."""
+def system_prompt(personality: str = "", name: str = "") -> str:
+    """The standing instructions, under the nickname when there is one.
+
+    With a nickname, the persona sentence ("Your name is Kari...") used to sit
+    after "You are BabySitter", and the two names fought. Now the name is in
+    the first line, and the persona sentence only adds its manner.
+    """
+    if not name:
+        try:
+            from babysitter.personality import persona_name
+
+            name = persona_name()
+        except Exception:  # noqa: BLE001
+            name = ""
+    base = VOICE_SYSTEM.format(name=name or "BabySitter")
     extra = (personality or "").strip()
     if not extra:
-        return STABLE_SYSTEM
-    return f"{STABLE_SYSTEM} {extra}"
+        return base
+    return f"{base} {extra}"
 
 
 def chat_messages(
@@ -673,7 +739,12 @@ def chat_messages(
         content = item.get("content")
         if role in {"user", "assistant"} and isinstance(content, str) and content.strip():
             messages.append({"role": role, "content": content})
-    line = f"Clock on this PC, for context only: {clock} ({zone}). {prompt}"
+    # The question first. The clock only goes with questions about time, days,
+    # or plans: with it on every line, the model kept working the hour into
+    # unrelated answers ("Midnight, which fits that 2:36 AM hour").
+    line = prompt
+    if clock_matters(prompt):
+        line += f"\n\n(Background, not part of the question. Clock on this PC: {clock}, {zone}.)"
     saved = [str(fact).strip() for fact in facts or [] if str(fact).strip()]
     if saved:
         line += " Saved facts from this PC: " + " | ".join(saved[:2])

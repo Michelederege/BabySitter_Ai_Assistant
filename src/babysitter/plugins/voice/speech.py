@@ -427,3 +427,26 @@ def sapi_rate(speed_percent: int) -> int:
     except (TypeError, ValueError):
         speed = 100
     return max(-10, min(10, round((speed - 100) / 5)))
+
+
+# The closing offers a small model adds to nearly every reply: "Want another
+# one?", "Would you like a tip?", "Does that help?". Said every turn, they are
+# the most robotic thing it does. A real question ("Which town?") is kept.
+_OFFER = re.compile(
+    r"(?:\s|^)(?:(?:so|or|and),?\s+)?(?:want|wanna|would you like|do you want|should we|shall we|does that help|"
+    r"does that make sense|is there anything|anything else|need anything|how about we|let me know|"
+    r"is there a specific|are you curious|curious about|ready to)[^.?!]*\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def trim_closing_offer(reply: str) -> str:
+    """Drop one closing offer, when the reply has something before it. The answer stays whole."""
+    text = (reply or "").rstrip()
+    match = _OFFER.search(text)
+    if not match:
+        return reply
+    kept = text[: match.start()].rstrip()
+    if len(kept.split()) < 2 or kept[-1:] not in ".!?":
+        return reply
+    return kept

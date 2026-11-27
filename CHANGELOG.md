@@ -28,6 +28,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **Signed releases, ready for a certificate.** Each release now carries the Windows installer beside the exe, both in the SHA-256 list. Once a code-signing certificate is added to the repository, both are signed. The in-app updater now also checks an installer's signature and refuses one that is not signed; the portable exe is still checked by its fingerprint.
 
+**It talks like a person.** The instructions were rewritten for a voice: short spoken sentences, everyday and varied words, your tone matched, feelings acknowledged, and no reading out of lists or symbols. It no longer mentions the time unless you ask about time or plans, no longer drags an earlier topic into every answer, and no longer ends every reply with "Want another one?". It uses the nickname you gave it as its own name. Numbers are now correct: asked to spell them out, the small model got them wrong. Gemma (Medium and High) now uses Google's own settings, which make it livelier.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

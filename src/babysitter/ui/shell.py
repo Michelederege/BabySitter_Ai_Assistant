@@ -3202,6 +3202,12 @@ class Shell:
         if turn and not self._same_turn(turn):
             return
         early = getattr(self, "_early_lead", "")
+        if int(self.controller.settings.proactivity) < 3:
+            # "Want another one?" at the end of every reply is the most robotic habit
+            # a small model has. Proactivity 3 and up keeps the offers.
+            from babysitter.plugins.voice.speech import trim_closing_offer
+
+            reply = trim_closing_offer(reply)
         spoken, rest = voice_and_rest(reply)
         spoken = spoken or early or "I don't have an answer for that."
         self._last_reply = (spoken[:80] or "Reply", reply)
