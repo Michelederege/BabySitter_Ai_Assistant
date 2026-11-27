@@ -6,7 +6,7 @@ BabySitter uses version numbers like v1.2.3.
 
 **Polite and filler words no longer get in the way.** "Could you please just tell me the time real quick", "um, what's on my calendar", "would you mind checking my email for me", and "I'd like you to be quiet" all reach the same commands as the short forms. "5 mins", "2 hrs", and "a couple of minutes" work in timers and reminders.
 
-**Many more everyday wordings.** About 150 new ones: "shut up", "hold on", "shh" stop the voice; "pardon", "sorry, what?", "I didn't catch that" say it again; "any reminders", "when's the timer done", "never mind the timer", "scratch that"; "do I have any new emails", "any appointments today"; "is my computer okay", "what can you see", "where were we", "save that".
+**Many more everyday wordings.** About 120 new ones for the existing commands, plus about 90 for thanks, goodbye, and starting fresh: "shut up", "hold on", "shh" stop the voice; "pardon", "sorry, what?", "I didn't catch that" say it again; "any reminders", "when's the timer done", "never mind the timer", "scratch that"; "do I have any new emails", "any appointments today"; "is my computer okay", "what can you see", "where were we", "save that".
 
 **Thanks and goodbye are answered on this PC.** "Thank you so much", "cheers", "great job", "bye", "good night", "that's all for now" get a short, varied reply without the model. With the AI off, a plain "thanks" used to load the model for about six seconds to say "you're welcome".
 
