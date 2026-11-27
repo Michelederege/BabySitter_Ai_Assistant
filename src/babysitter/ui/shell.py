@@ -2550,8 +2550,16 @@ class Shell:
         if not self.controller.settings.google_enabled:
             return ""
         from babysitter.games import foreground_window_title
-        from babysitter.writing import read_open_draft, writing_miss
+        from babysitter.writing import draft_wanted, read_open_draft, writing_miss
 
+        try:
+            title = foreground_window_title()
+        except Exception:
+            title = ""
+        # Decide first, before any token or request: a question that does
+        # not need the paper never reaches Google at all.
+        if not draft_wanted(prompt, title):
+            return ""
         tokens: list[str] = []
         for vault in (self.google_vault, self.google_school_vault):
             try:
@@ -2562,10 +2570,6 @@ class Shell:
                 tokens.append(token)
         if not tokens:
             return writing_miss(prompt)
-        try:
-            title = foreground_window_title()
-        except Exception:
-            title = ""
         limit = 1600 if num_ctx <= 4096 else 7000 if num_ctx >= 16000 else 4000
         try:
             draft = read_open_draft(tokens, title, limit=limit)

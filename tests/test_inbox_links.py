@@ -131,3 +131,39 @@ def test_tonight_on_blackboard_still_counts_as_upcoming():
     names = [summary for summary, _when in events_from_ics(text, today=asked)]
     assert "Local tonight" in names and "UTC tonight" in names
     assert "Gone" not in names
+
+
+def test_only_a_question_about_the_paper_carries_it():
+    from babysitter.writing import draft_wanted
+
+    browser = "Notes - Notepad"
+    docs = "Studio essay - Google Docs - DuckDuckGo"
+    assert draft_wanted("what time is it", browser) is False
+    assert draft_wanted("set a timer for ten minutes", browser) is False
+    assert draft_wanted("how can I make my thesis stronger", browser) is True
+    assert draft_wanted("find a source for the armory date", browser) is True
+    assert draft_wanted("what time is it", docs) is True  # the doc is the window in front
+
+
+def test_an_unrelated_question_never_asks_google(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "data"))
+    app = QApplication.instance() or QApplication([])
+    import babysitter.games as games
+    from babysitter.controller import Controller
+    from babysitter.ui.shell import Shell
+
+    controller = Controller()
+    shell = Shell(controller)
+    try:
+        controller.settings.google_enabled = True
+        asked: list = []
+        monkeypatch.setattr(shell, "_token_for_google", lambda vault=None: asked.append(vault) or "ya29.token-value-long-enough")
+        monkeypatch.setattr(games, "foreground_window_title", lambda: "Inbox - DuckDuckGo")
+        assert shell._writing_note("what time is it", 4096) == ""
+        assert asked == []
+    finally:
+        shell.registrar.clear()
+        controller.shutdown_threads()
+        app.processEvents()

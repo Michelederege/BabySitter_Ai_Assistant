@@ -2,8 +2,8 @@
 
 A game is noticed two ways: a name you typed (for example bg3.exe), or a
 program running from a folder where game stores install (Steam's
-steamapps, Epic Games, GOG, the Xbox app, Riot, or a folder simply named
-Games). Only the program's file name and the folder it sits in are read.
+steamapps, Epic Games, GOG, the Xbox app, or Riot). A folder simply named
+Games does not count by itself: anything can be kept there. Only the program's file name and the folder it sits in are read.
 It never reads a game's memory and never draws anything inside the game.
 """
 
@@ -18,8 +18,24 @@ STORE_FOLDERS = {
     "gog games",
     "epic games",
     "riot games",
-    "games",
 }
+
+# Paths shown in Settings, so the rules can be checked by eye.
+EXAMPLE_PATHS = (
+    r"D:\SteamLibrary\steamapps\common\Baldurs Gate 3\bin\bg3.exe",
+    r"C:\Program Files\Epic Games\Fortnite\FortniteGame\Binaries\Win64\FortniteClient-Win64-Shipping.exe",
+    r"C:\XboxGames\Forza Horizon 5\Content\ForzaHorizon5.exe",
+    r"D:\SteamLibrary\steamapps\common\TheSetup\game.exe",
+    r"D:\SteamLibrary\steamapps\common\Steamworks Shared\_CommonRedist\vcredist\2019\VC_redist.x64.exe",
+    r"C:\Riot Games\Riot Client\RiotClientServices.exe",
+    r"D:\Games\Tools\obs64.exe",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+)
+
+
+def classified_examples(paths=EXAMPLE_PATHS) -> list[tuple[str, bool]]:
+    """(path, counts as a game) for each example."""
+    return [(path, looks_like_game_path(path)) for path in paths]
 
 # Words in a program's file name that mean it is a helper, not the game.
 # Only the file name is searched. A game whose folder happens to contain

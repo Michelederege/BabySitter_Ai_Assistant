@@ -1081,7 +1081,7 @@ def _feature_games() -> list[Outcome]:
         assert looks_like_game_path(path)
         # A helper word inside a game's own folder name is not a helper.
         assert looks_like_game_path(r"D:\Steam\steamapps\common\TheSetup\game.exe")
-        assert looks_like_game_path(r"D:\Games\DirectX Quest\dxq.exe")
+        assert looks_like_game_path(r"D:\Steam\steamapps\common\DirectX Quest\dxq.exe")
         assert looks_like_game_path(r"C:\Riot Games\Launcher Wars\wars.exe")
         return "bg3.exe"
 
