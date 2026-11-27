@@ -122,6 +122,8 @@ def test_talk_with_a_silent_microphone_says_which_one(tmp_path, monkeypatch):
         heard: list = []
         monkeypatch.setattr(shell, "_start_hear", lambda wav, done: heard.append(wav))
         monkeypatch.setattr(shell._recorder, "stop", lambda: b"")
+        spoken: list = []
+        monkeypatch.setattr(shell, "_speak", lambda text, *a, **k: spoken.append(text))
         shell._holding = True
         shell._recording = True
         shell._hold_up()
@@ -129,7 +131,20 @@ def test_talk_with_a_silent_microphone_says_which_one(tmp_path, monkeypatch):
         from PySide6.QtWidgets import QLabel
 
         text = " ".join(label.text() for label in shell.window.findChildren(QLabel))
-        assert "No sound came from Microphone (2- GENERAL - AUDIO)." in text
+        assert "I can't hear anything from Microphone (2- GENERAL - AUDIO)." in text
+        assert "sending silence" in shell.window.notice_text.text()
+        assert spoken and "Microphone" in spoken[0]
+
+        # A clip of exact zeros (the dead default really sends this) is named the same way.
+        import numpy as np
+
+        from babysitter.plugins.voice.hearing import pcm16_to_wav
+
+        monkeypatch.setattr(shell._recorder, "stop", lambda: pcm16_to_wav(np.zeros(32000, dtype=np.int16).tobytes()))
+        shell._holding = True
+        shell._recording = True
+        shell._hold_up()
+        assert heard == [] and len(spoken) == 2
     finally:
         shell.registrar.clear()
         controller.shutdown_threads()

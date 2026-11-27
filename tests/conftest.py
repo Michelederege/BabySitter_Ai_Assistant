@@ -29,4 +29,20 @@ def _never_open_real_files(monkeypatch):
     opened: list[str] = []
     if hasattr(os, "startfile"):
         monkeypatch.setattr(os, "startfile", lambda path, *args, **kwargs: opened.append(str(path)))
+    # Web pages and local files opened through Qt or the webbrowser module
+    # are recorded the same way, so no test opens the real browser either.
+    import webbrowser
+
+    def _record_url(url, *args, **kwargs):
+        opened.append(str(url.toString() if hasattr(url, "toString") else url))
+        return True
+
+    for name in ("open", "open_new", "open_new_tab"):
+        monkeypatch.setattr(webbrowser, name, _record_url)
+    try:
+        from PySide6.QtGui import QDesktopServices
+
+        monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(_record_url))
+    except ImportError:
+        pass
     return opened

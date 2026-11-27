@@ -194,6 +194,29 @@ def pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
     return buffer.getvalue()
 
 
+def dead_silence(wav_bytes: bytes, min_seconds: float = 0.8) -> bool:
+    """True when a recording is pure digital silence: the microphone is open but sends nothing.
+
+    A real microphone always carries a little room noise. A dead default
+    (on his PC, "GENERAL - AUDIO") sends exact zeros, or nearly. Too short a
+    clip is never called dead, because a tap on Talk is just a tap.
+    """
+    if not wav_bytes:
+        return False
+    try:
+        import numpy as np
+
+        with wave.open(io.BytesIO(wav_bytes), "rb") as handle:
+            rate = handle.getframerate() or 16000
+            frames = handle.readframes(handle.getnframes())
+    except (wave.Error, EOFError):
+        return False
+    samples = np.frombuffer(frames, dtype=np.int16)
+    if samples.size < rate * min_seconds:
+        return False
+    return int(np.abs(samples.astype(np.int32)).max()) <= 3
+
+
 def hallucinated(text: str) -> bool:
     """A whole line Whisper often invents when the clip is silence."""
     words = re.findall(r"[a-z0-9']+", (text or "").lower())

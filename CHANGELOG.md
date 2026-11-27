@@ -8,6 +8,12 @@ BabySitter uses version numbers like v1.2.3.
 
 **Faster replies.** Measured on this PC. The question is heard by Moonshine by default, about a tenth of a second instead of a second with Whisper (Whisper is still in Settings). The model now stays loaded while the AI is on, so a question after a quiet spell no longer waits about 9 seconds for it to load again; Off, closing, and game mode still unload it. The voice makes each sentence about a quarter faster on a processor with 16 or more threads.
 
+**A dead microphone is named.** If the microphone is open but sends only silence (his Windows default does), BabySitter says so, out loud and in a notice with **Pick a microphone**, instead of quietly hearing nothing.
+
+**A warning before Google signs you out.** A Google project in Testing mode ends the Gmail and Drive sign-in every 7 days. A day before, a notice says so with **Sign in again**. It starts with the next sign-in, because older ones did not record the date.
+
+**Back up my memory.** Settings, Privacy and data: one zip of facts, History, the Journal, the Board, reminders, goals, the nickname, and settings, saved where you choose. Sign-ins and model files are left out.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

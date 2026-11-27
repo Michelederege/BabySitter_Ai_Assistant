@@ -106,3 +106,74 @@ def test_the_model_stays_loaded_while_the_ai_is_on(tmp_path, monkeypatch):
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_no_test_opens_the_real_browser(_never_open_real_files):
+    import webbrowser
+
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    QDesktopServices.openUrl(QUrl("https://example.com/a"))
+    webbrowser.open("https://example.com/b")
+    assert _never_open_real_files == ["https://example.com/a", "https://example.com/b"]
+
+
+def test_a_microphone_that_sends_only_silence_is_named():
+    import numpy as np
+
+    from babysitter.plugins.voice.hearing import dead_silence, pcm16_to_wav
+    from babysitter.plugins.voice.keyword import SilenceWatch
+
+    zeros = np.zeros(16000 * 2, dtype=np.int16).tobytes()
+    room = (np.random.default_rng(1).normal(0, 40, 16000 * 2)).astype(np.int16).tobytes()
+    assert dead_silence(pcm16_to_wav(zeros))
+    assert not dead_silence(pcm16_to_wav(room))
+    assert not dead_silence(pcm16_to_wav(zeros[:3200]))  # a tap on Talk is not a dead mic
+
+    watch = SilenceWatch()
+    chunk = np.zeros(1600, dtype=np.int16).tobytes()  # 0.1 s
+    fired = [watch.add(chunk) for _ in range(70)]
+    assert fired.count(True) == 1 and fired.index(True) == 59
+    working = SilenceWatch()
+    assert not working.add(room[:3200])
+    assert not any(working.add(chunk) for _ in range(100))
+
+
+def test_google_warns_a_day_before_the_weekly_sign_out():
+    from babysitter.plugins.tools.google_account import bundle_from_saved, bundle_text, signout_warning
+
+    day = 86400
+    signed = 1_000_000
+    bundle = {"access_token": "ya29." + "a" * 30, "refresh_token": "1//" + "r" * 30, "expires_at": 5, "signed_in_at": signed}
+    kept = bundle_from_saved(bundle_text(bundle))
+    assert kept["signed_in_at"] == signed
+    assert signout_warning(kept, now=signed + 3 * day) == ""
+    warning = signout_warning(kept, now=signed + 6 * day + 3600)
+    assert "sign in again in about 23 hours" in warning
+    assert signout_warning(kept, now=signed + 8 * day) == ""  # already ended: the expired notice says so
+    assert signout_warning({"access_token": "x"}, now=signed) == ""  # an older sign-in has no date
+
+
+def test_one_zip_holds_the_memory_and_never_the_sign_ins(tmp_path, monkeypatch):
+    import zipfile
+    from datetime import datetime
+
+    from babysitter.backup import make_backup
+
+    data = tmp_path / "data"
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(data))
+    (data / "journal").mkdir(parents=True)
+    (data / "secrets").mkdir()
+    (data / "models").mkdir()
+    (data / "memory.json").write_text('[{"text": "likes tea"}]', encoding="utf-8")
+    (data / "persona.json").write_text('{"name": "Kari"}', encoding="utf-8")
+    (data / "journal" / "2026-11-27.json").write_text("[]", encoding="utf-8")
+    (data / "secrets" / "google.dpapi").write_bytes(b"locked")
+    (data / "models" / "big.onnx").write_bytes(b"x" * 100)
+    target, count = make_backup(tmp_path / "out", now=datetime(2026, 11, 27, 3, 4))
+    assert target.name == "BabySitter memory 2026-11-27 0304.zip"
+    names = set(zipfile.ZipFile(target).namelist())
+    assert {"memory.json", "persona.json", "journal/2026-11-27.json", "READ ME.txt"} <= names
+    assert count == 3
+    assert not any(name.startswith(("secrets/", "models/")) for name in names)

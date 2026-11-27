@@ -925,6 +925,8 @@ class Shell:
         self._google_poll = QTimer(self.window)
         self._google_poll.setInterval(15 * 60 * 1000)
         self._google_poll.timeout.connect(lambda: self._start_google("both", speak_errors=False, only_new=True))
+        self._google_poll.timeout.connect(self._warn_google_week)
+        QTimer.singleShot(8000, self._warn_google_week)  # once soon after opening, too
         self._search_job: _SearchJob | None = None
         self.single_instance = None
         self._last_update_plan: UpdatePlan | None = None
@@ -1059,6 +1061,7 @@ class Shell:
         settings.add_search_folder.clicked.connect(self._add_search_folder)
         settings.remove_search_folder.clicked.connect(self._remove_search_folder)
         settings.open_data.clicked.connect(lambda: open_folder(self.controller.data_folder()))
+        settings.backup.clicked.connect(self._back_up_memory)
         settings.open_log.clicked.connect(lambda: open_folder(self.controller.log_folder()))
         tools = self.window.tools_page
         tools.enabled_changed.connect(self._set_social)
@@ -1713,6 +1716,36 @@ class Shell:
         except Exception:
             return None
 
+    def _back_up_memory(self, folder: str | None = None) -> str:
+        """Ask where, then write one zip. Returns the sentence shown."""
+        from pathlib import Path
+
+        from babysitter.backup import make_backup
+
+        if folder is None:
+            from PySide6.QtWidgets import QFileDialog
+
+            start = str(Path.home() / "Documents")
+            folder = QFileDialog.getExistingDirectory(self.window, "Where should the backup go?", start)
+            if not folder:
+                return ""
+        try:
+            target, count = make_backup(Path(folder))
+        except OSError as exc:
+            message = f"The backup could not be written ({exc}). Nothing was changed."
+        else:
+            message = f"Saved {count} files to {target.name}, in {target.parent}. Sign-ins are not in it."
+        self.window.settings_page.backup_status.setText(message)
+        self.controller._remember(message)
+        return message
+
+    def _dead_mic_notice(self, mic: str) -> None:
+        self.window.show_notice(
+            f"{mic} is sending silence. Pick the microphone you talk into.",
+            "Pick a microphone",
+            lambda: self.window.show_settings_section("voice"),
+        )
+
     def _mic_name(self) -> str:
         from babysitter.microphones import shown_name
 
@@ -2310,17 +2343,22 @@ class Shell:
             except Exception:
                 self._recorder.close()
                 wav = b""
-        if recorded and not wav:
-            # The microphone opened but sent nothing. Say which one, so a
-            # dead default is not mistaken for not being heard.
+        from babysitter.plugins.voice.hearing import dead_silence
+
+        if recorded and (not wav or dead_silence(wav)):
+            # The microphone opened but sent nothing, or only exact silence.
+            # Say which one, so a dead default is not mistaken for not being heard.
             mic = self._mic_name()
             self._show_mode(self.controller.state, "Hold to talk")
             self._pending_line = ""
+            speech = f"I can't hear anything from {mic}. It's sending silence."
             self.window.home.set_reply(
                 "(no sound)",
-                f"No sound came from {mic}.",
+                speech,
                 "Pick the microphone you talk into under Settings, Microphone. Nothing was sent.",
             )
+            self._dead_mic_notice(mic)
+            self._speak(speech + " Pick another one in Settings, under Microphone.")
             self._sync_keyword()
             return
         if not self._hearing_ready():
@@ -2566,6 +2604,13 @@ class Shell:
                 f"No sound came from {self._mic_name()}. Keyword listening is off. "
                 "Pick the microphone you talk into under Settings, Microphone, then turn it on again.",
             )
+            return
+        if status == "silent":
+            # Open, but only exact silence for several seconds: a dead microphone.
+            # Listening stays on, in case it starts sending sound.
+            mic = self._mic_name()
+            self._dead_mic_notice(mic)
+            self.window.home.set_phase("on", f"No sound is coming from {mic}. Pick another under Settings, Microphone.")
             return
         if status == "talk_over":
             self._cut_off()
@@ -4759,6 +4804,28 @@ class Shell:
         temporary.write_text(json.dumps(kept), encoding="utf-8")
         temporary.replace(path)
 
+    def _warn_google_week(self) -> None:
+        """A day before Google's weekly sign-out, one notice a day with Sign in again."""
+        from datetime import date
+
+        from babysitter.plugins.tools.google_account import signout_warning
+
+        today = date.today().isoformat()
+        if getattr(self, "_google_week_warned", "") == today:
+            return
+        for label, store in (("Google", getattr(self, "google_vault", None)), ("School Google", getattr(self, "google_school_vault", None))):
+            if store is None:
+                continue
+            try:
+                warning = signout_warning(store.load_bundle(), label)
+            except Exception:  # noqa: BLE001
+                warning = ""
+            if warning:
+                self._google_week_warned = today
+                self.window.show_notice(warning, "Sign in again", lambda: self.window.show_settings_section("accounts"))
+                self.controller._remember(warning)
+                return
+
     def _token_for_google(self, vault=None) -> str | None:
         store = self.google_vault if vault is None else vault
         bundle = store.load_bundle()
@@ -4773,6 +4840,7 @@ class Shell:
                 refreshed = refresh_access(client_id, refresh, client_secret=ClientSecretStore().load())
             except GoogleError as exc:
                 raise GoogleError("The Google sign-in expired. Sign in again on Tools.") from exc
+            refreshed["signed_in_at"] = int(bundle.get("signed_in_at") or 0)  # a refresh is not a new sign-in
             store.save_bundle(refreshed)
             return str(refreshed.get("access_token") or "") or None
         return str(bundle.get("access_token") or "") or None
@@ -4857,6 +4925,7 @@ class Shell:
             self.window.tools_page.show_google("Google sign-in did not return a token. Nothing was saved.")
             return
         store = self.google_school_vault if getattr(self, "_sign_in_account", "personal") == "school" else self.google_vault
+        bundle["signed_in_at"] = int(time.time())
         try:
             store.save_bundle(bundle)
         except SecretsError as exc:

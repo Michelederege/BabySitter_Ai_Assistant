@@ -546,7 +546,36 @@ def bundle_text(bundle: dict) -> str:
         "refresh_token": refresh,
         "expires_at": int(bundle.get("expires_at") or 0),
     }
+    if int(bundle.get("signed_in_at") or 0):
+        payload["signed_in_at"] = int(bundle["signed_in_at"])
     return json.dumps(payload, separators=(",", ":"))
+
+
+# A Google project in Testing mode (his, and most personal ones) ends the
+# Gmail and Drive sign-in seven days after it was made. A warning a day ahead
+# means the mail does not stop quietly.
+TESTING_SIGN_IN_DAYS = 7
+
+
+def signout_warning(bundle: dict | None, account: str = "Google", now: float | None = None) -> str:
+    """One sentence when the weekly sign-in ends within a day, else ""."""
+    import time
+
+    if not bundle:
+        return ""
+    signed = int(bundle.get("signed_in_at") or 0)
+    if not signed:
+        return ""
+    moment = time.time() if now is None else now
+    left = signed + TESTING_SIGN_IN_DAYS * 86400 - moment
+    if left <= 0 or left > 86400:
+        return ""
+    hours = max(1, int(left // 3600))
+    when = f"in about {hours} hour{'s' if hours != 1 else ''}"
+    return (
+        f"{account} will ask you to sign in again {when}. Google ends a test project's sign-in every 7 days. "
+        "Sign in again now and mail keeps coming."
+    )
 
 
 def bundle_from_saved(text: str) -> dict:
@@ -559,6 +588,7 @@ def bundle_from_saved(text: str) -> dict:
             "access_token": normalize_google_token(str(payload.get("access_token") or "")),
             "refresh_token": normalize_google_token(str(payload["refresh_token"])) if payload.get("refresh_token") else "",
             "expires_at": int(payload.get("expires_at") or 0),
+            "signed_in_at": int(payload.get("signed_in_at") or 0),
         }
     return {"access_token": normalize_google_token(raw), "refresh_token": "", "expires_at": 0}
 

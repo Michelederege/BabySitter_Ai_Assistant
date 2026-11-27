@@ -377,6 +377,17 @@ class SettingsPage(QWidget):
         folder_row.addWidget(self.open_data)
         folder_row.addWidget(self.open_log)
         self._sec('privacy').addLayout(folder_row)
+        self.backup = QPushButton("Back up my memory…")
+        self.backup.setAccessibleName("Back up my memory")
+        self.backup.setToolTip(
+            "One zip of facts, History, the Journal, the Board, reminders, and settings. "
+            "Sign-ins and model files are left out."
+        )
+        self._sec('privacy').addWidget(self.backup)
+        self.backup_status = QLabel("")
+        self.backup_status.setObjectName("hint")
+        self.backup_status.setWordWrap(True)
+        self._sec('privacy').addWidget(self.backup_status)
         root.addStretch(1)
 
     def _label(self, text: str) -> QLabel:

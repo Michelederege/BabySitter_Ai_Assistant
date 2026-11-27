@@ -116,6 +116,33 @@ def _yes_or_no(text: str) -> bool:
     return more_answer(text) in {"yes", "no"}
 
 
+class SilenceWatch:
+    """Notices a microphone that sends only exact silence, once, after about 6 seconds."""
+
+    SECONDS = 6.0
+
+    def __init__(self, rate: int = 16000) -> None:
+        self._need = int(rate * self.SECONDS)
+        self._seen = 0
+        self._done = False
+
+    def add(self, chunk: bytes) -> bool:
+        """True once, the moment the silence is long enough to be a dead microphone."""
+        if self._done or not chunk:
+            return False
+        import numpy as np
+
+        samples = np.frombuffer(chunk[: len(chunk) - len(chunk) % 2], dtype=np.int16)
+        if samples.size and int(np.abs(samples.astype(np.int32)).max()) > 3:
+            self._done = True  # real sound: this microphone works
+            return False
+        self._seen += samples.size
+        if self._seen >= self._need:
+            self._done = True
+            return True
+        return False
+
+
 def should_join_listener(already_requested: bool, alive: bool) -> bool:
     """A burst of stops waits once. Later stops leave the thread to exit."""
     return alive and not already_requested
@@ -385,6 +412,7 @@ class KeywordListener:
                 recognizer = _recognizer(model)
                 utterance = bytearray()
                 quiet_gaps = 0
+                silence = SilenceWatch()
                 on_status("armed")
                 while not self._stop.is_set():
                     try:
@@ -398,6 +426,8 @@ class KeywordListener:
                             died = True
                             break
                         continue
+                    if silence.add(chunk):
+                        on_status("silent")
                     utterance.extend(chunk)
                     if len(utterance) > 16000 * 2 * 20:
                         del utterance[: len(utterance) - (16000 * 2 * 20)]
