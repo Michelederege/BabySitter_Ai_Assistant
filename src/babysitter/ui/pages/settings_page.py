@@ -116,16 +116,18 @@ class SettingsPage(QWidget):
         self.hotkey_note.setObjectName("hint")
         root.addWidget(self.hotkey_note)
 
-        self.auto_game = QCheckBox("Switch to game mode by itself when a game opens")
+        self.auto_game = QCheckBox("Make room for a game by itself")
         self.auto_game.setToolTip(
-            "Looks only at the program name and the folder it runs from. It does not "
-            "read the game's memory and does not draw anything inside the game."
+            "While a game runs, BabySitter checks the graphics card every two seconds. If your level "
+            "still fits beside the game, nothing changes. If only Low fits, it switches to Low. If "
+            "nothing fits, it switches to game mode. Your level comes back when the game closes. "
+            "It reads the program's name and folder and the card's memory, not the game itself."
         )
         root.addWidget(self.auto_game)
-        self.game_mode_ask = QCheckBox("Ask me before switching to game mode")
+        self.game_mode_ask = QCheckBox("Ask me before unloading the model for a game")
         self.game_mode_ask.setToolTip(
-            "When a game opens, BabySitter asks first. The Game mode button on Home "
-            "still switches immediately. Leave this off to switch as soon as a game opens."
+            "Switching down to Low happens by itself. Unloading the model for game mode asks first. "
+            "The Game mode button on Home still switches immediately."
         )
         root.addWidget(self.game_mode_ask)
         self.detect_games = QCheckBox("Count any program running from a game folder as a game")

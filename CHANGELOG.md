@@ -2,6 +2,20 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.20.0 — Make room for a game
+
+**Game mode follows the graphics card, not the game's name.** While a game runs, BabySitter reads the card every two seconds and works out how much the game leaves for the AI. Its own model does not count against it. If your level still fits, nothing changes. If Medium no longer fits but Low does, it switches to Low by itself. If not even Low fits, or system memory is nearly full, it switches to game mode and unloads the model. A reading has to hold for about six seconds first, so a loading screen does not flip levels, and the level only goes down while the game runs.
+
+**Your level comes back when the game closes.** About ten seconds after the game closes, the level you picked loads again. Game mode that was switched on for the game is left by itself. Game mode you chose with the button stays until you press Leave.
+
+**Nothing switches in the middle of an answer.** A change waits until the reply is written and spoken. That includes the two-minute return to game mode after "Load the brain?".
+
+**On with a game already open loads the level that fits.** Turning the AI on while a heavy game runs loads Low instead of failing, or starts in game mode when nothing fits.
+
+**Leave stays left.** After a "Load the brain?" visit, pressing Game mode and then Leave could bring game mode back two minutes later. Pressing Game mode or Leave now cancels that timer.
+
+Settings calls the switch **Make room for a game by itself**. **Ask me before unloading the model for a game** still asks before game mode. Switching down to Low does not ask. Your saved level is never changed by a game.
+
 ## 0.19.2 — Bug fixes from a review of the code
 
 **The Google Doc in front is read again.** The request asked Drive for the file's details instead of its text, so the AI never saw the draft. It now asks for the plain text.

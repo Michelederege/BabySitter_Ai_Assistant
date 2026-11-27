@@ -830,6 +830,7 @@ class _HideCharts(QObject):
 class Shell:
     def __init__(self, controller: Controller) -> None:
         self.controller = controller
+        controller.reply_busy = self._reply_busy
         self.window = MainWindow()
         self.orb = Orb()
         self.icon = load_icon()
@@ -1169,10 +1170,25 @@ class Shell:
         self.controller.turn_on()
 
     def _on_game(self) -> None:
+        # Game mode or Leave by hand replaces a "Load the brain?" visit. Its
+        # 2-minute timer used to survive this and undo Leave later.
+        self._return_to_game = False
+        timer = getattr(self, "_game_return_timer", None)
+        if timer is not None:
+            timer.stop()
         if self.controller.state == "game":
             self.controller.wake()
         else:
             self.controller.enter_game()
+
+    def _reply_busy(self) -> bool:
+        """An answer is still being written or spoken."""
+        turns = getattr(self, "turns", None)
+        try:
+            writing = bool(turns.busy()) if turns is not None else False
+        except Exception:
+            writing = False
+        return writing or bool(getattr(self, "_speaking", False))
 
     def _show_mode(self, state: str, detail: str) -> None:
         """The frog, the state pill, and the tray all show the same mode.
@@ -1361,7 +1377,8 @@ class Shell:
             "Stay on",
         )
         if agreed:
-            self.controller.enter_game()
+            # Asked for by the game's memory use, so it ends when the game closes.
+            self.controller.enter_game(auto=True)
         else:
             self.controller.games.suppress(name)
             self.controller._remember(
@@ -2961,6 +2978,10 @@ class Shell:
         timer.start(120_000)
 
     def _return_game_now(self) -> None:
+        if self._reply_busy():
+            # Never unload in the middle of an answer. Look again shortly.
+            self._game_return_timer.start(15_000)
+            return
         self._return_to_game = False
         if self.controller.state == "on":
             self.controller.enter_game()
