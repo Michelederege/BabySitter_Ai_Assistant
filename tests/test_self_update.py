@@ -374,3 +374,46 @@ def test_a_failed_pull_puts_the_folder_back_on_its_branch(tmp_path, monkeypatch)
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert branch == "my-work"
+
+
+def test_a_stuck_old_copy_is_closed_before_the_new_one_opens(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "data"))
+    manifest = write_update_manifest(
+        from_version="0.20.0", to_version="0.20.1", relaunch_cmd=["BabySitter.exe"], wait_pids=[4242],
+    )
+    alive = {4242: True}
+    closed: list = []
+    order: list[str] = []
+
+    def close(pids):
+        closed.extend(pids)
+        order.append("closed")
+        alive[4242] = False
+
+    rc = run_finish_update(
+        str(manifest),
+        sleep_fn=lambda _s: None,
+        pid_exists_fn=lambda pid: alive.get(pid, False),
+        popen_fn=lambda args, **_kw: order.append("opened"),
+        close_fn=close,
+    )
+    assert rc == 0
+    assert closed == [4242]
+    assert order == ["closed", "opened"]
+
+
+def test_an_update_quits_even_when_turning_off_reports_a_problem(tmp_path, monkeypatch):
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path / "data"))
+    from babysitter.controller import Controller
+    from babysitter.power import ERROR, PowerResult
+
+    controller = Controller()
+    fired: list = []
+    controller.quit_ready.connect(lambda: fired.append(True))
+    controller._quit_after_off = True
+    controller._apply(PowerResult(ERROR, "Something is still listening on port 11434.", False))
+    assert fired == []  # a normal quit stays open and says why
+    controller._quit_after_off = True
+    controller.force_quit = True
+    controller._apply(PowerResult(ERROR, "Something is still listening on port 11434.", False))
+    assert fired == [True]

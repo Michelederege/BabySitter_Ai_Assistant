@@ -1739,6 +1739,7 @@ class Shell:
         self._pending_relaunch = prepared
         self.window.settings_page.update_status.setText(prepared.message)
         self.window.home.set_phase(self.controller.state, prepared.message)
+        self.controller.force_quit = True
         self._quit()
 
     def _download_silero(self) -> None:
@@ -4705,6 +4706,16 @@ class Shell:
                 )
             except Exception as exc:
                 get_logger().error("Could not start update relauncher: %s", exc)
+            else:
+                # A library thread that will not stop must not keep this old
+                # copy alive beside the new one. Clean exit first; this is the
+                # backstop if that has not happened in ten seconds.
+                import os
+                import threading
+
+                backstop = threading.Timer(10.0, os._exit, args=(0,))
+                backstop.daemon = True
+                backstop.start()
         QApplication.quit()
 
 

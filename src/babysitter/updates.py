@@ -16,6 +16,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.parse
 import urllib.request
 
@@ -665,16 +666,14 @@ def _prepare_git_update(
 
     staged_exe_str = ""
     dist_exe = (repo / "dist" / ("BabySitter.exe" if sys.platform == "win32" else "BabySitter")).resolve()
-    should_rebuild = is_frozen or (
-        dist_exe.is_file()
-        and py_exe is not None
-        and _python_has_module(py_exe, "PyInstaller", run_cmd=run_cmd)
-    )
+    # Asked once. Each ask starts a Python process and imports PyInstaller.
+    has_pyinstaller = py_exe is not None and _python_has_module(py_exe, "PyInstaller", run_cmd=run_cmd)
+    should_rebuild = is_frozen or (dist_exe.is_file() and has_pyinstaller)
 
     if should_rebuild:
         if py_exe is None:
             raise UpdateError("Python 3.12 (.venv) is needed to rebuild BabySitter.exe.")
-        if not _python_has_module(py_exe, "PyInstaller", run_cmd=run_cmd) or (
+        if not has_pyinstaller or (
             {"requirements-dev.txt", "requirements-voice.txt"} & changed_files
         ):
             on_step("Checking build and voice libraries…")
@@ -694,7 +693,11 @@ def _prepare_git_update(
         stage_root = updates_dir() / "staging"
         shutil.rmtree(stage_root, ignore_errors=True)
         stage_dist = stage_root / "dist"
-        stage_work = stage_root / "work"
+        # PyInstaller keeps its analysis in the work folder and reuses it
+        # when little has changed. A fresh folder each time made every
+        # update analyse all 150 MB of libraries again. This is the same
+        # folder scripts\build-exe.bat uses, so either build warms the other.
+        stage_work = repo / "build"
         stage_dist.mkdir(parents=True, exist_ok=True)
         stage_work.mkdir(parents=True, exist_ok=True)
         build_done = run_cmd(
@@ -873,7 +876,20 @@ def prepare_update(
     """Apply or stage the update in the background so BabySitter can restart into it."""
     if not plan.available or not plan.can_install:
         raise UpdateError(plan.summary or "No installable update is waiting right now.")
-    step = on_step or (lambda _msg: None)
+    shown = on_step or (lambda _msg: None)
+    started = time.monotonic()
+
+    def step(message: str) -> None:
+        # Each step goes in the log with the seconds so far, so a slow or
+        # stuck update shows where the time went.
+        try:
+            from babysitter.logsetup import get_logger
+
+            get_logger().info("Update +%.0fs: %s", time.monotonic() - started, message)
+        except Exception:
+            pass
+        shown(message)
+
     is_frozen = running_inside_exe() if frozen is None else frozen
     if plan.source == "git":
         return _prepare_git_update(plan, is_frozen=is_frozen, on_step=step, run_cmd=run_cmd)

@@ -147,12 +147,31 @@ def _replace_with_retries(source: Path, target: Path, *, sleep_fn=time.sleep) ->
         raise last_error
 
 
+def close_old_copy(pids: list[int]) -> None:
+    """End the old BabySitter that did not close by itself.
+
+    Only the process ids the old copy wrote into its own manifest, and only
+    when the program is still BabySitter or Python. A reused id that now
+    belongs to something else is left alone.
+    """
+    for pid in pids:
+        try:
+            proc = psutil.Process(int(pid))
+            name = (proc.name() or "").lower()
+            if not (name.startswith("babysitter") or name.startswith("python")):
+                continue
+            proc.terminate()
+        except (psutil.Error, OSError, ValueError):
+            continue
+
+
 def run_finish_update(
     manifest_arg: str,
     *,
     sleep_fn=time.sleep,
     pid_exists_fn=psutil.pid_exists,
     popen_fn=popen_hidden,
+    close_fn=None,
 ) -> int:
     """Wait for the closing BabySitter process, swap files, and relaunch."""
     allowed_dir = updates_dir().resolve()
@@ -169,10 +188,19 @@ def run_finish_update(
         for pid in (payload.get("wait_pids") or [])
         if isinstance(pid, int) and pid > 0 and pid != os.getpid()
     ]
-    for _ in range(80):
+    close_fn = close_fn or close_old_copy
+    for _ in range(240):
         if not any(pid_exists_fn(pid) for pid in wait_pids):
             break
         sleep_fn(0.25)
+    else:
+        # A minute is far longer than a normal shutdown. The old copy is
+        # stuck, and opening the new one beside it left two windows.
+        close_fn(wait_pids)
+        for _ in range(20):
+            if not any(pid_exists_fn(pid) for pid in wait_pids):
+                break
+            sleep_fn(0.25)
 
     staged_raw = str(payload.get("staged_exe") or "").strip()
     targets = [Path(item) for item in (payload.get("targets") or []) if item]
