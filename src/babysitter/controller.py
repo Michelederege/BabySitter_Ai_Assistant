@@ -172,6 +172,8 @@ class Controller(QObject):
         # The window says when a reply is being written or spoken. Nothing
         # switches level or unloads in the middle of one.
         self.reply_busy = lambda: False
+        # True while a natural voice is chosen: it shares the card, so the AI runs on Low.
+        self.voice_wants_card = lambda: False
         self.cancel = threading.Event()
         self.version: VersionReport | None = None
         self.latest_status: StatusSnapshot | None = None
@@ -274,6 +276,9 @@ class Controller(QObject):
         When none fits, game mode starts, unless you woke the model on purpose.
         """
         chosen = self.settings.intelligence
+        if self.voice_wants_card() and chosen != "low":
+            self._remember("A natural voice is chosen, so the AI loads on Low and both fit on the graphics card.")
+            chosen = "low"
         snap = self.latest_status
         if not self.settings.auto_game_mode or snap is None:
             return chosen, None
@@ -306,6 +311,8 @@ class Controller(QObject):
             # You asked for your own level. A game's switch-down is over.
             self.budget.restore_to = ""
         level = level or self.settings.intelligence
+        if self.voice_wants_card() and level != "low":
+            level = "low"
         mode = get_mode(level)
         self.loaded_level = level
         self.cancel.clear()

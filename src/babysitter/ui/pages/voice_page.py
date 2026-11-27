@@ -44,10 +44,13 @@ def _all_voices():
     """The blends and Windows voices above, plus every voice in the catalog."""
     from babysitter.voice_catalog import catalog
 
-    engines = {"kokoro": "Kokoro", "piper": "Piper", "supertonic": "Supertonic"}
+    engines = {"kokoro": "Kokoro", "piper": "Piper", "supertonic": "Supertonic", "natural": "Natural, real narrator"}
     listed = {name for _accent, name, _engine, _where in VOICES}
     extra = [(voice.accent, voice.name, engines[voice.engine], "Local") for voice in catalog() if voice.name not in listed]
-    return list(VOICES[:2]) + extra[:28] + list(VOICES[2:]) + extra[28:]
+    natural = [row for row in extra if row[2].startswith("Natural")]
+    others = [row for row in extra if not row[2].startswith("Natural")]
+    # The real narrators first after the default, since they sound the most human.
+    return list(VOICES[:2]) + natural + others[:28] + list(VOICES[2:]) + others[28:]
 
 
 ALL_VOICES = _all_voices()
@@ -57,6 +60,7 @@ class VoicePage(QWidget):
     notice = Signal(str)
     # A voice whose model pack is not on this PC yet: the pack id.
     pack_needed = Signal(str)
+    voice_saved = Signal(str)
     pin_line = Signal(str)
 
     def __init__(self) -> None:
@@ -286,8 +290,9 @@ class VoicePage(QWidget):
         from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
 
         name = str(payload["voice"] or "")
+        self.voice_saved.emit(name)
         if name in EXTRA_VOICES and not voice_ready(name):
-            self.pack_needed.emit(EXTRA_VOICES[name][0])
+            self.pack_needed.emit("natural" if name.startswith("Narrator: ") else EXTRA_VOICES[name][0])
         self.notice.emit(self.status.text())
 
     def _preview(self) -> None:

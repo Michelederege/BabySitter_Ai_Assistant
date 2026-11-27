@@ -540,6 +540,12 @@ def catalog() -> list[Voice]:
     for pid, label, accent, _archive, _sha in PIPER_SINGLES:
         voices.append(Voice(f"Piper: {label}" if label != "Jenny" else "Piper: Jenny (British)", "piper", accent, pack=pid,
                             licence="See the MODEL_CARD in its pack."))
+    from babysitter.narrators import NARRATORS
+
+    for narrator in NARRATORS:
+        # Real people reading: the most natural voices, copied by Chatterbox.
+        voices.append(Voice(f"Narrator: {narrator.name}", "natural", narrator.accent, pack="chatterbox",
+                            speaker=narrator.id, licence=narrator.licence))
     for pid, label, accent, _archive, _sha, licence, speakers in PIPER_MULTI:
         for index, speaker in enumerate(speakers):
             voices.append(Voice(f"Piper {label}: {speaker}", "piper", accent, pack=pid, speaker=str(index), licence=licence))

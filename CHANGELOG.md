@@ -2,6 +2,16 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.26.0 — Natural voices from real narrators
+
+**Real people, not robots.** The Voice tab now leads with eight narrators who released their recordings for anyone to use: Linda Johnson, the LibriVox reader behind LJ Speech (public domain), and seven Hi-Fi TTS readers (CC BY 4.0). Chatterbox, an open voice model (MIT licence), speaks in their voice from a ten-second clip of each. It sounds like a person reading aloud.
+
+**How it fits on your card.** Chatterbox runs on the graphics card and needs about 3.8 GB. While a narrator's voice is chosen, the AI runs on Low so both fit; your saved level is not changed. If the card still lacks the room, Kokoro says the reply and the reason is shown. The voice is loaded when the AI turns on, so the first answer does not wait, and it is closed when the AI turns off or game mode starts. Each sentence takes about as long to make as to say.
+
+**One yes sets it up.** The first time, BabySitter asks once: about 6 GB for PyTorch, the Chatterbox model, and the narrator clips. Chatterbox runs in its own Python, so its libraries cannot break the rest. Every file is checked against a recorded hash, and nothing is fetched by the model itself.
+
+**Every free English voice, in one searchable list.** Besides the narrators: 28 Kokoro voices (British ones now use British pronunciation), 10 Supertonic styles, and 169 Piper voices, including VCTK's 109 British and Irish accents. Type in the box above the list to find one. Each voice's licence is in THIRD_PARTY_LICENSES. A voice that imitates a real person or a character is not included.
+
 ## 0.25.0 — Google sign-in that finishes, and Outlook
 
 **Sign in with Google could never finish.** A Google "Desktop app" client needs its secret when the sign-in code is swapped for a token, and BabySitter never sent it, so Google answered "client_secret is missing". Settings, Accounts and home now has **Choose the Google client file…**: pick the client_secret_….json file Google gives you. The id is saved in Settings, the secret is encrypted on this PC, and the sign-in and every refresh send it. The old tip about adding a redirect address is gone; Desktop clients do not have one.

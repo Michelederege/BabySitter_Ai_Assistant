@@ -199,6 +199,14 @@ class _WarmVoiceJob(QThread):
             from babysitter.plugins.voice.kokoro_voice import ready, warm
             from babysitter.plugins.voice.fillers import library
 
+            if self._voice.startswith("Narrator: "):
+                # A natural voice takes about 20 seconds to load; do it now, not at the first reply.
+                from babysitter.plugins.voice import engines
+                from babysitter.plugins.voice.clone_voice import warm as warm_natural
+
+                pack = engines.EXTRA_VOICES.get(self._voice)
+                if pack is not None:
+                    warm_natural(pack[1], engines.free_mib_hint())
             warm()
             if self._busy() or not ready():
                 return
@@ -624,6 +632,41 @@ class _ScanJob(QThread):
         self.finished_scan.emit((result, report))
 
 
+class _NaturalSetupJob(QThread):
+    """The helper's own Python, the Chatterbox model, and the narrator clips, after a yes."""
+
+    step = Signal(str)
+
+    def run(self) -> None:
+        from babysitter import narrators
+        from babysitter.modelpacks import PackError, download, ready
+        from babysitter.platform import run_hidden
+        from babysitter.plugins.voice import clone_voice
+
+        try:
+            if not clone_voice.environment_ready():
+                for index, command in enumerate(clone_voice.install_steps(), start=1):
+                    self.step.emit(f"Setting up the natural voices, step {index} of 3. This takes a few minutes…")
+                    done = run_hidden(command, timeout=3600)
+                    if done.returncode not in (0, None):
+                        self.step.emit("The natural voices could not be set up. Step " + str(index) + " failed; the log has the details.")
+                        return
+            if not ready("chatterbox"):
+                self.step.emit("Downloading the Chatterbox voice model, about 3.2 GB…")
+                download("chatterbox")
+            for narrator in narrators.NARRATORS:
+                if not narrators.clip_ready(narrator):
+                    self.step.emit(f"Fetching {narrator.name}…")
+                    narrators.download(narrator)
+        except (PackError, narrators.NarratorError) as exc:
+            self.step.emit(str(exc))
+            return
+        except Exception:
+            self.step.emit("The natural voices stopped before they were ready. Nothing half-done is used.")
+            return
+        self.step.emit("The natural voices are ready. Each download was checked against its recorded hash.")
+
+
 class _PackDownloadJob(QThread):
     """One model pack, after a yes. Checked against its hash before it is kept."""
 
@@ -989,6 +1032,11 @@ class Shell:
         settings.hearing_chosen.connect(self._set_hearing_engine)
         settings.context_chosen.connect(self._set_context)
         self.window.voice_page.pack_needed.connect(self._offer_pack)
+        self.window.voice_page.voice_saved.connect(self._voice_saved)
+        self.controller.voice_wants_card = self._natural_voice_chosen
+        from babysitter.plugins.voice import engines as _engines
+
+        _engines.free_mib_hint = self._free_video_mib
         settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
@@ -1268,6 +1316,14 @@ class Shell:
             timer = getattr(self, "_game_return_timer", None)
             if timer is not None:
                 timer.stop()
+        if state == "game":
+            # Game mode gives the card back: the natural-voice helper closes too.
+            try:
+                from babysitter.plugins.voice.engines import release as release_engines
+
+                release_engines()
+            except Exception:
+                pass
         if state == "on":
             self._session_personality = session_clause()
             self._warm_voice()
@@ -1313,7 +1369,53 @@ class Shell:
 
         self.window.voice_page.status.setText(f"{HEARING_ENGINES.get(engine, 'Whisper')} hears your questions now.")
 
+    def _natural_voice_chosen(self) -> bool:
+        from babysitter.plugins.voice.engines import is_natural
+
+        return is_natural(self._voice_prefs().get("name", ""))
+
+    def _free_video_mib(self):
+        snap = getattr(self.controller, "latest_status", None)
+        gpu = getattr(snap, "gpu", None)
+        if gpu is None:
+            return None
+        return int(gpu.total_mib) - int(gpu.used_mib)
+
+    def _voice_saved(self, name: str) -> None:
+        """A natural voice shares the card, so a model on Medium or High moves to Low."""
+        from babysitter.plugins.voice.engines import is_natural
+
+        if is_natural(name) and self.controller.state == "on" and self.controller.loaded_level != "low":
+            self.controller._remember("A natural voice is chosen, so the AI moves to Low and both fit on the graphics card.")
+            self.controller.reload_model("low")
+
+    def _offer_natural_voices(self) -> None:
+        """One yes sets up the helper, the Chatterbox model, and every narrator's clip."""
+        running = getattr(self, "_natural_job", None)
+        if running is not None and running.isRunning():
+            self.window.voice_page.status.setText("The natural voices are already being set up.")
+            return
+        if not ask_yes_no(
+            self.window,
+            "Set up the natural voices?",
+            "About 6 GB, once: PyTorch for your graphics card (about 2.5 GB), the Chatterbox voice model "
+            "(3.2 GB, checked against its recorded hashes), and a short clip of each of 8 narrators "
+            "(Linda Johnson of LJ Speech, public domain, and 7 Hi-Fi TTS readers, CC BY 4.0). "
+            "While a natural voice is chosen, the AI runs on Low so both fit on the card.",
+            "Download about 6 GB",
+            "Not now",
+        ):
+            self.window.voice_page.status.setText("The natural voices were not set up. Nothing was downloaded.")
+            return
+        job = _NaturalSetupJob()
+        self._store_job("_natural_job", job)
+        job.step.connect(self.window.voice_page.status.setText)
+        job.start()
+
     def _offer_pack(self, pack_id: str) -> None:
+        if pack_id == "natural":
+            self._offer_natural_voices()
+            return
         """Ask before a model pack downloads. Nothing is fetched without a yes."""
         from babysitter.modelpacks import PACKS
 
