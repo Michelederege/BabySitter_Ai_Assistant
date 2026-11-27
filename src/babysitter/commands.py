@@ -1235,6 +1235,17 @@ def _reminder(phrase: str, original: str) -> QuickCommand | None:
         now = datetime.now().astimezone()
         located = _locate_when(detail, now)
         if located is None:
+            # Spoken numbers: "set a reminder for one forty one" (a real reminder
+            # on his PC, saved with no time) and "set an alarm for seven". Read
+            # as "at …", kept only when a clock time comes straight after "at".
+            lowered = detail.lower()
+            rest = detail[4:] if lowered.startswith("for ") else (detail if label in _ALARM_LABELS and not lowered.startswith("at ") else "")
+            if rest:
+                retry = f"at {rest}"
+                found = _locate_when(retry, now)
+                if found is not None and found[1][0] <= 3:
+                    detail, located = retry, found
+        if located is None:
             if label in _NEEDS_A_TIME:
                 return None  # "ping me the details", "wake me up inside": not reminders
             first = detail.split()[0].lower().strip(",.") if detail.split() else ""

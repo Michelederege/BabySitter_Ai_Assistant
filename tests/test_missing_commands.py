@@ -81,6 +81,18 @@ def test_for_five_is_a_clock_time_and_for_five_minutes_is_a_length():
     assert 0 < (moment - datetime.now().astimezone()).total_seconds() <= 5 * 60 + 2
 
 
+def test_spoken_numbers_after_for_are_a_clock_time():
+    """Scan P: "can you set a reminder for one forty one" was on his PC with no time."""
+    _quick, moment = _when("can you set a reminder for one forty one")
+    assert moment.minute == 41 and moment.hour in (1, 13)
+    quick, moment = _when("set a reminder for two thirty to call mom")
+    assert moment.minute == 30 and "call mom" in quick.detail
+    quick, moment = _when("set an alarm for seven")
+    assert moment.hour in (7, 19) and quick.detail == "Alarm"
+    quick = match_quick_command("remind me for dinner")
+    assert quick.kind == "remind" and quick.when == ""  # no clock in it, so none is made up
+
+
 def test_reminder_sentences_read_naturally():
     book = PhraseBook()
     for _ in range(6):
