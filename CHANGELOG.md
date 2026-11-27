@@ -2,6 +2,14 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.21.1 — A voice that sounds like a person
+
+**Pauses where a person would take them.** Every sentence used to end with the same short gap, whether it was a full stop, a question, or a sentence cut in half. Now a full stop gets a real pause, a question a little longer, a comma a short breath, and a long sentence runs on where it had to be split. A long sentence is split at a comma where it can be, not in the middle of a phrase.
+
+**Words, not symbols.** The voice hears "3.7 gigabytes", "12 percent", "for example", "8 to 10", and "about 9" instead of reading "GB", "%", "e.g.", "8-10", and "~9" letter by letter. A link is "the link on the screen", and emoji are left out. The screen still shows the text as written.
+
+**A warmer EDITH-style blend.** It now mixes in Heart, Kokoro's most natural voice: Nova 45%, Heart 30%, and Kore 25%. It stays calm and crisp, and sounds less like a machine.
+
 ## 0.21.0 — A real PC scan, a faster update, and an EDITH-style voice
 
 **"Scan my PC" says what is using it, and what looks wrong.** It names your five heaviest apps by memory, with Chrome's many processes counted as one Chrome, and the Health page lists each one's processor share. It also flags warning signs, each with its reason: a program with a Windows name running outside Windows' folders, a one-letter disguise of one such as svch0st, a program running from Temp, Downloads, the Recycle Bin, or the Public folder, a program whose file was deleted while it runs, and a startup entry that runs hidden PowerShell or a script from AppData. Windows Defender's own recent detections are read too. These are warning signs, not a virus scan, and nothing is closed or deleted because of one. The offers to close a heavy app or a startup item still follow, and still wait for a yes. The scan reads on its own thread and takes about three seconds.

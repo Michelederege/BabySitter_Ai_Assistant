@@ -266,6 +266,81 @@ def followup_phrase(text: str) -> str | None:
     return phrase
 
 
+# Written shorthand a person would never read aloud letter by letter.
+_SAY_AS = (
+    (r"\be\.g\.,?", "for example,"),
+    (r"\bi\.e\.,?", "that is,"),
+    (r"\betc\.", "and so on."),
+    (r"\bvs\.?(?=\s)", "versus"),
+    (r"\bw/(?=\s)", "with"),
+    (r"\bapprox\.", "about"),
+    (r"(?<=\d)\s?TB\b", " terabytes"),
+    (r"(?<=\d)\s?GB\b", " gigabytes"),
+    (r"(?<=\d)\s?MB\b", " megabytes"),
+    (r"(?<=\d)\s?KB\b", " kilobytes"),
+    (r"(?<=\d)\s?GHz\b", " gigahertz"),
+    (r"(?<=\d)\s?ms\b", " milliseconds"),
+    (r"(?<=\d)\s?%", " percent"),
+    (r"(?<=\d)\s?°F\b", " degrees"),
+    (r"(?<=\d)\s?°C\b", " degrees Celsius"),
+    (r"(?<=\d)\s?-\s?(?=\d)", " to "),
+    (r"~\s?(?=\d)", "about "),
+    (r"\s&\s", " and "),
+    (r"\band/or\b", "and or"),
+    (r"https?://\S+", "the link on the screen"),
+)
+_EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿️]")
+
+
+def speakable(text: str) -> str:
+    """The words as a person would say them. Only the voice hears this; the
+    screen keeps the original. "3.7 GB" read as "three point seven G B" is
+    much of what sounds like a machine."""
+    spoken = _EMOJI.sub("", text or "")
+    for pattern, said in _SAY_AS:
+        spoken = re.sub(pattern, said, spoken)
+    return re.sub(r"[ \t]+", " ", spoken).strip()
+
+
+def pause_ms(piece: str) -> int:
+    """The breath after a piece, by how it ends, the way a person paces it.
+
+    A full stop gets a real pause, a question a little longer, a comma a
+    short one. A piece cut in mid-sentence runs straight on. One fixed gap
+    after everything was part of the robotic rhythm.
+    """
+    end = (piece or "").rstrip()[-1:]
+    if end == "?":
+        return 380
+    if end in {".", "!"}:
+        return 320
+    if end in {":", ";"}:
+        return 220
+    if end in {",", "—", "-"}:
+        return 140
+    return 60
+
+
+def _split_long(sentence: str, limit: int) -> list[str]:
+    """A sentence over the limit, cut at commas where it can be, then at words."""
+    pieces: list[str] = []
+    rest = sentence.strip()
+    while len(rest) > limit:
+        cut = max(rest.rfind(", ", 0, limit), rest.rfind("; ", 0, limit), rest.rfind(" — ", 0, limit))
+        if cut < limit // 3:
+            cut = rest.rfind(" ", 0, limit)
+            if cut <= 0:
+                cut = limit
+            pieces.append(rest[:cut].strip())
+            rest = rest[cut:].strip()
+            continue
+        pieces.append(rest[: cut + 1].strip())
+        rest = rest[cut + 1 :].strip()
+    if rest:
+        pieces.append(rest)
+    return pieces
+
+
 def speech_chunks(text: str, limit: int = 400) -> list[str]:
     """Break a long reading into sentence-sized pieces the voice can say."""
     spoken = plain_speech(text)
@@ -287,16 +362,7 @@ def speech_chunks(text: str, limit: int = 400) -> list[str]:
         if len(sentence) <= limit:
             bounded.append(sentence)
             continue
-        words = sentence.split()
-        piece = ""
-        for word in words:
-            if piece and len(piece) + 1 + len(word) > limit:
-                bounded.append(piece)
-                piece = word
-            else:
-                piece = f"{piece} {word}".strip()
-        if piece:
-            bounded.append(piece)
+        bounded.extend(_split_long(sentence, limit))
     for sentence in bounded:
         if current and len(current) + 1 + len(sentence) > limit:
             chunks.append(current)
