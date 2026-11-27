@@ -12,3 +12,21 @@ if sys.platform == "win32":
     fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
     if os.path.isdir(fonts):
         os.environ.setdefault("QT_QPA_FONTDIR", fonts)
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _never_open_real_files(monkeypatch):
+    """No test may open a file on this PC.
+
+    A test that says "open number 1" used to call Windows' real os.startfile,
+    so every run opened helmet.stl in whatever program owns .stl files (on
+    Alex's PC, Creality Print, eight copies in one evening). Opening is
+    recorded here instead, and a test can read the list.
+    """
+    opened: list[str] = []
+    if hasattr(os, "startfile"):
+        monkeypatch.setattr(os, "startfile", lambda path, *args, **kwargs: opened.append(str(path)))
+    return opened
