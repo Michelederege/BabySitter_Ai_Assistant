@@ -1629,10 +1629,10 @@ class Shell:
         job.start()
 
     def _on_status(self, snap) -> None:
-        self.window.home.set_status(snap)
+        # set_status already looks for Ollama's tray app among the processes.
+        tray = bool(self.window.home.set_status(snap))
         self._refresh_game_note()
         self._hide_orb_if_game()
-        tray = any(classify_ollama_process(name) == "tray" for name in snap.process_names)
         if tray:
             self.window.home.tray_button.show()
             self._show_tray_banner()
@@ -2548,6 +2548,12 @@ class Shell:
             and self.controller.settings.side_button
             and self.controller.state == "on"
         )
+        # 40 ms only while the side button can be used. Otherwise a slow
+        # check, so the app is not woken 25 times a second while it is off.
+        wanted = 40 if allowed else 500
+        timer = getattr(self, "_ptt_timer", None)
+        if timer is not None and timer.interval() != wanted:
+            timer.setInterval(wanted)
         if not allowed:
             if getattr(self, "_holding", False) and getattr(self, "_hold_from_mouse", False):
                 self._hold_from_mouse = False

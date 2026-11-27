@@ -96,7 +96,6 @@ class HomePage(QWidget):
         root.addStretch(0)
 
         self._vram_samples: list[float] = []
-        self._cpu_samples: list[float] = []
         self._ram_samples: list[float] = []
         self._expanded = True
         self._side_by_side = True
@@ -797,7 +796,8 @@ class HomePage(QWidget):
                 f"Peak {format_mib(int(peak))}   Now {format_mib(snap.gpu.used_mib)}   Free {format_mib(free)}"
             )
         if snap.cpu_percent is not None:
-            self._cpu_samples.append(float(snap.cpu_percent))
+            # (A list of every processor reading used to be kept here too, never
+            # trimmed and never read: one number every 2 seconds, forever.)
             self.cpu_spark.push(float(snap.cpu_percent))
             self.cpu_line.setText("CPU")
             self.cpu_gold.setText(f"{snap.cpu_percent:.0f}%")

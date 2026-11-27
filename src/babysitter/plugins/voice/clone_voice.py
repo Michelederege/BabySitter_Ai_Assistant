@@ -173,7 +173,10 @@ class _Worker:
                 proc.kill()
             if proc.stdin:
                 proc.stdin.close()
-            proc.wait(timeout=10)
+            # This runs on the window's thread when the window hides or the AI
+            # turns off. The helper has nothing to save, so after 2 seconds it
+            # is ended instead of freezing the window for up to 10.
+            proc.wait(timeout=2)
         except Exception:
             try:
                 proc.kill()
