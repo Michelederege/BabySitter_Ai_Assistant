@@ -2,6 +2,22 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.24.0 — The calm window (UI v3)
+
+**Six places instead of twelve pages.** Talk, Board, Today, Desk, Memory, and Settings. Every feature is still here; it only moved. Reminders and the inbox are in Today. Your paper, look-up, the screen, and file search are in Desk. About me, History, and the Journal are in Memory. Voice, the models, PC Health, and every setting are in Settings, one section at a time.
+
+**One window that resizes.** Half screen and Full screen are gone. Drag any edge or corner (down to 420 × 520), drag the title bar to move it with Windows Snap, double-click it to maximize, and it opens where you left it. Above 1000 px wide the side menu has labels, then icons only, and at 680 px or less it becomes a bar along the bottom. Talk's Up next and Pinned column becomes two chips in a narrower window, rows of buttons wrap instead of running off the edge, and the frog picture grows and shrinks with the window's height.
+
+**The state pill is the power menu.** Click it for power, Low / Medium / High, Game mode, and the keyword, with the hotkeys underneath. Stop, Private, and the bell sit in the title bar. The bell opens What just happened, with a count of new lines.
+
+**Talk leads with the answer.** The spoken answer is in large type. Show details opens the lists, paths, and numbers behind it. Pin, Copy, and the new Fresh start sit under it: Fresh start clears this conversation's context, while pins and memory stay. The orange button reads Turn the AI on while the AI is off.
+
+**The Board.** Cards sit in a grid, each with a tag (note, list, reply) and when it was pinned. Filter by kind, copy a card, lock it so it cannot be unpinned, or unpin it with ten seconds to Undo. Your goals are on the Board too; "my goals" opens it.
+
+**One notice at a time.** An account whose sign-in expired is one notice under the title bar, with Sign in again and Later. The other accounts keep working.
+
+**Not built yet, so not shown:** People and Voice ID, the daily briefing, Study, the memory To-approve list, Don't save conversations, Microsoft 365, weather, Home Assistant, music, and alerts while the AI is off. They arrive in these same places as they are built.
+
 ## 0.23.0 — One inbox, more voices and ears, and a memory slider
 
 **One inbox.** The Tools list, "check my mail", and the 15-minute check for anything new now share one read of every linked account: your Google account, your school Google account, and Blackboard. An account that fails shows as one line, such as "School Google: the sign-in expired", and the others still show. The 15-minute check now notices new school mail too. A sign-in that has expired is refreshed in the background, so the window never pauses for Google.
