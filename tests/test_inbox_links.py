@@ -167,3 +167,51 @@ def test_an_unrelated_question_never_asks_google(tmp_path, monkeypatch):
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_a_desktop_client_file_gives_the_id_and_the_secret_goes_with_the_sign_in(tmp_path, monkeypatch):
+    import json
+    import urllib.parse
+
+    import pytest
+
+    from babysitter.plugins.tools import google_account as g
+    from babysitter.secrets import SecretsError
+
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    good = tmp_path / "client_secret_123.json"
+    good.write_text(json.dumps({"installed": {"client_id": "123-abc.apps.googleusercontent.com", "client_secret": "GOCSPX-abcdefghijklmnop"}}), encoding="utf-8")
+    assert g.client_from_file(good) == ("123-abc.apps.googleusercontent.com", "GOCSPX-abcdefghijklmnop")
+    web = tmp_path / "web.json"
+    web.write_text(json.dumps({"web": {"client_id": "x"}}), encoding="utf-8")
+    with pytest.raises(SecretsError, match="Desktop app"):
+        g.client_from_file(web)
+
+    store = g.ClientSecretStore(tmp_path / "secret.dpapi")
+    store.save("GOCSPX-abcdefghijklmnop")
+    assert store.load() == "GOCSPX-abcdefghijklmnop"
+    assert b"GOCSPX" not in (tmp_path / "secret.dpapi").read_bytes() or __import__("sys").platform != "win32"
+
+    sent: list[dict] = []
+
+    class Response:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def read(self, _n):
+            return json.dumps(self._payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    def opener(request, timeout=0):
+        sent.append(dict(urllib.parse.parse_qsl(request.data.decode())))
+        return Response({"access_token": "ya29.new-access-token-value", "refresh_token": "1//refresh-token-value", "expires_in": 3600})
+
+    g.exchange_code("123-abc.apps.googleusercontent.com", "code-1", "verifier", opener=opener, client_secret="GOCSPX-abcdefghijklmnop")
+    g.refresh_access("123-abc.apps.googleusercontent.com", "1//refresh-token-value", opener=opener, client_secret="GOCSPX-abcdefghijklmnop")
+    assert all(body.get("client_secret") == "GOCSPX-abcdefghijklmnop" for body in sent)
+    assert sent[0]["grant_type"] == "authorization_code" and sent[1]["grant_type"] == "refresh_token"

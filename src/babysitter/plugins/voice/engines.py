@@ -28,15 +28,19 @@ HEARING_ENGINES = {
     "parakeet": PACKS["parakeet"].label,
 }
 
-# Shown on the Voice tab. The value is (pack id, speaker or style).
-EXTRA_VOICES = {
-    "Piper: HFC female": ("piper-hfc", ""),
-    "Piper: Jenny (British)": ("piper-jenny", ""),
-    "Supertonic: F1": ("supertonic", "F1"),
-    "Supertonic: F2": ("supertonic", "F2"),
-    "Supertonic: F3": ("supertonic", "F3"),
-    "Supertonic: M1": ("supertonic", "M1"),
-}
+def _extra_voices() -> dict[str, tuple[str, str]]:
+    """Every Piper and Supertonic voice in the catalog: name -> (pack id, speaker or style)."""
+    from babysitter.voice_catalog import catalog
+
+    return {voice.name: (voice.pack, voice.speaker) for voice in catalog() if voice.engine in {"piper", "supertonic", "natural"}}
+
+
+def is_natural(name: str) -> bool:
+    return (name or "").startswith("Narrator: ")
+
+
+# Shown on the Voice tab. The value is (pack id, speaker index or style).
+EXTRA_VOICES = _extra_voices()
 
 _lock = threading.Lock()
 _loaded: dict[str, object] = {}
@@ -47,9 +51,15 @@ class EngineError(Exception):
 
 
 def release() -> None:
-    """Drop every loaded engine. The files stay on disk."""
+    """Drop every loaded engine, and close the natural-voice helper. The files stay on disk."""
     with _lock:
         _loaded.clear()
+    try:
+        from babysitter.plugins.voice.clone_voice import release as release_natural
+
+        release_natural()
+    except Exception:
+        pass
 
 
 def _threads() -> int:
@@ -122,7 +132,23 @@ def hear(engine: str, wav: bytes) -> str:
 
 def voice_ready(name: str) -> bool:
     pack = EXTRA_VOICES.get(name)
+    if pack is not None and is_natural(name):
+        from babysitter.plugins.voice.clone_voice import ready as natural_ready
+
+        return natural_ready(pack[1])
     return pack is not None and ready(pack[0])
+
+
+# The shell sets this to the free video memory it last read, so a natural
+# voice is started only when the card has room for it.
+free_mib_hint = lambda: None  # noqa: E731
+_fallback_said = {"note": ""}
+
+
+def fallback_note() -> str:
+    """The sentence explaining the last time Kokoro stood in. Empty after it is read."""
+    note, _fallback_said["note"] = _fallback_said["note"], ""
+    return note
 
 
 def _piper(pack_id: str):
@@ -155,6 +181,19 @@ def render(name: str, text: str, speed: float = 1.0):
     if pack is None:
         raise EngineError(f"Unknown voice {name}.")
     pack_id, style = pack
+    if is_natural(name):
+        from babysitter.plugins.voice import kokoro_voice
+        from babysitter.plugins.voice.clone_voice import CloneError, render as natural_render
+
+        try:
+            return natural_render(style, text, free_mib_hint())
+        except CloneError as exc:
+            # Never silent: Kokoro says the sentence, and the reason is kept for the screen.
+            _fallback_said["note"] = str(exc)
+            if not kokoro_voice.ready():
+                raise EngineError(str(exc)) from None
+            engine = kokoro_voice._loaded_engine()
+            return kokoro_voice._render(engine, text, kokoro_voice._style(kokoro_voice.DEFAULT_VOICE), float(speed), 0)
     if not ready(pack_id):
         raise EngineError(f"{PACKS[pack_id].label} is not downloaded yet. Download it on the Voice tab.")
     with _lock:
@@ -172,7 +211,11 @@ def render(name: str, text: str, speed: float = 1.0):
     from piper import SynthesisConfig
 
     # Piper's length_scale is the inverse of speed: 0.9 is a little faster.
-    config = SynthesisConfig(length_scale=1.0 / max(0.5, float(speed)))
+    # A pack with many speakers picks one by its number in the model.
+    config = SynthesisConfig(
+        length_scale=1.0 / max(0.5, float(speed)),
+        speaker_id=int(style) if str(style).isdigit() else None,
+    )
     chunks = list(engine.synthesize(text, syn_config=config))
     if not chunks:
         return np.zeros(0, dtype="float32"), 22050

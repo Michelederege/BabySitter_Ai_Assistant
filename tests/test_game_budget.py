@@ -156,6 +156,8 @@ def test_on_with_a_heavy_game_loads_the_level_that_fits(tmp_path, monkeypatch):
     controller = Controller()
     jobs: list[tuple] = []
     monkeypatch.setattr(controller.worker, "submit", jobs.append)
+    # Not the real Ollama on this PC: a running one would be offered a restart first.
+    monkeypatch.setattr(controller.ollama, "port_open", lambda timeout=0.4: False)
     controller.settings.auto_game_mode = True
     controller.settings.intelligence = "medium"
     controller.settings.game_processes = ["bg3.exe"]

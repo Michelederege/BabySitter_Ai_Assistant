@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -26,12 +27,7 @@ from babysitter.ui.pinbutton import pin_button
 VOICES = (
     ("American", "Heart & Sarah blend", "Kokoro", "Local"),
     ("American", "EDITH-style blend", "Kokoro", "Local"),
-    ("American", "Piper: HFC female", "Piper", "Local"),
-    ("British", "Piper: Jenny (British)", "Piper", "Local"),
-    ("American", "Supertonic: F1", "Supertonic", "Local"),
-    ("American", "Supertonic: F2", "Supertonic", "Local"),
-    ("American", "Supertonic: F3", "Supertonic", "Local"),
-    ("American", "Supertonic: M1", "Supertonic", "Local"),
+
     ("American", "af_heart", "Kokoro", "Local"),
     ("American", "am_michael", "Kokoro", "Local"),
     ("American", "Microsoft Zira", "Windows", "Local"),
@@ -44,10 +40,27 @@ VOICES = (
 )
 
 
+def _all_voices():
+    """The blends and Windows voices above, plus every voice in the catalog."""
+    from babysitter.voice_catalog import catalog
+
+    engines = {"kokoro": "Kokoro", "piper": "Piper", "supertonic": "Supertonic", "natural": "Natural, real narrator"}
+    listed = {name for _accent, name, _engine, _where in VOICES}
+    extra = [(voice.accent, voice.name, engines[voice.engine], "Local") for voice in catalog() if voice.name not in listed]
+    natural = [row for row in extra if row[2].startswith("Natural")]
+    others = [row for row in extra if not row[2].startswith("Natural")]
+    # The real narrators first after the default, since they sound the most human.
+    return list(VOICES[:2]) + natural + others[:28] + list(VOICES[2:]) + others[28:]
+
+
+ALL_VOICES = _all_voices()
+
+
 class VoicePage(QWidget):
     notice = Signal(str)
     # A voice whose model pack is not on this PC yet: the pack id.
     pack_needed = Signal(str)
+    voice_saved = Signal(str)
     pin_line = Signal(str)
 
     def __init__(self) -> None:
@@ -68,9 +81,15 @@ class VoicePage(QWidget):
         preview.clicked.connect(self._preview)
         layout.addWidget(preview)
 
+        self.voice_search = QLineEdit()
+        self.voice_search.setAccessibleName("Find a voice")
+        self.voice_search.setPlaceholderText(f"Find a voice: {len(ALL_VOICES)} to choose from. Try British, Piper, or a name")
+        self.voice_search.textChanged.connect(self._filter_voices)
+        layout.addWidget(self.voice_search)
         self.voice = QComboBox()
         self.voice.setAccessibleName("Voice selection")
-        for accent, name, engine, where in VOICES:
+        self.voice.setMaxVisibleItems(18)
+        for accent, name, engine, where in ALL_VOICES:
             self.voice.addItem(f"{accent} · {name} · {engine} · {where}", name)
         self.voice.setToolTip("Pick a voice. Australian Windows voices have to be added in Windows first.")
         layout.addWidget(self.voice)
@@ -209,9 +228,21 @@ class VoicePage(QWidget):
             except (TypeError, ValueError):
                 pass
 
+    def _filter_voices(self, text: str) -> None:
+        """Show only the voices whose line has every word typed."""
+        words = text.lower().split()
+        view = self.voice.view()
+        first = -1
+        for index in range(self.voice.count()):
+            shown = all(word in self.voice.itemText(index).lower() for word in words)
+            view.setRowHidden(index, not shown)
+            if shown and first < 0:
+                first = index
+        if first >= 0 and view.isRowHidden(self.voice.currentIndex()):
+            self.voice.setCurrentIndex(first)
+
     def _selected_is_cloud_off(self) -> bool:
-        index = self.voice.currentIndex()
-        return 0 <= index < len(VOICES) and VOICES[index][3] == "Cloud, off"
+        return "Cloud, off" in self.voice.currentText()
 
     def _save_sliders(self) -> None:
         if self._selected_is_cloud_off():
@@ -259,8 +290,9 @@ class VoicePage(QWidget):
         from babysitter.plugins.voice.engines import EXTRA_VOICES, voice_ready
 
         name = str(payload["voice"] or "")
+        self.voice_saved.emit(name)
         if name in EXTRA_VOICES and not voice_ready(name):
-            self.pack_needed.emit(EXTRA_VOICES[name][0])
+            self.pack_needed.emit("natural" if name.startswith("Narrator: ") else EXTRA_VOICES[name][0])
         self.notice.emit(self.status.text())
 
     def _preview(self) -> None:

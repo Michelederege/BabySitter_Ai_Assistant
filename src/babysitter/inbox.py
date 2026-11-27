@@ -14,7 +14,7 @@ Only reads are made. Nothing is sent, changed, or deleted.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Optional
 
 from babysitter.blackboard import FeedError, blackboard_rows, blackboard_speech, events_from_ics, fetch_feed
 from babysitter.plugins.tools.google_account import GoogleError, GoogleReader, http_get_json, read_account
@@ -28,6 +28,10 @@ class Account:
     calendar: str
     drive: str
     token: Callable[[], str | None]
+    # A service other than Google brings its own read: token -> (rows, speeches, problems),
+    # and its own index for "what is new": token -> (ids, titles).
+    reader: Optional[Callable] = None
+    indexer: Optional[Callable] = None
 
 
 @dataclass
@@ -57,16 +61,16 @@ class Inbox:
 
 # Which spoken lines lead for "check my mail", "what's on my calendar", and so on.
 LEADS = {
-    "mail": ("Unread mail", "No unread mail", "Unread school", "No unread school"),
-    "calendar": ("Coming up", "Nothing coming up", "School calendar", "Blackboard"),
+    "mail": ("Unread mail", "No unread mail", "Unread school", "No unread school", "Unread Outlook", "No unread Outlook"),
+    "calendar": ("Coming up", "Nothing coming up", "School calendar", "Blackboard", "Outlook calendar"),
     "drive": ("Drive:", "No files in Drive", "School Drive"),
     "school_mail": ("Unread school", "No unread school"),
     "blackboard": ("Blackboard",),
 }
 # For a spoken answer about one thing, only those lines are said.
 ONLY = {
-    "mail": ("Unread mail", "No unread mail", "Unread school", "No unread school"),
-    "calendar": ("Coming up", "Nothing coming up", "School calendar", "Nothing coming up on School", "Blackboard", "Nothing coming up on Blackboard"),
+    "mail": ("Unread mail", "No unread mail", "Unread school", "No unread school", "Unread Outlook", "No unread Outlook"),
+    "calendar": ("Coming up", "Nothing coming up", "School calendar", "Nothing coming up on School", "Blackboard", "Nothing coming up on Blackboard", "Outlook calendar", "Nothing coming up on the Outlook"),
 }
 
 
@@ -90,24 +94,32 @@ def gather(
     for account in accounts:
         try:
             token = account.token() or ""
-        except (GoogleError, SecretsError) as exc:
+        except Exception as exc:  # a sign-in that cannot refresh is one line, never a crash
             inbox.problems.append(_problem(account.name, exc))
             inbox.rows.append(f"{account.name} · could not be read")
             continue
         if not token:
             continue
         inbox.secrets.append(token)
-        rows, speeches, problems = read_account(
-            token,
-            mail_prefix=account.mail,
-            calendar_prefix=account.calendar,
-            drive_prefix=account.drive,
-            fetch=fetch,
-        )
+        if account.reader is not None:
+            rows, speeches, problems = account.reader(token)
+            problems = [line.split(": ", 1)[-1] for line in problems]
+        else:
+            rows, speeches, problems = read_account(
+                token,
+                mail_prefix=account.mail,
+                calendar_prefix=account.calendar,
+                drive_prefix=account.drive,
+                fetch=fetch,
+            )
         inbox.rows.extend(rows)
         inbox.speeches.extend(speeches)
         inbox.problems.extend(f"{account.name}: {line}" for line in problems)
-        if want_fresh:
+        if want_fresh and account.indexer is not None:
+            ids, titles = account.indexer(token)
+            inbox.fresh_ids.extend(f"{account.name}:{item}" for item in ids)
+            inbox.fresh_titles.extend(titles)
+        elif want_fresh:
             reader = GoogleReader(token, fetch)
             for read in (reader.mail_index, reader.event_index):
                 try:

@@ -486,6 +486,56 @@ def clean_client_id(value: str) -> str:
     return text
 
 
+def clean_client_secret(value: str) -> str:
+    text = (value or "").strip()
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+    if not 10 <= len(text) <= 200 or any(character not in allowed for character in text):
+        raise SecretsError("That does not look like a Google client secret.")
+    return text
+
+
+def client_from_file(path) -> tuple[str, str]:
+    """The id and secret from the client file Google downloads for a Desktop app."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeError) as exc:
+        raise SecretsError("That file could not be read. Choose the client_secret_….json file Google gave you.") from exc
+    block = raw.get("installed") if isinstance(raw, dict) else None
+    if not isinstance(block, dict):
+        if isinstance(raw, dict) and isinstance(raw.get("web"), dict):
+            raise SecretsError("That is a Web client. In Google Cloud, create a client of type Desktop app instead.")
+        raise SecretsError("That is not a Google client file. Choose the client_secret_….json file for a Desktop app.")
+    return clean_client_id(str(block.get("client_id") or "")), clean_client_secret(str(block.get("client_secret") or ""))
+
+
+class ClientSecretStore:
+    """The Desktop client's secret, encrypted with Windows' DPAPI, out of settings.json."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        from babysitter.paths import google_client_secret_path
+
+        self.path = path or google_client_secret_path()
+
+    def save(self, secret: str) -> None:
+        cleaned = clean_client_secret(secret)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        data = protect_blob(cleaned.encode("utf-8"), "BabySitter Google client") if sys.platform == "win32" else cleaned.encode("utf-8")
+        temporary = self.path.with_suffix(".tmp")
+        temporary.write_bytes(data)
+        temporary.replace(self.path)
+
+    def load(self) -> str:
+        try:
+            data = self.path.read_bytes()
+        except OSError:
+            return ""
+        try:
+            raw = unprotect_blob(data) if sys.platform == "win32" else data
+            return clean_client_secret(raw.decode("utf-8"))
+        except (OSError, UnicodeError, SecretsError):
+            return ""
+
+
 def bundle_text(bundle: dict) -> str:
     access = normalize_google_token(str(bundle.get("access_token") or ""))
     refresh = str(bundle.get("refresh_token") or "")
@@ -594,28 +644,32 @@ def _post_token(body: bytes, opener=None) -> dict:
     return parse_token_payload(payload)
 
 
-def exchange_code(client_id: str, code: str, verifier: str, opener=None) -> dict:
-    body = urllib.parse.urlencode(
-        {
-            "client_id": clean_client_id(client_id),
-            "code": code,
-            "code_verifier": verifier,
-            "grant_type": "authorization_code",
-            "redirect_uri": REDIRECT_URI,
-        }
-    ).encode("utf-8")
-    return _post_token(body, opener)
+def exchange_code(client_id: str, code: str, verifier: str, opener=None, client_secret: str = "") -> dict:
+    fields = {
+        "client_id": clean_client_id(client_id),
+        "code": code,
+        "code_verifier": verifier,
+        "grant_type": "authorization_code",
+        "redirect_uri": REDIRECT_URI,
+    }
+    # A Google "Desktop app" client needs its secret here, or Google answers
+    # "client_secret is missing". Google says a desktop client's secret is
+    # not confidential; it is still kept encrypted on this PC.
+    if client_secret:
+        fields["client_secret"] = clean_client_secret(client_secret)
+    return _post_token(urllib.parse.urlencode(fields).encode("utf-8"), opener)
 
 
-def refresh_access(client_id: str, refresh_token: str, opener=None) -> dict:
+def refresh_access(client_id: str, refresh_token: str, opener=None, client_secret: str = "") -> dict:
     kept = normalize_google_token(refresh_token)
-    body = urllib.parse.urlencode(
-        {
-            "client_id": clean_client_id(client_id),
-            "refresh_token": kept,
-            "grant_type": "refresh_token",
-        }
-    ).encode("utf-8")
+    fields = {
+        "client_id": clean_client_id(client_id),
+        "refresh_token": kept,
+        "grant_type": "refresh_token",
+    }
+    if client_secret:
+        fields["client_secret"] = clean_client_secret(client_secret)
+    body = urllib.parse.urlencode(fields).encode("utf-8")
     parsed = _post_token(body, opener)
     if not parsed.get("refresh_token"):
         parsed["refresh_token"] = kept

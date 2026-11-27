@@ -50,6 +50,15 @@ NAMED = {
     "bf_emma": "bf_emma",
     "bm_george": "bm_george",
 }
+# All 28 English Kokoro voices, by the name on the Voice tab ("Kokoro: Bella").
+for _voice_id, _label in __import__("babysitter.voice_catalog", fromlist=["KOKORO_ENGLISH"]).KOKORO_ENGLISH:
+    NAMED[f"Kokoro: {_label}"] = _voice_id
+
+
+def kokoro_lang(voice_name: str) -> str:
+    """British Kokoro voices (bf_, bm_) read with British pronunciation."""
+    voice_id = NAMED.get(voice_name or "", "")
+    return "en-gb" if voice_id.startswith(("bf_", "bm_")) else "en-us"
 
 
 class KokoroError(Exception):
@@ -239,7 +248,7 @@ def speak_sequence(
                 try:
                     from babysitter.plugins.voice.speech import pause_ms
 
-                    samples, rate = _render(engine, piece, style, speed, pitch)
+                    samples, rate = _render(engine, piece, style, speed, pitch, kokoro_lang(voice_name))
                     samples = trim_edges(samples, rate, tail_ms=int(pause_ms(piece) * pause_factor))
                 except Exception:
                     break
@@ -394,9 +403,9 @@ def trim_edges(samples, sample_rate: int, lead_ms: int = 40, tail_ms: int = 180,
     return samples[start:end]
 
 
-def _render(engine, text: str, style, speed: float, pitch: int):
+def _render(engine, text: str, style, speed: float, pitch: int, lang: str = "en-us"):
     with _lock:
-        samples, sample_rate = engine.create(text, voice=style, speed=speed, lang="en-us")
+        samples, sample_rate = engine.create(text, voice=style, speed=speed, lang=lang)
     # A one-step pitch change also slows the words down, which is what made the
     # default voice sound dragged. Larger steps on the slider still shift pitch.
     if abs(int(pitch)) < 2:

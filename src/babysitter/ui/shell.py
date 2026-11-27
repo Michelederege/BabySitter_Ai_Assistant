@@ -199,6 +199,14 @@ class _WarmVoiceJob(QThread):
             from babysitter.plugins.voice.kokoro_voice import ready, warm
             from babysitter.plugins.voice.fillers import library
 
+            if self._voice.startswith("Narrator: "):
+                # A natural voice takes about 20 seconds to load; do it now, not at the first reply.
+                from babysitter.plugins.voice import engines
+                from babysitter.plugins.voice.clone_voice import warm as warm_natural
+
+                pack = engines.EXTRA_VOICES.get(self._voice)
+                if pack is not None:
+                    warm_natural(pack[1], engines.free_mib_hint())
             warm()
             if self._busy() or not ready():
                 return
@@ -624,6 +632,41 @@ class _ScanJob(QThread):
         self.finished_scan.emit((result, report))
 
 
+class _NaturalSetupJob(QThread):
+    """The helper's own Python, the Chatterbox model, and the narrator clips, after a yes."""
+
+    step = Signal(str)
+
+    def run(self) -> None:
+        from babysitter import narrators
+        from babysitter.modelpacks import PackError, download, ready
+        from babysitter.platform import run_hidden
+        from babysitter.plugins.voice import clone_voice
+
+        try:
+            if not clone_voice.environment_ready():
+                for index, command in enumerate(clone_voice.install_steps(), start=1):
+                    self.step.emit(f"Setting up the natural voices, step {index} of 3. This takes a few minutes…")
+                    done = run_hidden(command, timeout=3600)
+                    if done.returncode not in (0, None):
+                        self.step.emit("The natural voices could not be set up. Step " + str(index) + " failed; the log has the details.")
+                        return
+            if not ready("chatterbox"):
+                self.step.emit("Downloading the Chatterbox voice model, about 3.2 GB…")
+                download("chatterbox")
+            for narrator in narrators.NARRATORS:
+                if not narrators.clip_ready(narrator):
+                    self.step.emit(f"Fetching {narrator.name}…")
+                    narrators.download(narrator)
+        except (PackError, narrators.NarratorError) as exc:
+            self.step.emit(str(exc))
+            return
+        except Exception:
+            self.step.emit("The natural voices stopped before they were ready. Nothing half-done is used.")
+            return
+        self.step.emit("The natural voices are ready. Each download was checked against its recorded hash.")
+
+
 class _PackDownloadJob(QThread):
     """One model pack, after a yes. Checked against its hash before it is kept."""
 
@@ -746,7 +789,9 @@ class _DraftJob(QThread):
         self.ready.emit(speech, note)
 
 
-class _SignInJob(QThread):
+class _MicrosoftSignInJob(QThread):
+    """Microsoft's sign-in page, then one local page on port 8765 for the code."""
+
     open_browser = Signal(str)
     finished_ok = Signal()
     failed = Signal(str)
@@ -760,9 +805,41 @@ class _SignInJob(QThread):
         self.bundle: dict | None = None
 
     def run(self) -> None:
+        from babysitter.plugins.tools.microsoft_account import MicrosoftError, exchange_code
+
         try:
             code = listen_for_code(self._state, on_ready=lambda: self.open_browser.emit(self._url))
             self.bundle = exchange_code(self._client_id, code, self._verifier)
+        except GoogleError as exc:
+            self.failed.emit(str(exc).replace("Google", "Microsoft"))
+            return
+        except MicrosoftError as exc:
+            self.failed.emit(str(exc))
+            return
+        except Exception:
+            self.failed.emit("Microsoft sign-in stopped before it finished. Nothing was saved.")
+            return
+        self.finished_ok.emit()
+
+
+class _SignInJob(QThread):
+    open_browser = Signal(str)
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, client_id: str, verifier: str, state: str, url: str, client_secret: str = "") -> None:
+        super().__init__()
+        self._client_secret = client_secret
+        self._client_id = client_id
+        self._verifier = verifier
+        self._state = state
+        self._url = url
+        self.bundle: dict | None = None
+
+    def run(self) -> None:
+        try:
+            code = listen_for_code(self._state, on_ready=lambda: self.open_browser.emit(self._url))
+            self.bundle = exchange_code(self._client_id, code, self._verifier, client_secret=self._client_secret)
             self.finished_ok.emit()
         except GoogleError as exc:
             self.failed.emit(str(exc))
@@ -955,6 +1032,11 @@ class Shell:
         settings.hearing_chosen.connect(self._set_hearing_engine)
         settings.context_chosen.connect(self._set_context)
         self.window.voice_page.pack_needed.connect(self._offer_pack)
+        self.window.voice_page.voice_saved.connect(self._voice_saved)
+        self.controller.voice_wants_card = self._natural_voice_chosen
+        from babysitter.plugins.voice import engines as _engines
+
+        _engines.free_mib_hint = self._free_video_mib
         settings.refresh_microphones.clicked.connect(self._fill_microphones)
         settings.searx_save.clicked.connect(self._save_searx_port)
         settings.check_updates.clicked.connect(self._check_updates)
@@ -988,6 +1070,10 @@ class Shell:
         tools.delete_google.connect(self._delete_google_token)
         tools.google_check.connect(self._google_from_button)
         tools.google_sign_in_requested.connect(lambda client: self._google_sign_in(client, "personal"))
+        tools.google_client_file_requested.connect(self._choose_google_client_file)
+        tools.microsoft_sign_in_requested.connect(self._microsoft_sign_in)
+        tools.microsoft_sign_out_requested.connect(self._microsoft_sign_out)
+        tools.microsoft_client.setText(self.controller.settings.microsoft_client_id)
         tools.school_sign_in_requested.connect(lambda client: self._google_sign_in(client, "school"))
         tools.inbox_refresh.connect(self._refresh_inbox)
         tools.blackboard_save.connect(self._save_blackboard)
@@ -1077,8 +1163,9 @@ class Shell:
 
     def _refresh_privacy(self) -> None:
         settings = self.controller.settings
-        self.window.home.set_privacy(settings.social_search_enabled, settings.google_enabled)
-        self.window.set_privacy(settings.social_search_enabled or settings.google_enabled)
+        linked = settings.google_enabled or settings.microsoft_enabled
+        self.window.home.set_privacy(settings.social_search_enabled, linked)
+        self.window.set_privacy(settings.social_search_enabled or linked)
 
     def _save_social_key(self, raw: str) -> None:
         page = self.window.tools_page
@@ -1229,6 +1316,14 @@ class Shell:
             timer = getattr(self, "_game_return_timer", None)
             if timer is not None:
                 timer.stop()
+        if state == "game":
+            # Game mode gives the card back: the natural-voice helper closes too.
+            try:
+                from babysitter.plugins.voice.engines import release as release_engines
+
+                release_engines()
+            except Exception:
+                pass
         if state == "on":
             self._session_personality = session_clause()
             self._warm_voice()
@@ -1274,7 +1369,53 @@ class Shell:
 
         self.window.voice_page.status.setText(f"{HEARING_ENGINES.get(engine, 'Whisper')} hears your questions now.")
 
+    def _natural_voice_chosen(self) -> bool:
+        from babysitter.plugins.voice.engines import is_natural
+
+        return is_natural(self._voice_prefs().get("name", ""))
+
+    def _free_video_mib(self):
+        snap = getattr(self.controller, "latest_status", None)
+        gpu = getattr(snap, "gpu", None)
+        if gpu is None:
+            return None
+        return int(gpu.total_mib) - int(gpu.used_mib)
+
+    def _voice_saved(self, name: str) -> None:
+        """A natural voice shares the card, so a model on Medium or High moves to Low."""
+        from babysitter.plugins.voice.engines import is_natural
+
+        if is_natural(name) and self.controller.state == "on" and self.controller.loaded_level != "low":
+            self.controller._remember("A natural voice is chosen, so the AI moves to Low and both fit on the graphics card.")
+            self.controller.reload_model("low")
+
+    def _offer_natural_voices(self) -> None:
+        """One yes sets up the helper, the Chatterbox model, and every narrator's clip."""
+        running = getattr(self, "_natural_job", None)
+        if running is not None and running.isRunning():
+            self.window.voice_page.status.setText("The natural voices are already being set up.")
+            return
+        if not ask_yes_no(
+            self.window,
+            "Set up the natural voices?",
+            "About 6 GB, once: PyTorch for your graphics card (about 2.5 GB), the Chatterbox voice model "
+            "(3.2 GB, checked against its recorded hashes), and a short clip of each of 8 narrators "
+            "(Linda Johnson of LJ Speech, public domain, and 7 Hi-Fi TTS readers, CC BY 4.0). "
+            "While a natural voice is chosen, the AI runs on Low so both fit on the card.",
+            "Download about 6 GB",
+            "Not now",
+        ):
+            self.window.voice_page.status.setText("The natural voices were not set up. Nothing was downloaded.")
+            return
+        job = _NaturalSetupJob()
+        self._store_job("_natural_job", job)
+        job.step.connect(self.window.voice_page.status.setText)
+        job.start()
+
     def _offer_pack(self, pack_id: str) -> None:
+        if pack_id == "natural":
+            self._offer_natural_voices()
+            return
         """Ask before a model pack downloads. Nothing is fetched without a yes."""
         from babysitter.modelpacks import PACKS
 
@@ -4368,7 +4509,99 @@ class Shell:
                 linked = False
             if linked:
                 accounts.append(Account(name, mail, calendar, drive, lambda v=vault: self._token_for_google(v)))
-        return accounts
+        return accounts + self._microsoft_accounts()
+
+    # ---------- Outlook / Microsoft 365 ----------
+    def _microsoft_vault(self):
+        vault = getattr(self, "_ms_vault", None)
+        if vault is None:
+            from babysitter.plugins.tools.microsoft_account import MicrosoftVault
+
+            vault = self._ms_vault = MicrosoftVault()
+        return vault
+
+    def _microsoft_accounts(self):
+        from babysitter.inbox import Account
+        from babysitter.plugins.tools.microsoft_account import outlook_index, read_outlook
+
+        settings = self.controller.settings
+        try:
+            linked = settings.microsoft_enabled and self._microsoft_vault().has_token()
+        except Exception:
+            linked = False
+        if not linked:
+            return []
+        return [Account("Outlook", "Outlook", "Outlook calendar", "OneDrive", self._token_for_microsoft,
+                        reader=read_outlook, indexer=outlook_index)]
+
+    def _token_for_microsoft(self) -> str | None:
+        """Runs inside the background read, so a refresh never freezes the window."""
+        from babysitter.plugins.tools.microsoft_account import MicrosoftError, refresh_access
+
+        vault = self._microsoft_vault()
+        bundle = vault.load_bundle()
+        if not bundle:
+            return None
+        refresh = str(bundle.get("refresh_token") or "")
+        client_id = self.controller.settings.microsoft_client_id
+        if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
+            try:
+                bundle = refresh_access(client_id, refresh)
+            except MicrosoftError as exc:
+                raise GoogleError("The Microsoft sign-in expired. Sign in again on Accounts and home.") from exc
+            vault.save_bundle(bundle)
+        return str(bundle.get("access_token") or "") or None
+
+    def _microsoft_sign_in(self, client_id: str) -> None:
+        from babysitter.plugins.tools.microsoft_account import authorization_url, clean_client_id, pkce_pair
+
+        page = self.window.tools_page
+        try:
+            cleaned = clean_client_id(client_id)
+        except SecretsError as exc:
+            page.microsoft_status.setText(str(exc))
+            return
+        if not self._microsoft_vault().available:
+            page.microsoft_status.setText("Saving the Microsoft sign-in needs Windows. Nothing was sent.")
+            return
+        self.controller.settings.microsoft_client_id = cleaned
+        save_settings(self.controller.settings)
+        verifier, challenge = pkce_pair()
+        state = verifier[:16]
+        job = _MicrosoftSignInJob(cleaned, verifier, state, authorization_url(cleaned, state, challenge))
+        self._store_job("_ms_sign_in_job", job)
+        job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
+        job.finished_ok.connect(self._microsoft_signed_in)
+        job.failed.connect(page.microsoft_status.setText)
+        job.start()
+        page.microsoft_status.setText("Waiting for your Microsoft account in your browser. Read-only mail, calendar, and OneDrive.")
+
+    def _microsoft_signed_in(self) -> None:
+        job = getattr(self, "_ms_sign_in_job", None)
+        bundle = getattr(job, "bundle", None)
+        if job is not None:
+            job.bundle = None
+        page = self.window.tools_page
+        if not bundle:
+            page.microsoft_status.setText("Microsoft sign-in did not return a token. Nothing was saved.")
+            return
+        try:
+            self._microsoft_vault().save_bundle(bundle)
+        except SecretsError as exc:
+            page.microsoft_status.setText(str(exc))
+            return
+        self.controller.settings.microsoft_enabled = True
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+        page.microsoft_status.setText("Signed in to Microsoft. The sign-in is encrypted on this PC. Outlook shows in Today.")
+        self._refresh_inbox("mail")
+
+    def _microsoft_sign_out(self) -> None:
+        self._microsoft_vault().delete()
+        self.controller.settings.microsoft_enabled = False
+        save_settings(self.controller.settings)
+        self._refresh_privacy()
+        self.window.tools_page.microsoft_status.setText("Signed out. The Microsoft sign-in was deleted from this PC.")
 
     def _linked_feed(self):
         if self.controller.settings.blackboard_enabled and self.blackboard_vault.has_feed():
@@ -4506,8 +4739,10 @@ class Shell:
         refresh = str(bundle.get("refresh_token") or "")
         client_id = self.controller.settings.google_client_id
         if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
+            from babysitter.plugins.tools.google_account import ClientSecretStore
+
             try:
-                refreshed = refresh_access(client_id, refresh)
+                refreshed = refresh_access(client_id, refresh, client_secret=ClientSecretStore().load())
             except GoogleError as exc:
                 raise GoogleError("The Google sign-in expired. Sign in again on Tools.") from exc
             store.save_bundle(refreshed)
@@ -4542,7 +4777,16 @@ class Shell:
         state = verifier[:16]
         prompt = "select_account consent" if account == "school" else "consent"
         url = authorization_url(cleaned, state, challenge, prompt=prompt)
-        job = _SignInJob(cleaned, verifier, state, url)
+        from babysitter.plugins.tools.google_account import ClientSecretStore
+
+        secret = ClientSecretStore().load()
+        if not secret:
+            page.show_google(
+                "Choose the Google client file first (Choose the Google client file… under Accounts). "
+                "Google needs the client's secret to finish a sign-in. Nothing was sent."
+            )
+            return
+        job = _SignInJob(cleaned, verifier, state, url, client_secret=secret)
         self._store_job("_sign_in_job", job)
         job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
         job.finished_ok.connect(self._google_signed_in)
@@ -4550,6 +4794,31 @@ class Shell:
         job.start()
         who = "the school Google account" if account == "school" else "your Google account"
         page.show_google(f"Waiting for {who} in your browser. Read-only mail, calendar, and Drive.")
+
+    def _choose_google_client_file(self) -> None:
+        """Google's client_secret_….json: the id goes in Settings, the secret is encrypted."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from babysitter.plugins.tools.google_account import ClientSecretStore, client_from_file
+
+        path, _kind = QFileDialog.getOpenFileName(
+            self.window, "Choose the Google client file", str(Path.home() / "Downloads"), "Google client file (*.json)"
+        )
+        if not path:
+            return
+        page = self.window.tools_page
+        try:
+            client_id, secret = client_from_file(path)
+            ClientSecretStore().save(secret)
+        except SecretsError as exc:
+            page.show_google(str(exc))
+            return
+        self.controller.settings.google_client_id = client_id
+        self.controller.settings.google_enabled = True
+        save_settings(self.controller.settings)
+        page.google_client.setText(client_id)
+        page.set_google_enabled(True)
+        page.show_google("The Google client is saved. Its secret is encrypted on this PC. Now press Sign in with Google.")
 
     def _google_signed_in(self) -> None:
         job = getattr(self, "_sign_in_job", None)

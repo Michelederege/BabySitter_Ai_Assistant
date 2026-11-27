@@ -25,6 +25,8 @@ from babysitter.paths import data_dir
 SHERPA_ASR = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/"
 SHERPA_TTS = "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/"
 SUPERTONIC = "https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b/"
+# Chatterbox, the voice-copying engine (MIT licence), pinned to one revision.
+CHATTERBOX = "https://huggingface.co/ResembleAI/chatterbox/resolve/5bb1f6ee58e50c3b8d408bc82a6d3740c2db6e18/"
 
 
 @dataclass(frozen=True)
@@ -34,8 +36,9 @@ class Pack:
     kind: str  # "hearing" or "voice"
     size_mb: int
     archive: tuple[str, str] | None = None  # (url, sha256) of a .tar.bz2
-    files: tuple[tuple[str, str], ...] = ()  # (path under SUPERTONIC, sha256)
+    files: tuple[tuple[str, str], ...] = ()  # (path under base, sha256)
     note: str = ""
+    base: str = SUPERTONIC
 
 
 PACKS: dict[str, Pack] = {
@@ -61,6 +64,18 @@ PACKS: dict[str, Pack] = {
         archive=(SHERPA_TTS + "vits-piper-en_GB-jenny_dioco-medium.tar.bz2",
                  "a0888024569bafbefc05a4b48ddf8419d8dbbf3205f4af37cf7c6f1a87cc20c5"),
     ),
+    "chatterbox": Pack(
+        "chatterbox", "Natural voices (Chatterbox)", "voice", 3200,
+        files=(
+            ("ve.safetensors", "f0921cab452fa278bc25cd23ffd59d36f816d7dc5181dd1bef9751a7fb61f63c"),
+            ("t3_cfg.safetensors", "914cb1696f47527fe8852ca8f1fe1fa63cb34f76f9c715e84e067b744dd0da81"),
+            ("s3gen.safetensors", "2b78103c654207393955e4900aac14a12de8ef25f4b09424f1ef91941f161d4e"),
+            ("tokenizer.json", "d71e3a44eabb1784df9a68e9f95b251ecbf1a7af6a9f50835856b2ca9d8c14a5"),
+            ("conds.pt", "6552d70568833628ba019c6b03459e77fe71ca197d5c560cef9411bee9d87f4e"),
+        ),
+        note="Copies a narrator's voice from a short clip. It runs on the graphics card while the AI is on Low.",
+        base=CHATTERBOX,
+    ),
     "supertonic": Pack(
         "supertonic", "Supertonic", "voice", 401,
         files=(
@@ -83,6 +98,17 @@ PACKS: dict[str, Pack] = {
         ),
     ),
 }
+
+# Every Piper voice pack, from the voice catalog, each pinned to its SHA-256.
+def _add_piper_packs() -> None:
+    from babysitter.voice_catalog import piper_packs
+
+    for pack_id, label, url, sha in piper_packs():
+        if pack_id not in PACKS:
+            PACKS[pack_id] = Pack(pack_id, label, "voice", 80 if "voices)" in label else 67, archive=(url, sha))
+
+
+_add_piper_packs()
 
 MANIFEST = "pack-manifest.json"
 
@@ -108,7 +134,7 @@ def _sha256(path: Path) -> str:
 
 
 def _fetch(url: str, expected: str, dest: Path, opener=urllib.request.urlopen) -> None:
-    if not url.startswith(("https://github.com/k2-fsa/sherpa-onnx/releases/download/", SUPERTONIC)):
+    if not url.startswith(("https://github.com/k2-fsa/sherpa-onnx/releases/download/", SUPERTONIC, CHATTERBOX)):
         raise PackError("That model address is not allowed.")
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
@@ -166,7 +192,7 @@ def download(pack_id: str, opener=urllib.request.urlopen) -> str:
             _safe_extract(archive, staging)
             archive.unlink()
         for rel, expected in pack.files:
-            _fetch(SUPERTONIC + rel, expected, staging / rel, opener)
+            _fetch(pack.base + rel, expected, staging / rel, opener)
         _write_manifest(staging)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)

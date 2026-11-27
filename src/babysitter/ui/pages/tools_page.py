@@ -38,6 +38,9 @@ class ToolsPage(QWidget):
     google_check = Signal(str)
     google_sign_in_requested = Signal(str)
     school_sign_in_requested = Signal(str)
+    google_client_file_requested = Signal()
+    microsoft_sign_in_requested = Signal(str)
+    microsoft_sign_out_requested = Signal()
     inbox_refresh = Signal(str)
     blackboard_save = Signal(str)
     blackboard_enabled_changed = Signal(bool)
@@ -118,10 +121,18 @@ class ToolsPage(QWidget):
         self.google_client.setAccessibleName("Google OAuth desktop client ID")
         self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
         self.google_client.setToolTip(
-            "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
-            "BabySitter asks only for read-only mail, calendar, and Drive file names."
+            "From your own Google Cloud client of type Desktop app. Choosing the client file fills this in. "
+            "BabySitter asks only for read-only mail, calendar, and Drive."
         )
         self._sec('accounts').addWidget(self.google_client)
+        self.google_client_file = QPushButton("Choose the Google client file…")
+        self.google_client_file.setObjectName("primary")
+        self.google_client_file.setToolTip(
+            "The client_secret_….json file Google gives you for a Desktop app client. "
+            "The id is saved in Settings; the secret is encrypted on this PC."
+        )
+        self.google_client_file.clicked.connect(self.google_client_file_requested.emit)
+        self._sec('accounts').addWidget(self.google_client_file)
         sign_row = QHBoxLayout()
         self.google_sign_in = QPushButton("Sign in with Google")
         self.google_sign_in.setToolTip(
@@ -149,6 +160,36 @@ class ToolsPage(QWidget):
         self.inbox.setToolTip("Each line is one unread message, event, or Drive file name.")
         self.inbox.setMinimumHeight(160)
         self._sec('inbox').addWidget(self.inbox)
+        microsoft_label = QLabel("Outlook and Microsoft 365")
+        microsoft_label.setObjectName("section")
+        self._sec('accounts').addWidget(microsoft_label)
+        microsoft_hint = QLabel(
+            "Read-only Outlook mail, calendar, and OneDrive file names, for an Outlook.com or a school "
+            "or work account. It never sends, moves, or deletes anything. Register the app once in your "
+            "own Microsoft account, then paste its Application (client) ID here."
+        )
+        microsoft_hint.setObjectName("hint")
+        microsoft_hint.setWordWrap(True)
+        self._sec('accounts').addWidget(microsoft_hint)
+        self.microsoft_client = QLineEdit()
+        self.microsoft_client.setAccessibleName("Microsoft Application (client) ID")
+        self.microsoft_client.setPlaceholderText("Application (client) ID, like 0a1b2c3d-1234-5678-9abc-def012345678")
+        self._sec('accounts').addWidget(self.microsoft_client)
+        microsoft_row = QHBoxLayout()
+        self.microsoft_sign_in = QPushButton("Sign in with Microsoft")
+        self.microsoft_sign_in.setToolTip("Opens Microsoft's sign-in page in your browser. Read-only mail, calendar, and OneDrive.")
+        self.microsoft_sign_in.clicked.connect(lambda: self.microsoft_sign_in_requested.emit(self.microsoft_client.text()))
+        self.microsoft_sign_out = QPushButton("Sign out of Microsoft")
+        self.microsoft_sign_out.setToolTip("Deletes the saved Microsoft sign-in from this PC.")
+        self.microsoft_sign_out.clicked.connect(self.microsoft_sign_out_requested.emit)
+        microsoft_row.addWidget(self.microsoft_sign_in)
+        microsoft_row.addWidget(self.microsoft_sign_out)
+        microsoft_row.addStretch(1)
+        self._sec('accounts').addLayout(microsoft_row)
+        self.microsoft_status = QLabel("Not signed in to Microsoft.")
+        self.microsoft_status.setObjectName("hint")
+        self.microsoft_status.setWordWrap(True)
+        self._sec('accounts').addWidget(self.microsoft_status)
         self.blackboard_enabled = QCheckBox("Turn on the Blackboard calendar feed")
         self.blackboard_enabled.setToolTip(
             "Off by default. BabySitter reads the calendar link you paste. It does not sign in to Blackboard."

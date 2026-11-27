@@ -15,3 +15,20 @@ psutil reads CPU, memory, and the list of running program names. It is BSD licen
 ## Python
 
 Python itself is used under the PSF license when you run from source. A future packaged build includes a private copy of Python inside the PyInstaller folder.
+
+------------------------------------------------------------------------
+Voices (downloaded on your PC only after you say yes; not shipped here)
+------------------------------------------------------------------------
+Chatterbox voice model, Resemble AI. MIT License.
+  https://huggingface.co/ResembleAI/chatterbox
+LJ Speech, read by Linda Johnson (LibriVox). Public domain.
+  Keith Ito and Linda Johnson, "The LJ Speech Dataset", 2017.
+Hi-Fi Multi-Speaker English TTS Dataset (Hi-Fi TTS), LibriVox readers. CC BY 4.0.
+  E. Bakhturina, V. Lavrukhin, B. Ginsburg, Y. Zhang, "Hi-Fi Multi-Speaker
+  English TTS Dataset", 2021. https://www.openslr.org/109/
+Kokoro voices, hexgrad. Apache License 2.0.
+Supertonic, Supertone. BigScience Open RAIL-M License.
+Piper voices, Rhasspy, through sherpa-onnx. Each pack's MODEL_CARD gives its
+  licence: VCTK and Aru CC BY 4.0 (credit the CSTR VCTK Corpus, University of
+  Edinburgh, and the ARU speech corpus), CMU ARCTIC under its own free
+  licence, Semaine CC BY-NC-SA 4.0 (non-commercial only).
