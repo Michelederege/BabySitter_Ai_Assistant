@@ -391,10 +391,36 @@ def _asks_for_goals(detail: str) -> bool:
     )
 
 
+def _summary_index(phrase: str) -> int | None:
+    """'summarize number 2', 'read number two', 'what's in the second one'."""
+    match = re.fullmatch(
+        r"(?:summarize|summarise|sum up|read|read me|read out|what's in|whats in|what is in|tell me about)"
+        r" (?:number |file |the )?([a-z0-9]+)(?: one| file)?",
+        phrase,
+    )
+    if not match:
+        return None
+    token = match.group(1)
+    if token.isdigit():
+        value = int(token)
+        return value if 1 <= value <= 99 else None
+    return _OPEN_WORDS.get(token)
+
+
 def _search_command(phrase: str, original: str) -> QuickCommand | None:
     number = _open_index(phrase)
     if number is not None:
         return QuickCommand("open_number", seconds=number)
+    number = _summary_index(phrase)
+    if number is not None:
+        return QuickCommand("summarize_number", seconds=number)
+    drive = re.fullmatch(
+        r"(?:read|summarize|summarise|sum up|open|what's in|whats in|what is in)"
+        r" (?:my |the )?(?:google )?drive (?:file |doc |document )?(?:called |named )?(.{2,80})",
+        phrase,
+    )
+    if drive:
+        return QuickCommand("drive_text", detail=drive.group(1).strip())
     heard = phrase.replace("where's", "where is").replace("wheres", "where is")
     for label in ("where is my", "where is the", "show me my"):
         if not heard.startswith(label + " "):

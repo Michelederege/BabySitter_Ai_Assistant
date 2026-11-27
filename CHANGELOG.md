@@ -14,6 +14,12 @@ BabySitter uses version numbers like v1.2.3.
 
 **Back up my memory.** Settings, Privacy and data: one zip of facts, History, the Journal, the Board, reminders, goals, the nickname, and settings, saved where you choose. Sign-ins and model files are left out.
 
+**Game mode no longer loads the bigger model by mistake.** When a game (or a natural voice) made the AI load on Low, the next question still asked for your saved level's model, so Ollama loaded it beside the game. Questions now ask for the model that is loaded.
+
+**History and saved facts are encrypted** on this PC with Windows' own protection, like the Google sign-in. Only your Windows user can read them. Search, export, and the backup still work; files from older versions are encrypted the first time this version opens.
+
+**Word files and Drive files as text.** After a file search, say "summarize number 2" and a Word or text file is read on this PC and summed up. Say "read my Drive file history essay" and one Google Doc, Word, or text file from Drive is read the same way. Files are never uploaded or saved, and an instruction inside a file is not followed.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

@@ -212,6 +212,14 @@ class Controller(QObject):
             save_settings(self.settings)
         self._sync_autostart()
         try:
+            from babysitter.sessions import seal_old_files
+
+            sealed = seal_old_files()
+            if sealed:
+                log.info("Encrypted %s History and fact files left in plain text by an older version.", sealed)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Could not encrypt older History files: %s", exc)
+        try:
             journal.prune(date.today())
         except OSError as exc:
             log.error("Could not tidy the journal folder: %s", exc)
@@ -317,6 +325,16 @@ class Controller(QObject):
                 f"{get_mode(level).label} is loading instead of {get_mode(chosen).label}."
             )
         return level, None
+
+    def reply_mode(self):
+        """The level a question must ask for: the one that is loaded.
+
+        A game or a natural voice can load Low while your saved level is
+        Medium or High. Asking for the saved level's model then made Ollama
+        load the bigger model beside the game, which is what game mode was
+        there to stop. Before anything is loaded, the saved level is used.
+        """
+        return get_mode(self.loaded_level or self.settings.intelligence)
 
     def reload_model(self, level: str | None = None) -> None:
         """Load a level. Without one, the level you picked. Settings are not changed."""

@@ -165,6 +165,80 @@ def doc_export_url(file_id: str) -> str:
     return "https://www.googleapis.com/drive/v3/files/" + file_id + "/export?mimeType=text/plain"
 
 
+DRIVE_TEXT_TYPES = {
+    "application/vnd.google-apps.document": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "text/plain": ".txt",
+    "text/markdown": ".md",
+    "text/csv": ".csv",
+}
+DRIVE_FILE_LIMIT = 25 * 1024 * 1024
+
+
+def drive_search_url(name: str) -> str:
+    """Up to 8 Drive files whose name contains these words. Names and types only."""
+    words = " ".join((name or "").split())[:80]
+    if not words:
+        raise GoogleError("Say part of the file's name.")
+    escaped = words.replace("\\", "\\\\").replace("'", "\\'")
+    query = urllib.parse.urlencode(
+        {
+            "pageSize": "8",
+            "orderBy": "modifiedTime desc",
+            "q": f"name contains '{escaped}' and trashed=false",
+            "fields": "files(id,name,modifiedTime,mimeType,size)",
+        }
+    )
+    return DOCS_LIST_URL + "?" + query
+
+
+def drive_media_url(file_id: str) -> str:
+    if not _safe_id(file_id):
+        raise GoogleError("That Drive file could not be read.")
+    return "https://www.googleapis.com/drive/v3/files/" + file_id + "?alt=media"
+
+
+def http_get_bytes(url: str, token: str, opener=None, limit: int = DRIVE_FILE_LIMIT) -> bytes:
+    """GET one allowlisted Drive file into memory. It is never written to disk."""
+    require_google_url(url)
+    if not token or any(character.isspace() for character in token):
+        raise GoogleError("There is no Google token saved.")
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("Authorization", "Bearer " + token)
+    open_url = opener or urllib.request.urlopen
+    try:
+        with open_url(request, timeout=20) as response:
+            raw = response.read(limit + 1)
+            status = getattr(response, "status", 200)
+    except Exception as exc:
+        raise GoogleError("The Drive file could not be read. Nothing was changed.") from exc
+    if int(status) >= 400:
+        raise GoogleError("Google refused the file. Nothing was changed.")
+    if len(raw) > limit:
+        raise GoogleError("That Drive file is larger than 25 MB, so it was not read.")
+    return raw
+
+
+def drive_file_text(item: dict, token: str, get_text=None, get_bytes=None) -> str:
+    """One Drive file as plain text, with the same cap as a Google Doc."""
+    from babysitter.filetext import TEXT_LIMIT, FileTextError, plain_text
+
+    file_id = str(item.get("id") or "")
+    name = str(item.get("name") or "file")
+    mime = str(item.get("mimeType") or "")
+    kind = DRIVE_TEXT_TYPES.get(mime)
+    if kind is None:
+        raise GoogleError(f"{name} is not a Google Doc, Word file, or text file, so it was not read.")
+    if kind == "doc":
+        return (get_text or http_get_text)(doc_export_url(file_id), token)[:TEXT_LIMIT]
+    data = (get_bytes or http_get_bytes)(drive_media_url(file_id), token)
+    suffix = kind if not name.lower().endswith(kind) else ""
+    try:
+        return plain_text(data, name + suffix)
+    except FileTextError as exc:
+        raise GoogleError(str(exc)) from None
+
+
 def http_get_text(url: str, token: str, opener=None, limit: int = 80_000) -> str:
     """GET one allowlisted Google Doc as text. The token stays in the header."""
     require_google_url(url)

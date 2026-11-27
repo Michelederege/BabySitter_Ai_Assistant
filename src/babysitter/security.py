@@ -260,7 +260,10 @@ def require_google_url(url: str) -> None:
         raise ValueError("That Google address is not allowed.")
     query = urllib.parse.parse_qs(parsed.query)
     if any(item.lower() == "media" for item in query.get("alt", [])):
-        raise ValueError("Drive files are not downloaded. A Google Doc is read as plain text.")
+        # NEXT_ROUND phase 4: one Drive file's bytes, read into memory and turned
+        # into plain text. Only a bare file id, only GET, never saved or uploaded.
+        if not (host == "www.googleapis.com" and _drive_media_path(path) and set(query) == {"alt"}):
+            raise ValueError("Only one Drive file is read at a time, as plain text.")
     if path.rstrip("/").endswith("/export"):
         mime = (query.get("mimeType") or [""])[0].lower()
         if mime != "text/plain":
@@ -274,6 +277,12 @@ def require_google_url(url: str) -> None:
     raise ValueError(
         "Google mail, calendar, and Drive only use the read-only addresses."
     )
+
+
+def _drive_media_path(path: str) -> bool:
+    import re
+
+    return re.fullmatch(r"/drive/v3/files/[A-Za-z0-9_-]{10,200}", path) is not None
 
 
 def _drive_read_path(path: str) -> bool:

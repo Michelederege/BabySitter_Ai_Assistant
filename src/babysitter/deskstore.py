@@ -12,6 +12,10 @@ from datetime import datetime
 from pathlib import Path
 
 from babysitter.paths import data_dir
+from babysitter.privatefile import read_private, write_private
+
+# Saved facts are encrypted on disk with DPAPI, like History (NEXT_ROUND phase 4).
+PRIVATE_LISTS = {"memory.json"}
 
 
 def load_list(name: str) -> list[dict]:
@@ -19,7 +23,7 @@ def load_list(name: str) -> list[dict]:
     if not path.is_file():
         return []
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(read_private(path))
     except (OSError, json.JSONDecodeError, UnicodeError):
         _keep_unreadable(path)
         return []
@@ -45,6 +49,9 @@ def _keep_unreadable(path: Path) -> None:
 
 def save_list(name: str, items: list[dict]) -> None:
     path = data_dir() / name
+    if name in PRIVATE_LISTS:
+        write_private(path, json.dumps(items, indent=2) + "\n")
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(items, indent=2) + "\n", encoding="utf-8")

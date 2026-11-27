@@ -749,6 +749,48 @@ class _LinkedJob(QThread):
         self.ready.emit(result)
 
 
+class _DriveTextJob(QThread):
+    """Find one Drive file by name and read it as plain text, off the window's thread."""
+
+    ready = Signal(str, str, str)  # name, text, problem
+
+    def __init__(self, token_for, name: str) -> None:
+        super().__init__()
+        self._token_for = token_for
+        self._name = name
+
+    def run(self) -> None:
+        from babysitter.plugins.tools.google_account import (
+            DRIVE_TEXT_TYPES,
+            GoogleError,
+            drive_file_text,
+            drive_search_url,
+            http_get_json,
+        )
+
+        try:
+            token = self._token_for()
+            if not token:
+                raise GoogleError("Google is not signed in. Sign in on Settings, Accounts and home.")
+            payload = http_get_json(drive_search_url(self._name), token)
+            files = [item for item in (payload.get("files") or []) if isinstance(item, dict)]
+            if not files:
+                raise GoogleError(f"No Drive file has {self._name} in its name.")
+            readable = [item for item in files if str(item.get("mimeType") or "") in DRIVE_TEXT_TYPES]
+            if not readable:
+                raise GoogleError(
+                    f"{files[0].get('name') or 'That file'} is not a Google Doc, Word file, or text file, so it was not read."
+                )
+            item = readable[0]
+            self.ready.emit(str(item.get("name") or "the file"), drive_file_text(item, token), "")
+        except GoogleError as exc:
+            self.ready.emit("", "", str(exc))
+        except Exception:  # noqa: BLE001
+            self.ready.emit("", "", "Drive did not answer. Nothing was changed.")
+        finally:
+            self._token_for = None
+
+
 class _DraftJob(QThread):
     ready = Signal(str, str)
 
@@ -2714,7 +2756,7 @@ class Shell:
         if running is not None and running.isRunning() and not running.cancel.is_set():
             self.window.home.set_reply(text, "Still thinking.", "Wait for this reply to finish.")
             return
-        mode = get_mode(self.controller.settings.intelligence)
+        mode = self.controller.reply_mode()
         self._early_lead = ""
         self._pending_offer = ""
         self._finished_phrases = []
@@ -3287,7 +3329,7 @@ class Shell:
             self.controller.enter_game()
 
     def _look_at_screen(self, full: bool = False) -> None:
-        mode = get_mode(self.controller.settings.intelligence)
+        mode = self.controller.reply_mode()
         native = full and mode.num_ctx > 4096
         edge = mode.image_edge if not full else 1280
         screen = QApplication.primaryScreen()
@@ -3945,6 +3987,12 @@ class Shell:
         if quick.kind == "open_number":
             self._open_numbered(text, quick.seconds)
             return True
+        if quick.kind == "summarize_number":
+            self._summarize_numbered(text, quick.seconds)
+            return True
+        if quick.kind == "drive_text":
+            self._read_drive_file(text, quick.detail)
+            return True
         if quick.kind == "check_update":
             self.window.home.set_reply(text, "Checking for updates…", "Checking Origin main / GitHub Releases.")
             self._check_updates(prompt_install=False, speak_result=True)
@@ -4035,6 +4083,96 @@ class Shell:
         self.window.files_page.set_results(speech, detail)
         self._note_local(text, speech)
         self._speak(speech)
+
+    def _summarize_numbered(self, text: str, number: int) -> None:
+        """Read a found Word or text file on this PC and have the model sum it up.
+
+        NEXT_ROUND phase 4: the file becomes plain text here, with the Google Doc
+        cap, and is never uploaded. The model reads it as borrowed text, so an
+        instruction inside the file is not followed.
+        """
+        from pathlib import Path
+
+        from babysitter.filetext import FileTextError, read_file_text
+
+        found = self._numbered_found(text, number)
+        if found is None:
+            return
+        try:
+            body = read_file_text(Path(found.path))
+        except FileTextError as exc:
+            speech = str(exc)
+            self.window.home.set_reply(text, speech, found.path)
+            self._speak(speech)
+            return
+        name = Path(found.path).name
+        if not body.strip():
+            speech = f"{name} has no words in it that I can read."
+            self.window.home.set_reply(text, speech, found.path)
+            self._speak(speech)
+            return
+        if self.controller.state != "on":
+            speech = f"I read {name}. Turn the AI on and ask again, and I'll sum it up."
+            self.window.home.set_reply(text, speech, body[:1200])
+            self._speak(speech)
+            return
+        limit = 6000 if self.controller.reply_mode().num_ctx <= 4096 else 20000
+        summary = f"Sum up the file {name} in two or three plain sentences, then say the one thing worth acting on, if any."
+        self._pending_line = guarded_prompt(summary, body[:limit])
+        self._send_heard()
+
+    def _read_drive_file(self, text: str, name: str) -> None:
+        """NEXT_ROUND phase 4: one Drive file as plain text. It is read, never uploaded or saved."""
+        if not self.controller.settings.google_enabled:
+            speech = "Google is off. Turn it on and sign in on Settings, Accounts and home. Nothing was sent."
+            self.window.home.set_reply(text, speech, "")
+            self._speak(speech)
+            return
+        running = getattr(self, "_drive_job", None)
+        if running is not None and running.isRunning():
+            return
+        self.window.home.set_reply(text, f"Looking in Drive for {name}…", "Only the file's text is read. Nothing is uploaded.")
+        job = _DriveTextJob(self._token_for_google, name)
+        self._store_job("_drive_job", job)
+        job.ready.connect(lambda found, body, problem, asked=text: self._drive_text_ready(asked, found, body, problem))
+        job.start()
+
+    def _drive_text_ready(self, text: str, name: str, body: str, problem: str) -> None:
+        if problem or not body.strip():
+            speech = problem or f"{name} has no words in it that I can read."
+            self.window.home.set_reply(text, speech, "Nothing was changed in Drive.")
+            self._speak(speech)
+            return
+        if self.controller.state != "on":
+            speech = f"I read {name} from Drive. Turn the AI on and ask again, and I'll sum it up."
+            self.window.home.set_reply(text, speech, body[:1200])
+            self._speak(speech)
+            return
+        limit = 6000 if self.controller.reply_mode().num_ctx <= 4096 else 20000
+        summary = f"Sum up the Drive file {name} in two or three plain sentences, then say the one thing worth acting on, if any."
+        self._pending_line = guarded_prompt(summary, body[:limit])
+        self._send_heard()
+
+    def _numbered_found(self, text: str, number: int):
+        """The numbered search result, or None after saying why not."""
+        matches = getattr(self, "_found_files", None) or []
+        if not matches:
+            speech = "Nothing is on the list. Say find and a file name first."
+            self.window.home.set_reply(text, speech, "The search looks only in your chosen folders.")
+            self._speak(speech)
+            return None
+        if time.time() - getattr(self, "_found_at", 0.0) > 600:
+            self._found_files = []
+            speech = "That list is from a while ago. Say find again for a fresh one."
+            self.window.home.set_reply(text, speech, "A numbered list is good for 10 minutes.")
+            self._speak(speech)
+            return None
+        if number < 1 or number > len(matches):
+            speech = f"The list goes from 1 to {len(matches)}."
+            self.window.home.set_reply(text, speech, "Say a number from the list.")
+            self._speak(speech)
+            return None
+        return matches[number - 1]
 
     def _open_numbered(self, text: str, number: int) -> None:
         matches = getattr(self, "_found_files", None) or []

@@ -202,3 +202,17 @@ def test_leave_cancels_an_old_load_the_brain_timer(tmp_path, monkeypatch):
         shell.registrar.clear()
         controller.shutdown_threads()
         app.processEvents()
+
+
+def test_a_question_asks_for_the_model_that_is_loaded(tmp_path, monkeypatch):
+    # A game switched Medium down to Low. The next question must ask for Low's
+    # model, or Ollama loads Medium's bigger model beside the game.
+    monkeypatch.setenv("BABYSITTER_DATA_DIR", str(tmp_path))
+    from babysitter.controller import Controller
+
+    controller = Controller()
+    controller.settings.intelligence = "medium"
+    assert controller.reply_mode().model == MODES["medium"].model  # nothing loaded yet
+    controller.loaded_level = "low"
+    assert controller.reply_mode().model == MODES["low"].model
+    assert controller.settings.intelligence == "medium"

@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from babysitter.paths import data_dir
+from babysitter.privatefile import read_private, seal_existing, write_private
 
 
 def sessions_dir() -> Path:
@@ -59,7 +60,7 @@ def load_session(session_id: str) -> dict:
     if not path.is_file():
         raise ValueError("That conversation is not on this PC.")
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(read_private(path))
     except (OSError, json.JSONDecodeError, UnicodeError) as exc:
         raise ValueError("That conversation could not be read.") from exc
     if not isinstance(raw, dict) or not isinstance(raw.get("turns"), list):
@@ -72,7 +73,7 @@ def _iter_session_records() -> list[tuple[dict, dict]]:
     found: list[tuple[dict, dict]] = []
     for path in sessions_dir().glob("*.json"):
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
+            raw = json.loads(read_private(path))
         except (OSError, json.JSONDecodeError, UnicodeError):
             continue
         if not isinstance(raw, dict):
@@ -146,7 +147,10 @@ def wipe_sessions() -> int:
 
 
 def _write(record: dict) -> None:
-    path = _path(str(record["id"]))
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    write_private(_path(str(record["id"])), json.dumps(record, indent=2) + "\n")
+
+
+def seal_old_files() -> int:
+    """Encrypt History and facts saved in plain text by a version before 0.27.0."""
+    files = list(sessions_dir().glob("*.json")) + [data_dir() / "memory.json"]
+    return seal_existing(path for path in files if path.is_file())

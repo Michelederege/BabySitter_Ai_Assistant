@@ -6,7 +6,9 @@ the nickname, ratings, voice and app settings. What stays out: model files
 Those are locked to this Windows user, so they would not open anywhere else;
 on a new PC you sign in again.
 
-Nothing is sent anywhere. The zip lands in the folder you pick.
+History and facts are encrypted on this PC; the zip holds them readable, so
+keep it somewhere private. Nothing is sent anywhere. The zip lands in the
+folder you pick.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from babysitter.paths import data_dir
+from babysitter.privatefile import is_sealed, unseal
 
 # Folders inside the data folder that are kept.
 KEPT_FOLDERS = ("journal", "sessions")
@@ -54,7 +57,14 @@ def make_backup(destination: Path, root: Path | None = None, now: datetime | Non
     temporary = target.with_suffix(".zip.tmp")
     with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in files:
-            archive.write(path, path.relative_to(base).as_posix())
+            name = path.relative_to(base).as_posix()
+            data = path.read_bytes()
+            if is_sealed(data):
+                # History and facts are encrypted for this Windows user only. The
+                # backup holds them readable, so they open on a new PC.
+                archive.writestr(name, unseal(data))
+            else:
+                archive.write(path, name)
         archive.writestr(
             "READ ME.txt",
             "BabySitter memory backup.\n\n"
