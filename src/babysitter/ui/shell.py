@@ -4821,10 +4821,46 @@ class Shell:
         from babysitter.deskstore import next_reminder_line, next_reminder_speech
 
         items = load_list("schedule.json")
+        left = self._timer_left_speech(items)
+        if left and re.search(r"\b(?:left|remaining|timer)\b", (text or "").lower()):
+            # "How long is left": the running timer, not the next reminder.
+            self.window.home.set_reply(text, left, "Read from this PC. Nothing was sent.")
+            self._note_local(text, left)
+            self._speak(left)
+            return
         speech = next_reminder_speech(items)
         self.window.home.set_reply(text, speech, next_reminder_line(items) + "\nRead from this PC. Nothing was sent.")
         self._note_local(text, speech)
         self._speak(speech)
+
+    def _timer_left_speech(self, items: list) -> str:
+        """'4 minutes and 10 seconds left on the timer.', or '' with no timer running."""
+        timer_id = str(getattr(self, "_active_timer_id", "") or "")
+        if not timer_id or getattr(self, "_active_timer", None) is None:
+            return ""
+        for item in items:
+            if str(item.get("id") or "") != timer_id or str(item.get("fired") or "") == "yes":
+                continue
+            try:
+                due = datetime.fromisoformat(str(item.get("due") or ""))
+            except ValueError:
+                return ""
+            if due.tzinfo is None:
+                due = due.astimezone()
+            seconds = int((due - datetime.now().astimezone()).total_seconds())
+            if seconds <= 0:
+                return ""
+            minutes, rest = divmod(seconds, 60)
+            hours, minutes = divmod(minutes, 60)
+            parts = []
+            if hours:
+                parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+            if minutes:
+                parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+            if rest and not hours:
+                parts.append(f"{rest} second{'s' if rest != 1 else ''}")
+            return " and ".join(parts) + " left on the timer."
+        return ""
 
     def _cancel_next_reminder(self, text: str) -> None:
         now = datetime.now().astimezone()
