@@ -749,6 +749,27 @@ class _LinkedJob(QThread):
         self.ready.emit(result)
 
 
+class _CallJob(QThread):
+    """One call that may reach the network, off the window's thread. Returns (result, problem)."""
+
+    ready = Signal(object, str)
+
+    def __init__(self, call) -> None:
+        super().__init__()
+        self._call = call
+
+    def run(self) -> None:
+        try:
+            result = self._call()
+        except Exception as exc:  # noqa: BLE001 - every error here carries a plain message
+            message = str(exc) or "That did not work. Nothing was changed."
+            self.ready.emit(None, message)
+        else:
+            self.ready.emit(result, "")
+        finally:
+            self._call = None
+
+
 class _DriveTextJob(QThread):
     """Find one Drive file by name and read it as plain text, off the window's thread."""
 
@@ -1077,6 +1098,8 @@ class Shell:
         settings.alerts_when_off.toggled.connect(self._set_alerts_when_off)
         settings.side_button.toggled.connect(lambda on: self._set_flag("side_button", on))
         settings.searx_enabled.toggled.connect(lambda on: self._set_flag("searx_enabled", on))
+        settings.weather_save.clicked.connect(lambda: self._save_town(settings.weather_town.text()))
+        settings.home_save.clicked.connect(self._save_home_clicked)
         settings.quiet_save.clicked.connect(self._save_quiet_hours)
         settings.microphone_chosen.connect(self._set_microphone)
         settings.hearing_chosen.connect(self._set_hearing_engine)
@@ -2155,6 +2178,30 @@ class Shell:
             self.window.home.set_reply("tool", intent.ask, "Nothing was sent.")
             self._speak(intent.ask)
             return
+        if intent.kind == "set_town":
+            from babysitter.weather import WeatherError, clean_place
+
+            try:
+                place = clean_place(intent.query).title()
+            except WeatherError as exc:
+                self._speak(str(exc))
+                return
+            self.controller.settings.weather_place = place
+            save_settings(self.controller.settings)
+            speech = f"Got it, {place}. Ask me for the weather any time."
+            self.window.home.set_reply("town", speech, "Saved on this PC. It is sent only when you ask for the weather and say yes.")
+            self._speak(speech)
+            return
+        if intent.kind == "weather" and not intent.query:
+            from dataclasses import replace as _replace
+
+            place = self.controller.settings.weather_place
+            if not place:
+                speech = "Which town? Say, my town is, and the name. I'll remember it."
+                self.window.home.set_reply("weather", speech, "Nothing was sent.")
+                self._speak(speech)
+                return
+            intent = _replace(intent, query=place, ask=f"Check the weather for {place}? The town name goes to Open-Meteo.")
         self._pending_tool = intent
         self.window.home.set_reply(intent.query or "tool", intent.ask, "Nothing is sent until you say yes.")
         self._speak(intent.ask)
@@ -2169,7 +2216,120 @@ class Shell:
         if intent.kind == "web":
             self._run_web(intent)
             return
+        if intent.kind == "weather":
+            self._run_weather(intent)
+            return
+        if intent.kind == "home":
+            self._run_house()
+            return
         self._prepare_search(intent.action_id, intent.query, already_yes=True)
+
+    def _run_weather(self, intent) -> None:
+        """After the yes: the town goes to Open-Meteo, the forecast comes back, and it is said."""
+        from babysitter.weather import check
+
+        place, tomorrow = intent.query, intent.action_id == "tomorrow"
+        self.window.home.set_reply("weather", f"Checking the weather for {place}…", "Only the town name was sent, to Open-Meteo.")
+        job = _CallJob(lambda: check(place, tomorrow=tomorrow))
+        self._store_job("_weather_job", job)
+        job.ready.connect(self._weather_ready)
+        job.start()
+
+    def _weather_ready(self, speech, problem: str) -> None:
+        said = problem or str(speech or "")
+        self.window.home.set_reply("weather", said, "From Open-Meteo. Only the town name was sent.")
+        self._note_local("weather", said)
+        self._speak(said)
+
+    # ---------- Home Assistant and music (phase 6) ----------
+    def _home_ready(self) -> bool:
+        from babysitter.home import HomeTokenVault
+
+        return bool(self.controller.settings.home_url) and HomeTokenVault().has_token()
+
+    def _maybe_house(self, text: str) -> bool:
+        """A switch or music command, said by you. It is planned here and done only after your yes."""
+        from babysitter.home import HomeTokenVault, list_entities, parse_house, plan
+
+        if parse_house(text) is None:
+            return False
+        if not self._home_ready():
+            return False  # no house set up: the words go to the model as an ordinary question
+        base = self.controller.settings.home_url
+        music = self.controller.settings.home_music_entity
+        token = HomeTokenVault().load()
+        self.window.home.set_reply(text, "Looking in Home Assistant…", "Only your own network. Nothing changes until you say yes.")
+        job = _CallJob(lambda: plan(text, list_entities(base, token), music))
+        self._store_job("_home_plan_job", job)
+        job.ready.connect(lambda command, problem, asked=text: self._house_planned(asked, command, problem))
+        job.start()
+        return True
+
+    def _house_planned(self, text: str, command, problem: str) -> None:
+        from babysitter.intents import ToolIntent
+
+        if problem or command is None:
+            speech = problem or "I couldn't find that in Home Assistant. Nothing was changed."
+            self.window.home.set_reply(text, speech, "")
+            self._speak(speech)
+            return
+        self._house_command = command
+        self._offer_tool(ToolIntent("home", "", command.entity_id, command.ask))
+
+    def _run_house(self) -> None:
+        from babysitter.home import HomeTokenVault, run
+
+        command = getattr(self, "_house_command", None)
+        self._house_command = None
+        if command is None:
+            return
+        base = self.controller.settings.home_url
+        token = HomeTokenVault().load()
+        job = _CallJob(lambda: run(command, base, token))
+        self._store_job("_home_run_job", job)
+        job.ready.connect(lambda speech, problem: self._house_done(speech, problem))
+        job.start()
+
+    def _house_done(self, speech, problem: str) -> None:
+        said = problem or str(speech or "Done.")
+        self.window.home.set_reply("home", said, "Home Assistant, on your own network.")
+        self._note_local("home", said)
+        self._speak(said)
+
+    def _save_home_clicked(self) -> None:
+        page = self.window.settings_page
+        self._save_home(page.home_url.text(), page.home_token.text())
+        page.home_token.clear()  # the token is never left in the box
+
+    def _save_home(self, address: str, token: str) -> str:
+        from babysitter.home import HomeError, HomeTokenVault, clean_base_url
+
+        try:
+            base = clean_base_url(address)
+            if token.strip():
+                HomeTokenVault().save(token)
+        except HomeError as exc:
+            message = str(exc)
+        else:
+            self.controller.settings.home_url = base
+            save_settings(self.controller.settings)
+            message = f"Saved. BabySitter talks to {base} only, and asks before every switch."
+        self.window.settings_page.home_status.setText(message)
+        return message
+
+    def _save_town(self, place: str) -> str:
+        from babysitter.weather import WeatherError, clean_place
+
+        try:
+            cleaned = clean_place(place).title() if place.strip() else ""
+        except WeatherError as exc:
+            message = str(exc)
+        else:
+            self.controller.settings.weather_place = cleaned
+            save_settings(self.controller.settings)
+            message = f"Weather town: {cleaned}." if cleaned else "Weather town cleared."
+        self.window.settings_page.home_status.setText(message)
+        return message
 
     def _run_web(self, intent) -> None:
         settings = self.controller.settings
@@ -3848,6 +4008,8 @@ class Shell:
             intent = match_tool(text)
             if intent is None:
                 self._goals_open = False
+                if self._maybe_house(text):
+                    return True
                 return False
             self._goals_open = False
             self._offer_tool(intent)

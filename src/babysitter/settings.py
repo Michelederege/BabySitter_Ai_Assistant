@@ -79,6 +79,11 @@ class Settings:
     # Outlook / Microsoft 365, read-only. The id is the app registration's, not a secret.
     microsoft_enabled: bool = False
     microsoft_client_id: str = ""
+    # Phase 6. The town is kept here; it leaves the PC only after a yes.
+    weather_place: str = ""
+    # Home Assistant on this network only. The token is in secrets/, encrypted.
+    home_url: str = ""
+    home_music_entity: str = ""
     notices: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -127,6 +132,9 @@ class Settings:
             "context_tokens": self.context_tokens,
             "microsoft_enabled": self.microsoft_enabled,
             "microsoft_client_id": self.microsoft_client_id,
+            "weather_place": self.weather_place,
+            "home_url": self.home_url,
+            "home_music_entity": self.home_music_entity,
         }
 
 
@@ -296,6 +304,19 @@ def migrate(data: dict) -> dict:
     return incoming
 
 
+def _home_url(value: object) -> str:
+    """A saved Home Assistant address is checked again: off this network, it is dropped."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        from babysitter.home import clean_base_url
+
+        return clean_base_url(text)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _client_id(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -451,6 +472,9 @@ def settings_from_dict(data: dict) -> Settings:
         context_tokens=_context_tokens(data.get("context_tokens", 0)),
         microsoft_enabled=bool(data.get("microsoft_enabled", False)),
         microsoft_client_id=_microsoft_id(data.get("microsoft_client_id", "")),
+        weather_place=" ".join(str(data.get("weather_place") or "").split())[:60],
+        home_url=_home_url(data.get("home_url", "")),
+        home_music_entity=str(data.get("home_music_entity") or "")[:120],
         hearing_engine=(
             str(data.get("hearing_engine") or "whisper")
             if str(data.get("hearing_engine") or "whisper") in {"whisper", "moonshine", "parakeet"}

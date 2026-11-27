@@ -107,6 +107,9 @@ def match_tool(text: str) -> ToolIntent | None:
     recipe = _recipe(raw, lowered)
     if recipe is not None:
         return recipe
+    weather = weather_intent(raw)
+    if weather is not None:
+        return weather
     if lowered in {"check my search credits", "how many credits", "how many credits are left"}:
         return ToolIntent("social", "credits", "", "Ask ScrapeCreators how many credits are left?")
     return None
@@ -159,3 +162,29 @@ def _recipe(raw: str, lowered: str) -> ToolIntent | None:
                 summary + " Do not guess anyone's age or gender.",
             )
     return None
+
+
+_WEATHER = re.compile(
+    r"(?:what(?:'s| is) the |how(?:'s| is) the |check the |tell me the |get the )?"
+    r"(?:weather|forecast|temperature)"
+    r"(?: (?:like|going to be|be))?"
+    r"(?: (?:in|for|at) (?P<place>[a-z .'-]{2,60}?))?"
+    r"(?: (?P<when>today|tomorrow|tonight|this week|right now|now|outside))?",
+)
+_RAIN = re.compile(r"(?:is it going to|will it|is it gonna|does it look like it'll) (?:rain|snow)(?: (?:in|at) (?P<place>[a-z .'-]{2,60}?))?(?: (?P<when>today|tomorrow|tonight))?")
+_TOWN = re.compile(r"(?:my town is|i live in|my city is|i'm in|im in|set my town to|set the weather to) (?P<place>[a-z .'-]{2,60})")
+
+
+def weather_intent(text: str) -> ToolIntent | None:
+    """'what's the weather', 'weather in Milan tomorrow', 'will it rain', or 'my town is Leeds'."""
+    phrase = " ".join(re.findall(r"[a-z0-9.'-]+", (text or "").lower())).strip(" .")
+    town = _TOWN.fullmatch(phrase)
+    if town:
+        return ToolIntent("set_town", "", town.group("place").strip(" ."), "")
+    match = _WEATHER.fullmatch(phrase) or _RAIN.fullmatch(phrase)
+    if not match:
+        return None
+    place = (match.group("place") or "").strip(" .")
+    when = "tomorrow" if (match.group("when") or "") == "tomorrow" else "today"
+    ask = f"Check the weather for {place.title()}? The town name goes to Open-Meteo." if place else ""
+    return ToolIntent("weather", when, place, ask)

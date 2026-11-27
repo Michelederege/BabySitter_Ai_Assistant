@@ -187,6 +187,40 @@ class SettingsPage(QWidget):
         )
         self._sec('voice').addWidget(self.side_button)
 
+        self._sec('accounts').addWidget(self._label("Weather and the house"))
+        house_hint = QLabel(
+            "Weather comes from Open-Meteo, free and with no account, and asks before the town name leaves this PC. "
+            "Home Assistant talks only to an address on your own network, and every switch or song waits for your yes."
+        )
+        house_hint.setWordWrap(True)
+        house_hint.setObjectName("hint")
+        self._sec('accounts').addWidget(house_hint)
+        town_row = QHBoxLayout()
+        self.weather_town = QLineEdit()
+        self.weather_town.setPlaceholderText("Your town, such as Leeds")
+        self.weather_town.setAccessibleName("Weather town")
+        self.weather_save = QPushButton("Save town")
+        town_row.addWidget(self.weather_town, 1)
+        town_row.addWidget(self.weather_save)
+        self._sec('accounts').addLayout(town_row)
+        home_row = QHBoxLayout()
+        self.home_url = QLineEdit()
+        self.home_url.setPlaceholderText("homeassistant.local:8123")
+        self.home_url.setAccessibleName("Home Assistant address")
+        self.home_token = QLineEdit()
+        self.home_token.setPlaceholderText("Long-lived access token")
+        self.home_token.setAccessibleName("Home Assistant token")
+        self.home_token.setEchoMode(QLineEdit.Password)
+        self.home_save = QPushButton("Save Home Assistant")
+        home_row.addWidget(self.home_url, 1)
+        home_row.addWidget(self.home_token, 1)
+        home_row.addWidget(self.home_save)
+        self._sec('accounts').addLayout(home_row)
+        self.home_status = QLabel("")
+        self.home_status.setObjectName("hint")
+        self.home_status.setWordWrap(True)
+        self._sec('accounts').addWidget(self.home_status)
+
         self.searx_enabled = QCheckBox("Use SearXNG on this PC for web search")
         self.searx_enabled.setToolTip("Off by default. BabySitter only talks to 127.0.0.1.")
         self._sec('accounts').addWidget(self.searx_enabled)
@@ -405,6 +439,8 @@ class SettingsPage(QWidget):
         return label
 
     def fill(self, settings, data_folder: str) -> None:
+        self.weather_town.setText(settings.weather_place)
+        self.home_url.setText(settings.home_url)
         self.autostart.setChecked(settings.start_with_windows)
         self.on_top.setChecked(settings.orb_always_on_top)
         self.emergency.setText(settings.emergency_hotkey)

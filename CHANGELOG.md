@@ -22,6 +22,10 @@ BabySitter uses version numbers like v1.2.3.
 
 **New mail is said while the AI is off.** Every 15 minutes the linked accounts are read, as they are while the AI is on, and anything new is said in the Windows voice. The AI is not loaded for it. Quiet hours keep it silent, and so does the night (22:00 to 07:00) when quiet hours are off. Game mode does not. Turn it off in Settings, Alerts and quiet hours. Outlook on its own is now read too; before, it was skipped when Google was off.
 
+**Weather.** "What's the weather?", "weather in Milan tomorrow", or "will it rain?" BabySitter asks first, every time, then sends only the town name to Open-Meteo (free, no account) and says the forecast. Say "my town is Leeds" once and it remembers.
+
+**Home Assistant and music.** Settings, Accounts and home: type your Home Assistant address and a long-lived token. Then say "turn off the kitchen light", "pause the music", or "next song". BabySitter says what it will do and waits for your yes. It talks only to an address on your own network, and the model's words never press anything.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

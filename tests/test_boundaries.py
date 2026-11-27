@@ -61,6 +61,9 @@ def test_http_targets_are_local_or_documented_pages():
         "https://graph.microsoft.com/v1.0/me/",
         "http://localhost",
         "https://huggingface.co/Supertone/supertonic-3/resolve/724fb5abbf5502583fb520898d45929e62f02c0b/",
+        # Weather, only after a yes each time: the town name, then its rounded position.
+        "https://geocoding-api.open-meteo.com/v1/search",
+        "https://api.open-meteo.com/v1/forecast",
         # Word's XML namespace, used as a name when reading a .docx. Never fetched.
         "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
         # Built only after the host is checked to be 127.0.0.1.
