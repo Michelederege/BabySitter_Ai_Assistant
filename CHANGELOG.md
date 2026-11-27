@@ -2,6 +2,13 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.31.0 — Say it your own way
+
+**Requests in your own words get done.** "Put dentist on Friday at 3", "give me twenty minutes on the clock", "my sister's birthday is March 4" matched no command, so they went to the AI as a chat and nothing happened. Now the AI on this PC works out which command you mean, says it back ("Set a reminder for 3:00 PM on Friday, December 4: go to the dentist?") and waits for yes. It can only lead to a reminder, a timer, a remembered fact, a goal or a journal task, never opening, sending or changing anything else. On this PC it got 14 of 14 such requests right and mistook 0 of 10 ordinary questions for commands, in under half a second each.
+
+**Reminders understand days and dates.** "On Friday at 3 pm" was saved for tomorrow, "December 3" was ignored, and "set an alarm for 6:30 am tomorrow" rang at 9. Weekdays, "next Tuesday", dates ("December 3", "the 3rd of December", "January 2nd"), "the day after tomorrow", and "tomorrow morning" or "this evening" all work now. A day with no hour is 9 AM. Reminders further off are read back with the day: "3:00 PM on Friday".
+
+**Smaller fixes from a full run of the app with the real AI:** "how long is left" reads the running timer, as the help list says, not the next reminder. The chat no longer brings up your next reminder when you didn't ask, and never claims to have set or changed something. "What have I got coming up" reads your next reminder instead of going to the chat. "Your goal: run a marathon" reads better than "Your goal is run a marathon". Saying no to an offer clears it from the screen.
 ## 0.30.0 — The best AI for each job, measured on this PC
 
 **It hears you better, especially with noise around.** Parakeet now hears your questions. With background noise it got 0.4% of words wrong against Moonshine's 6.1%, which had turned "five forty five" into 5:35. It takes 0.14 seconds a sentence, which you won't notice. If Parakeet isn't installed, Moonshine and then Whisper step in.

@@ -811,7 +811,7 @@ def chat_messages(
         line += " Saved facts from this PC: " + " | ".join(saved[:2])
     desk = (context_note or "").strip()
     if desk:
-        line += f" Background from this PC, to mention only if the question is about it: {desk}"
+        line += f" (For reference only, not part of the question; say it only if asked about it: {desk})"
     messages.append({"role": "user", "content": line})
     return messages
 

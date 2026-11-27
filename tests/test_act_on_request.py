@@ -65,6 +65,8 @@ def test_a_reminder_must_ring_and_must_come_from_what_was_said():
     # The model made up the dentist: the note shares no word with what was said.
     assert sg.accept("block out 4 pm", "remind me at 4:00 pm to go to the dentist") is None
     assert sg.accept("block out 4 pm for studying", "remind me at 4:00 pm to study") is not None
+    # No time was said, so the model's Friday at 9 is made up.
+    assert sg.accept("schedule my haircut", "remind me on Friday at 9:00 am to get a haircut") is None
 
 
 def test_waking_up_is_the_morning():
@@ -79,7 +81,7 @@ def test_the_question_is_built_from_the_parsed_command():
     parsed = sg.accept("put dentist on friday at 3", "remind me tomorrow at 3:00 pm to go to the dentist")
     line = sg.confirm_line(parsed, NOW)
     assert line.startswith("Set a reminder for 3:00 PM tomorrow: go to the dentist")
-    assert sg.confirm_line(sg.accept("x", "set a timer for 20 minutes")) == "Start a timer for 20 minutes?"
+    assert sg.confirm_line(sg.accept("twenty minutes on the clock", "set a timer for 20 minutes")) == "Start a timer for 20 minutes?"
     assert sg.confirm_line(sg.accept("the gate code is 4412", "remember that the gate code is 4412")) == "Remember that the gate code is 4412?"
 
 

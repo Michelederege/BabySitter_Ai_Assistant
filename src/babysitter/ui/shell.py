@@ -3122,7 +3122,7 @@ class Shell:
             num_batch=mode.num_batch,
             facts=facts,
             personality=getattr(self, "_session_personality", ""),
-            context_note=self._desk_context_note(),
+            context_note=self._desk_context_note(text),
             note_more=lambda prompt=text, ctx=mode.num_ctx: self._writing_note(prompt, ctx),
         )
         job.turn = self._turn_id
@@ -3228,8 +3228,19 @@ class Shell:
             self.window.tools_page.show_google(speech)
         self._speak(speech)
 
-    def _desk_context_note(self) -> str:
-        """Short desk state so conversational replies know about an open task or next reminder."""
+    _ABOUT_MY_DAY = re.compile(
+        r"\b(?:remind\w*|plans?|planning|schedule|agenda|today|tonight|evening|morning|afternoon|tomorrow|later|"
+        r"weekend|task|working on|busy|free|coming up|what should i|what do i|do next|my day|to ?do)\b"
+    )
+
+    def _desk_context_note(self, question: str = "") -> str:
+        """Short desk state so conversational replies know about an open task or next reminder.
+
+        Only for a question about his day or plans: given with every question,
+        the model mentioned the next reminder after "what is the capital of France".
+        """
+        if question and not self._ABOUT_MY_DAY.search(question.lower()):
+            return ""
         bits: list[str] = []
         try:
             record = load_day(date.today())

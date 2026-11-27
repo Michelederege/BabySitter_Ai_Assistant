@@ -111,6 +111,8 @@ def accept(heard: str, command: str) -> QuickCommand | None:
         return None
     if parsed.kind == "remind" and not parsed.when:
         return None  # a reminder that never rings is not worth a question
+    if parsed.kind in {"remind", "timer"} and not _TIME_WORD.search(strip_lead(heard or "").lower()):
+        return None  # "schedule my haircut" names no time: the model would be making one up
     if parsed.kind == "remind":
         parsed = _wake_in_the_morning(heard, parsed)
     if parsed.kind == "timer" and parsed.seconds <= 0:

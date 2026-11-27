@@ -42,3 +42,24 @@ def test_how_long_is_left_with_no_timer_still_answers(tmp_path, monkeypatch):
         assert spoken and "left on the timer" not in spoken[-1]
     finally:
         shell.window.close()
+
+
+def test_the_next_reminder_goes_with_questions_about_his_day_only(tmp_path, monkeypatch):
+    """The model said "you're calling mom tomorrow" after "what is the capital of France"."""
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    try:
+        later = (datetime.now().astimezone() + timedelta(hours=3)).isoformat(timespec="seconds")
+        shell._save_local("schedule.json", "call mom", "the reminder", due=later)
+        assert shell._desk_context_note("what is the capital of France") == ""
+        assert shell._desk_context_note("tell me a joke") == ""
+        assert "call mom" in shell._desk_context_note("what should I do this evening")
+    finally:
+        shell.window.close()
+
+
+def test_coming_up_is_a_command_not_a_chat():
+    from babysitter.commands import match_quick_command
+
+    for line in ("what have I got coming up", "anything coming up", "what's coming up", "do I have any reminders"):
+        said = match_quick_command(line)
+        assert said is not None and said.kind == "next_reminder", line

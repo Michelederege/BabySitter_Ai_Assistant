@@ -1086,6 +1086,18 @@ def _local_extra(phrase: str, original: str) -> QuickCommand | None:
         "next reminder",
         "what reminders do i have",
         "do i have a reminder",
+        "do i have any reminders",
+        "what have i got coming up",
+        "what have i got on",
+        "what's coming up",
+        "whats coming up",
+        "what is coming up",
+        "anything coming up",
+        "is anything coming up",
+        "do i have anything coming up",
+        "what do i have coming up",
+        "what's next on my list",
+        "what's on my list",
     }:
         return QuickCommand("next_reminder")
     if phrase in {
