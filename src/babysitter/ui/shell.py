@@ -180,9 +180,10 @@ class _KeywordDownloadJob(QThread):
 
 
 class _WarmVoiceJob(QThread):
-    def __init__(self, busy) -> None:
+    def __init__(self, busy, voice_name: str = "") -> None:
         super().__init__()
         self._busy = busy
+        self._voice = voice_name
 
     def run(self) -> None:
         if self._busy():
@@ -204,9 +205,11 @@ class _WarmVoiceJob(QThread):
             def render(text: str):
                 from babysitter.plugins.voice.kokoro_voice import render_clip
 
-                return render_clip(text)
+                return render_clip(text, self._voice)
 
-            library().prepare(render, self._busy)
+            # Fillers only for a Kokoro voice; the Windows voice has none.
+            if self._voice and not self._voice.startswith("Microsoft"):
+                library(self._voice).prepare(render, self._busy)
         except Exception:
             return
 
@@ -570,6 +573,50 @@ class _GoogleJob(QThread):
             speech = "Google did not answer. Mail and the calendar were not changed."
         secret = ""
         self.ready.emit(speech)
+
+
+class _ScanJob(QThread):
+    """Reads the PC for "scan my PC": processes, startup items, Defender.
+
+    The processor share needs a second of watching and Defender takes a
+    few more, so this is off the window's thread. It only reads.
+    """
+
+    finished_scan = Signal(object)
+
+    def __init__(self, games: list[str]) -> None:
+        super().__init__()
+        self._games = list(games)
+
+    def run(self) -> None:
+        from babysitter.pcreport import (
+            collect_rows,
+            defender_threats,
+            report_detail,
+            report_speech,
+            suspicious,
+            top_apps,
+        )
+        from babysitter.pcscan import own_pids
+
+        try:
+            rows = collect_rows()
+            startups = collect_startups()
+            games = list(self._games)
+            try:
+                games.extend(running_game_names())
+            except Exception:
+                pass
+            mine = own_pids()
+            result = scan([(row.name, row.rss, row.pid) for row in rows], startups, games=games)
+            apps = top_apps(rows, skip_pids=mine)
+            flags = suspicious(rows, startups, skip_pids=mine)
+            threats = defender_threats()
+            report = (report_speech(apps, flags, threats), report_detail(apps, flags, threats))
+        except Exception as exc:
+            self.finished_scan.emit(exc)
+            return
+        self.finished_scan.emit((result, report))
 
 
 class _HealthJob(QThread):
@@ -1270,7 +1317,7 @@ class Shell:
     def _warm_voice(self) -> None:
         if getattr(self, "_warm_job", None) is not None and self._warm_job.isRunning():
             return
-        job = _WarmVoiceJob(self.turns.busy)
+        job = _WarmVoiceJob(self.turns.busy, self._voice_prefs().get("name", ""))
         self._store_job("_warm_job", job)
         job.start()
 
@@ -1739,6 +1786,7 @@ class Shell:
         self._pending_relaunch = prepared
         self.window.settings_page.update_status.setText(prepared.message)
         self.window.home.set_phase(self.controller.state, prepared.message)
+        self.controller.force_quit = True
         self._quit()
 
     def _download_silero(self) -> None:
@@ -2618,7 +2666,10 @@ class Shell:
         self._filler_n += 1
         self.window.home.set_phase("thinking", line)
         self._show_mode("thinking", line)
-        clip = library().clip(index)
+        prefs = self._voice_prefs()
+        if prefs.get("engine") != "kokoro":
+            return  # a Kokoro clip in front of the Windows voice would be two voices
+        clip = library(prefs.get("name", "")).clip(index)
         if clip is None or getattr(self, "_speaking", False):
             return
         pcm, rate = clip
@@ -3148,7 +3199,7 @@ class Shell:
             "name": name,
             "speed": speed,
             "pitch": pitch,
-            "label": "Heart and Sarah" if "blend" in name.lower() or "sarah" in name.lower() else name,
+            "label": _voice_label(name),
         }
 
     def _speak(self, text: str, filler: bool = False, hold_open: bool = False, alert: bool = False) -> None:
@@ -3544,6 +3595,9 @@ class Shell:
             return True
         if quick.kind == "rate":
             self._save_rating(quick.detail)
+            return True
+        if quick.kind == "persona":
+            self._save_persona(quick.detail)
             return True
         if quick.kind == "timer":
             self._begin_timer(quick.seconds, quick.detail)
@@ -4114,48 +4168,45 @@ class Shell:
             return
         self._scan_when_free = False
         self._pending_offer = ""
-        try:
-            settings = self.controller.settings
-            watched_games = list(settings.game_processes)
-            snap = getattr(self.controller, "latest_status", None)
-            if snap is not None and settings.detect_games and snap.detected_game:
-                watched_games.append(snap.detected_game)
-            # Every game in a store folder, not only the first one the
-            # status check noticed, so a second open game is never offered.
-            try:
-                watched_games.extend(running_game_names())
-            except Exception:
-                pass
-            result = scan(
-                collect_processes(),
-                collect_startups(),
-                games=watched_games,
-            )
-        except Exception as exc:
+        running = getattr(self, "_scan_job", None)
+        if running is not None and running.isRunning():
+            return
+        settings = self.controller.settings
+        watched_games = list(settings.game_processes)
+        snap = getattr(self.controller, "latest_status", None)
+        if snap is not None and settings.detect_games and snap.detected_game:
+            watched_games.append(snap.detected_game)
+        self.window.home.set_reply("scan", "Checking this PC.", "Reading apps, startup items, and Windows Defender. Nothing is changed.")
+        self.window.health_page.body.setPlainText("Checking this PC. This takes a few seconds…")
+        job = _ScanJob(watched_games)
+        self._store_job("_scan_job", job)
+        job.finished_scan.connect(self._scan_ready)
+        job.start()
+
+    def _scan_ready(self, outcome) -> None:
+        if isinstance(outcome, Exception):
             speech = "I couldn't read this PC just now. I did not change anything."
             self.window.health_page.body.setPlainText(speech)
-            self.window.home.set_reply("scan", speech, str(exc)[:500])
+            self.window.home.set_reply("scan", speech, str(outcome)[:500])
             self._speak(speech)
             return
+        result, (report_said, report_detail) = outcome
         self._suggestions = list(result.suggestions)
         self._suggestion_at = 0
         self._awaiting_more = False
-        parts: list[str] = []
-        if result.left_games:
-            parts.append("I left games alone.")
+        parts: list[str] = [report_said]
         if result.memory_line:
             parts.append(result.memory_line)
-        if result.summary:
-            parts.append(result.summary)
+        if result.left_games:
+            parts.append("I left games alone.")
+        self._scan_detail = report_detail
         self._scan_prefix = (" ".join(parts) + " ") if parts else ""
         if not self._suggestions:
             speech = self._scan_prefix.strip()
-            if not result.summary:
-                speech = (speech + " I didn't find a heavy app or a startup item I would change.").strip()
             self._scan_prefix = ""
             self._arm_yes_no(False)
-            self.window.health_page.body.setPlainText(speech)
-            self.window.home.set_reply("scan", speech, "Nothing was changed.")
+            self.window.health_page.body.setPlainText(f"{speech}\n\n{report_detail}")
+            self.window.home.set_reply("scan", speech, report_detail)
             self._note_local("scan", speech)
             self._speak(speech)
             return
@@ -4165,7 +4216,10 @@ class Shell:
         item = self._suggestions[self._suggestion_at]
         speech = self._scan_prefix + item.speech
         self._scan_prefix = ""
-        self.window.health_page.body.setPlainText(speech + "\n\nSay yes, or say no.")
+        detail = getattr(self, "_scan_detail", "")
+        self.window.health_page.body.setPlainText(
+            speech + "\n\nSay yes, or say no." + (f"\n\n{detail}" if detail else "")
+        )
         self.window.home.set_reply("scan", speech, "Nothing changes until you say yes.")
         self._note_local("scan", speech)
         self._arm_yes_no(True)
@@ -4509,6 +4563,29 @@ class Shell:
         self.window.home.set_reply("rating", speech, "The tone stays fixed until the next time you turn the AI on.")
         self._speak(speech)
 
+    def _save_persona(self, name: str) -> None:
+        """A name and manner for the next session. It gives no new powers."""
+        from babysitter.personality import clear_persona, save_persona
+
+        if not name:
+            clear_persona()
+            speech = "Okay. I'll be myself again the next time the AI turns on."
+        else:
+            try:
+                shown = save_persona(name)
+            except ValueError as exc:
+                speech = str(exc)
+            else:
+                speech = (
+                    f"Saved. I'll be {shown} the next time the AI turns on. "
+                    "Say be yourself to undo it."
+                )
+        note = "Only how I speak changes. The tools, and every confirm, stay the same."
+        self.window.voice_page.status.setText(speech)
+        self.window.home.set_reply("persona", speech, note)
+        self._note_local("persona", speech)
+        self._speak(speech)
+
     def _speak_weekly(self) -> None:
         if self.turns.busy():
             self.window.home.set_phase("on", "The weekly review waits until this reply finishes.")
@@ -4705,7 +4782,27 @@ class Shell:
                 )
             except Exception as exc:
                 get_logger().error("Could not start update relauncher: %s", exc)
+            else:
+                # A library thread that will not stop must not keep this old
+                # copy alive beside the new one. Clean exit first; this is the
+                # backstop if that has not happened in ten seconds.
+                import os
+                import threading
+
+                backstop = threading.Timer(10.0, os._exit, args=(0,))
+                backstop.daemon = True
+                backstop.start()
         QApplication.quit()
+
+
+def _voice_label(name: str) -> str:
+    """How a Kokoro voice is named in "Speaking with …"."""
+    lowered = (name or "").lower()
+    if "edith" in lowered:
+        return "the EDITH-style voice"
+    if "blend" in lowered or "sarah" in lowered:
+        return "Heart and Sarah"
+    return name
 
 
 def load_icon() -> QIcon:

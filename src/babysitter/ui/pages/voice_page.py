@@ -25,6 +25,7 @@ from babysitter.ui.pinbutton import pin_button
 
 VOICES = (
     ("American", "Heart & Sarah blend", "Kokoro", "Local"),
+    ("American", "EDITH-style blend", "Kokoro", "Local"),
     ("American", "af_heart", "Kokoro", "Local"),
     ("American", "am_michael", "Kokoro", "Local"),
     ("American", "Microsoft Zira", "Windows", "Local"),

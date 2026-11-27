@@ -2,6 +2,16 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.21.0 — A real PC scan, a faster update, and an EDITH-style voice
+
+**"Scan my PC" says what is using it, and what looks wrong.** It names your five heaviest apps by memory, with Chrome's many processes counted as one Chrome, and the Health page lists each one's processor share. It also flags warning signs, each with its reason: a program with a Windows name running outside Windows' folders, a one-letter disguise of one such as svch0st, a program running from Temp, Downloads, the Recycle Bin, or the Public folder, a program whose file was deleted while it runs, and a startup entry that runs hidden PowerShell or a script from AppData. Windows Defender's own recent detections are read too. These are warning signs, not a virus scan, and nothing is closed or deleted because of one. The offers to close a heavy app or a startup item still follow, and still wait for a yes. The scan reads on its own thread and takes about three seconds.
+
+**Update BabySitter is faster, and the old copy closes.** The rebuild reuses PyInstaller's earlier work instead of starting from an empty folder, so a small update no longer analyses every library again. An update now closes this copy even when turning the AI off reports a problem. The helper waits up to a minute for the old copy, and if it is still running, closes it before opening the new one. Each step is written to the log with how long it took.
+
+**An EDITH-style voice.** The Voice tab has a new Kokoro blend: Nova's clear diction over Kore's lower, steadier tone, calm and crisp. It is a mix of Kokoro's stock voices, not a copy of anyone's. The short "One moment" lines now play in the voice you chose, instead of always in Heart and Sarah.
+
+**A name to answer to.** Say "be EDITH", or "be Brook", or "call yourself" and a name. It is saved on this PC and used the next time the AI turns on. EDITH speaks calmly and precisely, with a dry wit. Any other name keeps the usual manner. Say "be yourself" to go back. A persona changes only how the assistant speaks: it cannot send mail, change a calendar, press play, flip a switch, or invent a source.
+
 ## 0.20.0 — Make room for a game
 
 **Game mode follows the graphics card, not the game's name.** While a game runs, BabySitter reads the card every two seconds and works out how much the game leaves for the AI. Its own model does not count against it. If your level still fits, nothing changes. If Medium no longer fits but Low does, it switches to Low by itself. If not even Low fits, or system memory is nearly full, it switches to game mode and unloads the model. A reading has to hold for about six seconds first, so a loading screen does not flip levels, and the level only goes down while the game runs.

@@ -89,8 +89,16 @@ class FillerLibrary:
             return None
 
 
-def library() -> FillerLibrary:
-    return FillerLibrary()
+def library(voice_name: str = "") -> FillerLibrary:
+    """The clips for one voice. "One moment." in Heart and Sarah used to play
+    in front of every voice, so each voice now has its own three clips."""
+    import re
+
+    name = (voice_name or "").strip()
+    if not name or name == "Heart & Sarah blend":
+        return FillerLibrary()  # the clips already saved before voices had folders
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:60] or "voice"
+    return FillerLibrary(filler_dir() / slug)
 
 
 def play_clip(pcm: bytes, rate: int, stop_event: threading.Event) -> bool:

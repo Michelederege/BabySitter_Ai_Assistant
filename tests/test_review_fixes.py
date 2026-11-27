@@ -123,7 +123,13 @@ def test_detected_store_game_hides_orb_and_is_left_alone_by_scan(tmp_path, monke
         return original_scan(procs, startups, games=games)
 
     monkeypatch.setattr(shell_mod, "scan", spy_scan)
+    import babysitter.pcreport as pcreport
+
+    monkeypatch.setattr(pcreport, "collect_rows", lambda sample_seconds=1.0: [])
+    monkeypatch.setattr(pcreport, "defender_threats", lambda run=None: [])
     shell._begin_scan()
+    assert shell._scan_job.wait(5000)
+    _app.processEvents()
     assert "eldenring.exe" in captured_games
     _teardown(controller, shell)
 

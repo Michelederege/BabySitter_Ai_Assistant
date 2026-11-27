@@ -173,6 +173,7 @@ class Controller(QObject):
         self._busy = False
         self._pending_off: tuple[bool, str] | None = None
         self._quit_after_off = False
+        self.force_quit = False
         self._emergency_latched = False
         self.accepted_old_version = False
         self._game_prompt_open = False
@@ -503,7 +504,9 @@ class Controller(QObject):
         if result.state == ON:
             self.reload_offered.emit(False)
         if self._quit_after_off:
-            if result.state == OFF and result.ok:
+            # An update closes this copy no matter what, or the old version
+            # stays open beside the new one. Ollama was stopped either way.
+            if (result.state == OFF and result.ok) or self.force_quit:
                 self.quit_ready.emit()
             else:
                 self._quit_after_off = False
