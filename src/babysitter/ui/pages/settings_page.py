@@ -7,6 +7,7 @@ import sys
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,6 +23,8 @@ from babysitter.version import __version__
 
 class SettingsPage(QWidget):
     pin_line = Signal(str)
+    # The chosen microphone's full name. Empty means Windows' default.
+    microphone_chosen = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -187,6 +190,27 @@ class SettingsPage(QWidget):
         )
         root.addWidget(self.quit_off)
 
+        root.addWidget(self._label("Microphone"))
+        mic_hint = QLabel(
+            "Keyword listening and Talk both use this microphone. Windows' default is not always "
+            "the one you talk into: a webcam or a dock can hold it and send no sound."
+        )
+        mic_hint.setWordWrap(True)
+        mic_hint.setObjectName("hint")
+        root.addWidget(mic_hint)
+        mic_row = QHBoxLayout()
+        self.microphone = QComboBox()
+        self.microphone.setAccessibleName("Microphone")
+        self.microphone.setToolTip("The microphone BabySitter opens. Nothing is recorded until you talk.")
+        self.refresh_microphones = QPushButton("Refresh")
+        self.refresh_microphones.setToolTip("Look again after plugging in or turning on a headset.")
+        mic_row.addWidget(self.microphone, 1)
+        mic_row.addWidget(self.refresh_microphones)
+        root.addLayout(mic_row)
+        self.microphone.activated.connect(
+            lambda _index: self.microphone_chosen.emit(str(self.microphone.currentData() or ""))
+        )
+
         root.addWidget(self._label("Listening extras"))
         hint = QLabel(
             "These stay off until you turn them on. Silero is used only when its file is already "
@@ -340,6 +364,20 @@ class SettingsPage(QWidget):
         if not folders:
             self.search_folders.addItem("No extra folders yet.")
         self.folder.setText(data_folder)
+
+    def set_microphones(self, names: list[str], saved: str, default: str) -> None:
+        """Fill the list. A saved microphone that is unplugged stays listed."""
+        self.microphone.blockSignals(True)
+        self.microphone.clear()
+        label = f"Windows default ({default})" if default else "Windows default"
+        self.microphone.addItem(label, "")
+        for name in names:
+            self.microphone.addItem(name, name)
+        if saved and saved not in names:
+            self.microphone.addItem(f"{saved} (not found right now)", saved)
+        index = self.microphone.findData(saved or "")
+        self.microphone.setCurrentIndex(max(0, index))
+        self.microphone.blockSignals(False)
 
     def toggles(self):
         return (

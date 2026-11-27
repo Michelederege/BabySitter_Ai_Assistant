@@ -290,6 +290,8 @@ class KeywordListener:
         self._hot = 0
         self._deaths = 0
         self._stop_requested = False
+        # A sounddevice index, or None for Windows' default microphone.
+        self.device: int | None = None
 
     @property
     def running(self) -> bool:
@@ -355,6 +357,7 @@ class KeywordListener:
                 dtype="int16",
                 channels=1,
                 callback=on_audio,
+                device=self.device,
             ):
                 recognizer = _recognizer(model)
                 utterance = bytearray()
