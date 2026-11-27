@@ -57,3 +57,28 @@ def test_the_natural_voice_has_more_feeling_on_an_exclamation():
 
     assert liveliness("That's brilliant!") > liveliness("It is twelve.") > liveliness(" ".join(["word"] * 30) + ".")
     assert 0.3 <= liveliness("Really?") <= 0.8
+
+
+def test_everyday_wordings_reach_the_same_commands():
+    from babysitter.commands import match_quick_command
+    from babysitter.intents import match_tool
+
+    expected = {
+        "do you know what time it is": "time",
+        "time please": "time",
+        "whats the date today": "time",
+        "start a 3 minute timer": "timer",
+        "put a timer on for 15 minutes": "timer",
+        "stop the timer": "undo",
+        "how much time is left": "next_reminder",
+        "what do you remember about me": "memories",
+        "read my emails": "mail",
+        "whats my schedule": "calendar",
+    }
+    for said, kind in expected.items():
+        assert match_quick_command(said).kind == kind, said
+    assert match_quick_command("set a 20 second timer").seconds == 20
+    assert match_quick_command("set a 5 minute timer for the pasta").detail == "the pasta"
+    for said in ("whats the weather", "do i need an umbrella", "how cold is it outside"):
+        assert match_tool(said).kind == "weather", said
+    assert match_tool("I'm in trouble") is None  # not a town

@@ -34,6 +34,8 @@ BabySitter uses version numbers like v1.2.3.
 
 **A livelier voice.** The narrator voices put a little more feeling into an exclamation or a question and stay calm on long sentences. Units and symbols are said as words: kilometres, miles an hour, minutes, degrees, "around the clock" for 24/7.
 
+**It understands more ways of saying things.** "Do you know what time it is", "start a 3 minute timer", "stop the timer", "how much time is left", "read my emails", "what's my schedule", "do I need an umbrella", and "what do you remember about me" now work straight away, without the model.
+
 **No AI is left running.** Closing BabySitter always closes the natural-voice helper and the Ollama it started, Ollama's tray included. Windows now ends them too if BabySitter crashes or is ended from Task Manager. Ollama no longer starts by itself when Windows starts: its shortcut was moved from the Startup folder to `%LOCALAPPDATA%\BabySitter\startup-backup`, so BabySitter starts it only when you turn the AI on.
 
 ## 0.26.1 — Natural voices in the built app

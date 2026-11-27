@@ -165,14 +165,18 @@ def _recipe(raw: str, lowered: str) -> ToolIntent | None:
 
 
 _WEATHER = re.compile(
-    r"(?:what(?:'s| is) the |how(?:'s| is) the |check the |tell me the |get the )?"
+    r"(?:(?:what(?:'s| is)|whats|how(?:'s| is)|hows) the |check the |tell me the |get the )?"
     r"(?:weather|forecast|temperature)"
     r"(?: (?:like|going to be|be))?"
     r"(?: (?:in|for|at) (?P<place>[a-z .'-]{2,60}?))?"
     r"(?: (?P<when>today|tomorrow|tonight|this week|right now|now|outside))?",
 )
 _RAIN = re.compile(r"(?:is it going to|will it|is it gonna|does it look like it'll) (?:rain|snow)(?: (?:in|at) (?P<place>[a-z .'-]{2,60}?))?(?: (?P<when>today|tomorrow|tonight))?")
-_TOWN = re.compile(r"(?:my town is|i live in|my city is|i'm in|im in|set my town to|set the weather to) (?P<place>[a-z .'-]{2,60})")
+_OUTSIDE = re.compile(
+    r"(?:do i need an umbrella|do i need a coat|do i need a jacket|how (?:cold|hot|warm) is it(?: outside)?|"
+    r"is it (?:cold|hot|warm|raining|snowing)(?: outside)?)(?: (?P<when>today|tomorrow))?(?P<place>)"
+)
+_TOWN = re.compile(r"(?:my town is|i live in|my city is|set my town to|set the weather to|set my weather town to) (?P<place>[a-z .'-]{2,60})")
 
 
 def weather_intent(text: str) -> ToolIntent | None:
@@ -181,7 +185,7 @@ def weather_intent(text: str) -> ToolIntent | None:
     town = _TOWN.fullmatch(phrase)
     if town:
         return ToolIntent("set_town", "", town.group("place").strip(" ."), "")
-    match = _WEATHER.fullmatch(phrase) or _RAIN.fullmatch(phrase)
+    match = _WEATHER.fullmatch(phrase) or _RAIN.fullmatch(phrase) or _OUTSIDE.fullmatch(phrase)
     if not match:
         return None
     place = (match.group("place") or "").strip(" .")

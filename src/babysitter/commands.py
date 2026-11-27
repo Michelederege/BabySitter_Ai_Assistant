@@ -83,12 +83,93 @@ def loosen_heard(text: str) -> str:
     return ""
 
 
+# More of the ordinary ways people say the same thing. Each maps to a phrase
+# the tables below already know, so a new wording never needs a new handler.
+_SAME_AS = {
+    "do you know what time it is": "what time is it",
+    "what time is it now": "what time is it",
+    "whats the time now": "what time is it",
+    "what's the time now": "what time is it",
+    "time please": "what time is it",
+    "time": "what time is it",
+    "the time": "what time is it",
+    "current time": "what time is it",
+    "got the time": "what time is it",
+    "whats the date today": "what is the date",
+    "what's the date today": "what is the date",
+    "what is the date today": "what is the date",
+    "what day is today": "what day is it",
+    "what day is it today": "what day is it",
+    "whats today": "what day is it",
+    "what's today": "what day is it",
+    "stop the timer": "cancel the timer",
+    "stop timer": "cancel the timer",
+    "kill the timer": "cancel the timer",
+    "cancel my timer": "cancel the timer",
+    "cancel timer": "cancel the timer",
+    "end the timer": "cancel the timer",
+    "how long is left on the timer": "what's my next reminder",
+    "how much time is left": "what's my next reminder",
+    "how much time is left on the timer": "what's my next reminder",
+    "how long is left": "what's my next reminder",
+    "how much longer": "what's my next reminder",
+    "whats left on the timer": "what's my next reminder",
+    "what's left on the timer": "what's my next reminder",
+    "read my emails": "read my email",
+    "read me my emails": "read my email",
+    "check my emails": "check my email",
+    "any emails": "any new email",
+    "did i get any email": "any new email",
+    "did i get any emails": "any new email",
+    "whats in my inbox": "check my inbox",
+    "what's in my inbox": "check my inbox",
+    "what do i have today": "check my calendar",
+    "whats my schedule": "check my calendar",
+    "what's my schedule": "check my calendar",
+    "what is my schedule": "check my calendar",
+    "whats on today": "check my calendar",
+    "what's on today": "check my calendar",
+    "whats on my schedule": "check my calendar",
+    "what's on my schedule": "check my calendar",
+    "do i have anything today": "check my calendar",
+    "am i busy today": "check my calendar",
+}
+_COUNTDOWN = re.compile(
+    r"(?:(?:set|start|make|put on|give me)\s+)?(?:a|an|me a)?\s*([a-z0-9]+(?:\s+and\s+a\s+half)?)\s*"
+    r"(second|seconds|minute|minutes|min|mins|hour|hours)\s+timer(?:\s+(?:for|to)\s+(.+))?"
+)
+_TIMER_ON = re.compile(r"(?:put|set|start)\s+(?:a\s+)?timer\s+on\s+for\s+(.+)")
+
+
+def _same_as(phrase: str) -> str:
+    """The wording the tables know, for a few common other ways of saying it."""
+    if phrase in _SAME_AS:
+        return _SAME_AS[phrase]
+    countdown = _COUNTDOWN.fullmatch(phrase)
+    if countdown:
+        amount, unit, purpose = countdown.group(1), countdown.group(2), countdown.group(3)
+        unit = {"min": "minutes", "mins": "minutes"}.get(unit, unit)
+        rebuilt = f"set a timer for {amount} {unit}"
+        return rebuilt + (f" to {purpose}" if purpose else "")
+    timer_on = _TIMER_ON.fullmatch(phrase)
+    if timer_on:
+        return "set a timer for " + timer_on.group(1)
+    return phrase
+
+
 def _match_quick_command(text: str) -> QuickCommand | None:
     original = strip_lead(text)
     words = re.findall(r"[a-z0-9']+", original.lower())
     phrase = " ".join(words)
     if not phrase:
         return None
+    if phrase in _MEMORY_QUESTIONS:
+        return QuickCommand("memories")
+    same = _same_as(phrase)
+    if same != phrase:
+        phrase = same
+        original = same
+        words = phrase.split()
     if phrase in {"undo", "cancel that", "cancel the timer"}:
         return QuickCommand("undo", "Okay.")
     if phrase in {"why did you say that", "why did you say that?"}:
@@ -463,6 +544,12 @@ _NOT_A_NAME = {
     "anything", "fine", "okay", "ok", "sure", "nothing", "whatever", "me", "you", "us", "him", "her",
 }
 
+
+_MEMORY_QUESTIONS = {
+    "what do you remember about me", "what do you know about me", "what have you remembered",
+    "what have you remembered about me", "what do you remember", "what have i told you",
+    "what facts do you have", "what are my saved facts", "list my memories", "read my memories",
+}
 
 _NAME_QUESTIONS = {
     "what's your name", "what is your name", "whats your name", "who are you", "what do i call you",

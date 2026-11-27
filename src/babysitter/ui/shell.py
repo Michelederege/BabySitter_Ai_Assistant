@@ -4095,6 +4095,23 @@ class Shell:
         if quick.kind == "persona":
             self._save_persona(quick.detail)
             return True
+        if quick.kind == "memories":
+            facts = [str(item.get("text") or "").strip() for item in load_list("memory.json")]
+            facts = [fact for fact in facts if fact]
+            if not facts:
+                speech = "Nothing saved yet. Say remember that, and the fact, and I'll keep it on this PC."
+            else:
+                newest = facts[-3:][::-1]
+                count = len(facts)
+                speech = (
+                    f"I've saved {count} thing{'s' if count != 1 else ''}. The newest: " + "; ".join(newest) + "."
+                    if count > 1
+                    else f"Just one thing: {facts[0]}."
+                )
+            self.window.home.set_reply(text, speech, "\n".join(f"• {fact}" for fact in facts[::-1]) or "Saved on this PC, encrypted.")
+            self._note_local("memories", speech)
+            self._speak(speech)
+            return True
         if quick.kind == "my_name":
             from babysitter.personality import persona_name
 
@@ -5671,6 +5688,8 @@ class Shell:
                     relaunch.helper_env,
                 )
             except Exception as exc:
+                from babysitter.logsetup import get_logger
+
                 get_logger().error("Could not start update relauncher: %s", exc)
             else:
                 # A library thread that will not stop must not keep this old
