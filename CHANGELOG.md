@@ -12,6 +12,12 @@ BabySitter uses version numbers like v1.2.3.
 
 **A memory leak is gone.** Long use could grow BabySitter from about 116 MB to almost 800 MB. It now stays flat.
 
+**A damaged voice file no longer stops BabySitter opening.** If `voice.json` got corrupted, the window wouldn't open at all. Now the voice just goes back to the default.
+
+**Spoken numbers in reminders.** "Set a reminder for one forty one" and "set an alarm for seven" now get their time. One of your own reminders had been saved without a time this way, so it never rang.
+
+**You're told when your natural voice can't speak.** If the natural voice or your own recorded voice can't run (say, the graphics card is full), Kokoro speaks instead, and now the reason is shown once instead of the voice just changing.
+
 **Smaller fixes.** The weather looks your town up once per run. The README's privacy section now lists every service, and old "no voice cloning" and "no code signing" claims are corrected. Model and voice ideas are in `docs/model-recommendations.md`.
 
 ## 0.28.1 — Four audits: bugs and waste
