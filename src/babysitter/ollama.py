@@ -237,7 +237,11 @@ class OllamaClient:
         if body is not None:
             request.add_header("Content-Type", "application/json")
         model = "" if not body else str(body.get("model", ""))
-        log.info("%s %s model=%s", method, path, model)
+        if method != "GET":
+            # Loads, unloads, and replies are logged. The read-only checks are
+            # not: the status check asks /api/ps every 2 seconds, and that was
+            # 88% of his log, pushing errors and power changes out of it.
+            log.info("%s %s model=%s", method, path, model)
         return urllib.request.urlopen(request, timeout=timeout)
 
     def _request(self, method: str, path: str, body: dict | None = None, timeout: float = 30):

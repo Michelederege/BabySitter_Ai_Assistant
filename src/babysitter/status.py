@@ -79,6 +79,28 @@ def parse_compute_apps_csv(text: str) -> int:
     return total
 
 
+def with_ollama_share(gpu: GpuInfo | None, models: list[LoadedModel]) -> GpuInfo | None:
+    """The card reading with our own model's share filled in.
+
+    The NVIDIA driver reading (NVML) gives the card's totals only, so
+    `ollama_mib` was 0 in every 2-second reading on his PC. Game mode works
+    out the room as "everything except our model", so with 0 it counted our
+    own loaded model as the game's memory, and unloaded or switched down
+    beside any game. Ollama already says how much video memory each loaded
+    model holds; that is used when the reading has no share of its own. It
+    leaves out CUDA's own few hundred MB, so the room comes out slightly
+    smaller, never larger, than it is.
+    """
+    if gpu is None or gpu.ollama_mib or not models:
+        return gpu
+    from dataclasses import replace
+
+    share = sum(max(0, int(model.vram_bytes)) for model in models) // (1024 * 1024)
+    if share <= 0:
+        return gpu
+    return replace(gpu, ollama_mib=min(share, int(gpu.used_mib)))
+
+
 def probes_paused(charts_paused: bool, defer_probes: bool) -> bool:
     """Skip the video-memory read while the window is hidden or a voice turn is open."""
     return bool(charts_paused or defer_probes)
@@ -199,6 +221,7 @@ class StatusCollector:
         else:
             gpu, gpu_error = self._gpu()
             self._last_gpu = (gpu, gpu_error)
+        gpu = with_ollama_share(gpu, models)
         names, detected = self._scan_processes()
         return StatusSnapshot(
             cpu_percent=cpu,
