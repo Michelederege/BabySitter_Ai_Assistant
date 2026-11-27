@@ -58,6 +58,11 @@ def google_token_path() -> Path:
     return secrets_dir() / "google.dpapi"
 
 
+def google_client_secret_path() -> Path:
+    """The Desktop client's secret, encrypted. Google needs it to finish a sign-in."""
+    return secrets_dir() / "google-client-secret.dpapi"
+
+
 def google_school_token_path() -> Path:
     """Encrypted token for a second Google account, usually school."""
     return secrets_dir() / "google-school.dpapi"

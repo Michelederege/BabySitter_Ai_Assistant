@@ -38,6 +38,7 @@ class ToolsPage(QWidget):
     google_check = Signal(str)
     google_sign_in_requested = Signal(str)
     school_sign_in_requested = Signal(str)
+    google_client_file_requested = Signal()
     inbox_refresh = Signal(str)
     blackboard_save = Signal(str)
     blackboard_enabled_changed = Signal(bool)
@@ -118,10 +119,18 @@ class ToolsPage(QWidget):
         self.google_client.setAccessibleName("Google OAuth desktop client ID")
         self.google_client.setPlaceholderText("OAuth client id from your own Google Cloud desktop client")
         self.google_client.setToolTip(
-            "Not the token. Add redirect URI http://127.0.0.1:8765/babysitter on that client. "
-            "BabySitter asks only for read-only mail, calendar, and Drive file names."
+            "From your own Google Cloud client of type Desktop app. Choosing the client file fills this in. "
+            "BabySitter asks only for read-only mail, calendar, and Drive."
         )
         self._sec('accounts').addWidget(self.google_client)
+        self.google_client_file = QPushButton("Choose the Google client file…")
+        self.google_client_file.setObjectName("primary")
+        self.google_client_file.setToolTip(
+            "The client_secret_….json file Google gives you for a Desktop app client. "
+            "The id is saved in Settings; the secret is encrypted on this PC."
+        )
+        self.google_client_file.clicked.connect(self.google_client_file_requested.emit)
+        self._sec('accounts').addWidget(self.google_client_file)
         sign_row = QHBoxLayout()
         self.google_sign_in = QPushButton("Sign in with Google")
         self.google_sign_in.setToolTip(

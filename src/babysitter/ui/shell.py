@@ -751,8 +751,9 @@ class _SignInJob(QThread):
     finished_ok = Signal()
     failed = Signal(str)
 
-    def __init__(self, client_id: str, verifier: str, state: str, url: str) -> None:
+    def __init__(self, client_id: str, verifier: str, state: str, url: str, client_secret: str = "") -> None:
         super().__init__()
+        self._client_secret = client_secret
         self._client_id = client_id
         self._verifier = verifier
         self._state = state
@@ -762,7 +763,7 @@ class _SignInJob(QThread):
     def run(self) -> None:
         try:
             code = listen_for_code(self._state, on_ready=lambda: self.open_browser.emit(self._url))
-            self.bundle = exchange_code(self._client_id, code, self._verifier)
+            self.bundle = exchange_code(self._client_id, code, self._verifier, client_secret=self._client_secret)
             self.finished_ok.emit()
         except GoogleError as exc:
             self.failed.emit(str(exc))
@@ -988,6 +989,7 @@ class Shell:
         tools.delete_google.connect(self._delete_google_token)
         tools.google_check.connect(self._google_from_button)
         tools.google_sign_in_requested.connect(lambda client: self._google_sign_in(client, "personal"))
+        tools.google_client_file_requested.connect(self._choose_google_client_file)
         tools.school_sign_in_requested.connect(lambda client: self._google_sign_in(client, "school"))
         tools.inbox_refresh.connect(self._refresh_inbox)
         tools.blackboard_save.connect(self._save_blackboard)
@@ -4506,8 +4508,10 @@ class Shell:
         refresh = str(bundle.get("refresh_token") or "")
         client_id = self.controller.settings.google_client_id
         if refresh and client_id and int(bundle.get("expires_at") or 0) < time.time() + 60:
+            from babysitter.plugins.tools.google_account import ClientSecretStore
+
             try:
-                refreshed = refresh_access(client_id, refresh)
+                refreshed = refresh_access(client_id, refresh, client_secret=ClientSecretStore().load())
             except GoogleError as exc:
                 raise GoogleError("The Google sign-in expired. Sign in again on Tools.") from exc
             store.save_bundle(refreshed)
@@ -4542,7 +4546,16 @@ class Shell:
         state = verifier[:16]
         prompt = "select_account consent" if account == "school" else "consent"
         url = authorization_url(cleaned, state, challenge, prompt=prompt)
-        job = _SignInJob(cleaned, verifier, state, url)
+        from babysitter.plugins.tools.google_account import ClientSecretStore
+
+        secret = ClientSecretStore().load()
+        if not secret:
+            page.show_google(
+                "Choose the Google client file first (Choose the Google client file… under Accounts). "
+                "Google needs the client's secret to finish a sign-in. Nothing was sent."
+            )
+            return
+        job = _SignInJob(cleaned, verifier, state, url, client_secret=secret)
         self._store_job("_sign_in_job", job)
         job.open_browser.connect(lambda link: QDesktopServices.openUrl(QUrl(link)))
         job.finished_ok.connect(self._google_signed_in)
@@ -4550,6 +4563,31 @@ class Shell:
         job.start()
         who = "the school Google account" if account == "school" else "your Google account"
         page.show_google(f"Waiting for {who} in your browser. Read-only mail, calendar, and Drive.")
+
+    def _choose_google_client_file(self) -> None:
+        """Google's client_secret_….json: the id goes in Settings, the secret is encrypted."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from babysitter.plugins.tools.google_account import ClientSecretStore, client_from_file
+
+        path, _kind = QFileDialog.getOpenFileName(
+            self.window, "Choose the Google client file", str(Path.home() / "Downloads"), "Google client file (*.json)"
+        )
+        if not path:
+            return
+        page = self.window.tools_page
+        try:
+            client_id, secret = client_from_file(path)
+            ClientSecretStore().save(secret)
+        except SecretsError as exc:
+            page.show_google(str(exc))
+            return
+        self.controller.settings.google_client_id = client_id
+        self.controller.settings.google_enabled = True
+        save_settings(self.controller.settings)
+        page.google_client.setText(client_id)
+        page.set_google_enabled(True)
+        page.show_google("The Google client is saved. Its secret is encrypted on this PC. Now press Sign in with Google.")
 
     def _google_signed_in(self) -> None:
         job = getattr(self, "_sign_in_job", None)
