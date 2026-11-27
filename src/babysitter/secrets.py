@@ -9,6 +9,7 @@ and never written into the log.
 from __future__ import annotations
 
 import sys
+import threading
 from pathlib import Path
 from typing import Protocol
 
@@ -137,48 +138,57 @@ def _unprotect(data: bytes) -> bytes:
     return unprotect_blob(data)
 
 
+_DPAPI = None
+_DPAPI_LOCK = threading.Lock()
+
+
+def _dpapi():
+    """The DATA_BLOB type and the three Windows calls, made once.
+
+    They used to be made inside `_crypt` on every call. ctypes keeps every
+    structure type and pointer type it is ever given, so each decrypt (the
+    History page reads every saved conversation) leaked a new set: measured
+    at about 100 MB over 600 local commands (27 Nov 2026).
+    """
+    global _DPAPI
+    with _DPAPI_LOCK:
+        if _DPAPI is not None:
+            return _DPAPI
+        import ctypes
+        from ctypes import wintypes
+
+        class DATA_BLOB(ctypes.Structure):
+            _fields_ = [
+                ("cbData", wintypes.DWORD),
+                ("pbData", ctypes.POINTER(ctypes.c_char)),
+            ]
+
+        blob = ctypes.POINTER(DATA_BLOB)
+        # Own function objects (WinDLL, not the shared windll), so setting their
+        # types here never changes a function another part of the app uses.
+        crypt32 = ctypes.WinDLL("crypt32")
+        kernel32 = ctypes.WinDLL("kernel32")
+        protect = crypt32.CryptProtectData
+        protect.argtypes = [blob, wintypes.LPCWSTR, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, blob]
+        protect.restype = wintypes.BOOL
+        unprotect = crypt32.CryptUnprotectData
+        unprotect.argtypes = [blob, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, blob]
+        unprotect.restype = wintypes.BOOL
+        free = kernel32.LocalFree
+        free.argtypes = [ctypes.c_void_p]
+        free.restype = ctypes.c_void_p
+        _DPAPI = (DATA_BLOB, protect, unprotect, free)
+        return _DPAPI
+
+
 def _crypt(data: bytes, *, encrypt: bool, description: str) -> bytes:
     import ctypes
-    from ctypes import wintypes
 
-    class DATA_BLOB(ctypes.Structure):
-        _fields_ = [
-            ("cbData", wintypes.DWORD),
-            ("pbData", ctypes.POINTER(ctypes.c_char)),
-        ]
-
+    DATA_BLOB, protect, unprotect, free = _dpapi()
     buffer = ctypes.create_string_buffer(data, len(data))
     incoming = DATA_BLOB(len(data), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_char)))
     outgoing = DATA_BLOB()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
-    kernel32.LocalFree.argtypes = [ctypes.c_void_p]
-    kernel32.LocalFree.restype = ctypes.c_void_p
-    if encrypt:
-        call = crypt32.CryptProtectData
-        call.argtypes = [
-            ctypes.POINTER(DATA_BLOB),
-            wintypes.LPCWSTR,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.POINTER(DATA_BLOB),
-        ]
-        second = description
-    else:
-        call = crypt32.CryptUnprotectData
-        call.argtypes = [
-            ctypes.POINTER(DATA_BLOB),
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            wintypes.DWORD,
-            ctypes.POINTER(DATA_BLOB),
-        ]
-        second = None
-    call.restype = wintypes.BOOL
+    call, second = (protect, description) if encrypt else (unprotect, None)
     ok = call(
         ctypes.byref(incoming),
         second,
@@ -193,4 +203,4 @@ def _crypt(data: bytes, *, encrypt: bool, description: str) -> bytes:
     try:
         return ctypes.string_at(outgoing.pbData, outgoing.cbData)
     finally:
-        kernel32.LocalFree(outgoing.pbData)
+        free(outgoing.pbData)
