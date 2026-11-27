@@ -55,3 +55,15 @@ def test_each_voice_keeps_its_own_filler_clips(tmp_path, monkeypatch):
     assert library("EDITH-style blend").prepare(render, lambda: False) == "ready"
     assert library("EDITH-style blend").clip(0) is not None
     assert library("Heart & Sarah blend").clip(0) is None
+
+
+def test_the_edith_cadence_is_measured_and_other_voices_keep_theirs():
+    from babysitter.plugins.voice.kokoro_voice import cadence
+    from babysitter.plugins.voice.speech import beat_after_opener
+
+    speed, pause = cadence("EDITH-style blend")
+    assert speed < 1.0 and pause > 1.0
+    assert cadence("Heart & Sarah blend") == (1.0, 1.0)
+    assert beat_after_opener("Understood. Closing Chrome now.") == ["Understood.", "Closing Chrome now."]
+    assert beat_after_opener("Of course. It is done.") == ["Of course.", "It is done."]
+    assert beat_after_opener("Chrome is the heaviest app.") == ["Chrome is the heaviest app."]
