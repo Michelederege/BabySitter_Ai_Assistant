@@ -71,3 +71,20 @@ def test_a_natural_voice_keeps_the_ai_on_low(tmp_path, monkeypatch):
 
     assert jobs[-1][1] == MODES["low"].model
     assert controller.settings.intelligence == "medium"  # the saved choice is not changed
+
+
+def test_the_exe_finds_its_packed_helper(tmp_path, monkeypatch):
+    packed = tmp_path / "babysitter"
+    packed.mkdir()
+    (packed / "voiceclone_worker.py").write_text("# helper", encoding="utf-8")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert clone_voice.worker_script() == packed / "voiceclone_worker.py"
+    monkeypatch.delattr(sys, "_MEIPASS")
+    assert clone_voice.worker_script().name == "voiceclone_worker.py" and clone_voice.worker_script().is_file()
+
+
+def test_the_build_ships_the_helper_as_a_file():
+    from pathlib import Path
+
+    spec = (Path(__file__).resolve().parents[1] / "packaging" / "babysitter.spec").read_text(encoding="utf-8")
+    assert '"voiceclone_worker.py"), "babysitter")' in spec

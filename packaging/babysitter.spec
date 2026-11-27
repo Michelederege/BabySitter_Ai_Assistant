@@ -113,6 +113,9 @@ a = Analysis(
         (str(ROOT / "assets" / "fonts"), "assets/fonts"),
         (str(ROOT / "assets" / "orb"), "assets/orb"),
         (str(_COMMIT_FILE), "assets"),
+        # The natural-voice helper runs as a plain .py in Chatterbox's own Python,
+        # so it is shipped as a file, not only as compiled code.
+        (str(ROOT / "src" / "babysitter" / "voiceclone_worker.py"), "babysitter"),
         *_datas,
     ],
     hiddenimports=[

@@ -36,6 +36,12 @@ def env_python() -> Path:
 
 
 def worker_script() -> Path:
+    """The helper as a plain file. Inside BabySitter.exe it is unpacked under _MEIPASS."""
+    packed = getattr(sys, "_MEIPASS", "")
+    if packed:
+        candidate = Path(packed) / "babysitter" / "voiceclone_worker.py"
+        if candidate.is_file():
+            return candidate
     return Path(__file__).resolve().parents[2] / "voiceclone_worker.py"
 
 

@@ -2,6 +2,10 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.26.1 — Natural voices in the built app
+
+The narrator voices run a small helper file in their own Python. BabySitter.exe now carries that file as a plain file, so the natural voices work from the desktop icon as well as from `Run BabySitter.bat`.
+
 ## 0.26.0 — Natural voices from real narrators
 
 **Real people, not robots.** The Voice tab now leads with eight narrators who released their recordings for anyone to use: Linda Johnson, the LibriVox reader behind LJ Speech (public domain), and seven Hi-Fi TTS readers (CC BY 4.0). Chatterbox, an open voice model (MIT licence), speaks in their voice from a ten-second clip of each. It sounds like a person reading aloud.
