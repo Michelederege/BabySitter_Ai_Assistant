@@ -86,7 +86,7 @@ set /p COPYDESKTOP=Type Y to copy the file itself to the desktop, or press Enter
 if /I "%COPYDESKTOP%"=="Y" (
   copy /Y "dist\BabySitter.exe" "%USERPROFILE%\Desktop\BabySitter.exe"
   if errorlevel 1 (
-    echo The copy did not finish (close the desktop BabySitter.exe if it is open in the tray).
+    echo The copy did not finish. Close the desktop BabySitter.exe if it is open in the tray.
     echo dist\BabySitter.exe is ready to move once closed.
   ) else (
     echo Copied to the desktop.
