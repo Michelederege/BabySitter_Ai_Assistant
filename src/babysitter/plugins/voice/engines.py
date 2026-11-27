@@ -1,10 +1,11 @@
 """The extra hearing engines and voices, all on the processor.
 
-Hearing: Moonshine is the default since 0.27.0 (0.13 s against Whisper's
-1.1 s for a 7-second clip on his PC). Parakeet is the accurate choice and
-Whisper the fallback while a pack is missing. Only the chosen engine is
-loaded, and only one hears the question; Vosk still only listens for the
-keyword.
+Hearing: Parakeet is the default since 0.30.0. Measured on his PC with
+room noise, it made 0.4% word errors against Moonshine's 6.1% and
+Whisper's 3.4%, in 0.14 s a sentence (Moonshine 0.06 s, Whisper 0.85 s).
+Moonshine, then Whisper, stand in while a pack is missing. Only the chosen
+engine is loaded, and only one hears the question; Vosk still only listens
+for the keyword.
 
 Voices: Kokoro stays the default. Piper and Supertonic are other voices.
 Each renders a sentence to audio, and the same player says it, so echo

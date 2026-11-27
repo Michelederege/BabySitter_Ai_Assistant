@@ -16,7 +16,7 @@ from babysitter.intelligence import MODES
 from babysitter.paths import settings_path
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 DEFAULT_EMERGENCY = "Ctrl+Alt+F12"
 DEFAULT_POWER_ON = "Ctrl+Alt+F11"
@@ -76,7 +76,7 @@ class Settings:
     # The microphone's full name. Empty means Windows' default.
     microphone: str = ""
     # "whisper" (default), "moonshine", or "parakeet". One engine hears the question.
-    hearing_engine: str = "moonshine"  # falls back to Whisper until its pack is downloaded
+    hearing_engine: str = "parakeet"  # falls back to Moonshine, then Whisper, until its pack is downloaded
     # The memory slider, in tokens. 0 means the level's own amount.
     context_tokens: int = 0
     # Outlook / Microsoft 365, read-only. The id is the app registration's, not a secret.
@@ -301,6 +301,17 @@ def migrate(data: dict) -> dict:
             incoming["hearing_engine"] = "moonshine"
         incoming["schema_version"] = 14
         version = 14
+    if version < 15:
+        # Measured on his PC (27 Nov 2026, 24 Kokoro sentences in three voices,
+        # with room noise added): Parakeet 0.4% word errors at 5 dB, Moonshine
+        # 6.1% (it heard "five forty five" as 5:35), Whisper 3.4%. Parakeet
+        # takes 0.14 s against Moonshine's 0.06 s. Moonshine was only ever the
+        # default here, so the more accurate one takes over. Whisper, picked
+        # by hand, stays.
+        if str(incoming.get("hearing_engine") or "moonshine") == "moonshine":
+            incoming["hearing_engine"] = "parakeet"
+        incoming["schema_version"] = 15
+        version = 15
     defaults = Settings().to_dict()
     for key, value in defaults.items():
         incoming.setdefault(key, value)
@@ -480,12 +491,12 @@ def settings_from_dict(data: dict) -> Settings:
         weather_place=" ".join(str(data.get("weather_place") or "").split())[:60],
         home_url=_home_url(data.get("home_url", "")),
         home_music_entity=str(data.get("home_music_entity") or "")[:120],
-        # A missing or unknown engine means the default, Moonshine (0.27.0),
-        # which itself falls back to Whisper until its pack is on this PC.
+        # A missing or unknown engine means the default, Parakeet (0.30.0),
+        # which falls back to Moonshine, then Whisper, until its pack is here.
         hearing_engine=(
             str(data.get("hearing_engine"))
             if str(data.get("hearing_engine") or "") in {"whisper", "moonshine", "parakeet"}
-            else "moonshine"
+            else "parakeet"
         ),
         notices=notices,
     )

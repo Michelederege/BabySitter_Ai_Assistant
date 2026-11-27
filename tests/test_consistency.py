@@ -13,7 +13,7 @@ def test_the_hearing_list_names_the_real_default():
     from babysitter.plugins.voice.engines import HEARING_ENGINES
     from babysitter.settings import Settings
 
-    assert Settings().hearing_engine == "moonshine"
+    assert Settings().hearing_engine == "parakeet"
     assert "default" not in HEARING_ENGINES["whisper"].lower()
 
 
@@ -25,7 +25,7 @@ def test_settings_without_an_engine_get_the_default(tmp_path):
     data = json.loads(path.read_text(encoding="utf-8"))
     data.pop("hearing_engine")
     path.write_text(json.dumps(data), encoding="utf-8")
-    assert load_settings(path).hearing_engine == "moonshine"
+    assert load_settings(path).hearing_engine == "parakeet"
     data["hearing_engine"] = "whisper"
     path.write_text(json.dumps(data), encoding="utf-8")
     assert load_settings(path).hearing_engine == "whisper", "a chosen Whisper stays chosen"

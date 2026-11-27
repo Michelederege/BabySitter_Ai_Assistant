@@ -80,7 +80,10 @@ def test_a_busy_quit_closes_the_tray_ollama_too(tmp_path, monkeypatch):
 def test_whisper_as_the_old_default_moves_to_moonshine():
     from babysitter.settings import migrate
 
-    assert migrate({"schema_version": 13, "hearing_engine": "whisper"})["hearing_engine"] == "moonshine"
+    # 14 moved the old Whisper default to Moonshine; 15 moves Moonshine to Parakeet (0.30.0).
+    assert migrate({"schema_version": 13, "hearing_engine": "whisper"})["hearing_engine"] == "parakeet"
+    assert migrate({"schema_version": 14, "hearing_engine": "moonshine"})["hearing_engine"] == "parakeet"
+    assert migrate({"schema_version": 14, "hearing_engine": "whisper"})["hearing_engine"] == "whisper"
     assert migrate({"schema_version": 13, "hearing_engine": "parakeet"})["hearing_engine"] == "parakeet"
 
 

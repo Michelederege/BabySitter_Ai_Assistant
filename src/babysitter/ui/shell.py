@@ -1520,12 +1520,21 @@ class Shell:
         return "30m"  # the same as OllamaClient.on_keep_alive
 
     def _hearing_engine(self) -> str:
-        """The engine that hears the question. A chosen one not downloaded yet falls back to Whisper."""
+        """The engine that hears the question.
+
+        A chosen one not downloaded yet falls back to the next best that is:
+        Parakeet, then Moonshine (both on the processor, fast), then Whisper.
+        Before 0.30.0 a missing pack went straight to Whisper, about six
+        times slower than either.
+        """
         from babysitter.modelpacks import ready as pack_ready
 
         engine = self.controller.settings.hearing_engine
-        if engine in {"moonshine", "parakeet"} and pack_ready(engine):
-            return engine
+        if engine == "whisper":
+            return "whisper"
+        for candidate in (engine, "parakeet", "moonshine"):
+            if candidate in {"moonshine", "parakeet"} and pack_ready(candidate):
+                return candidate
         return "whisper"
 
     def _hearing_ready(self) -> bool:
@@ -1536,7 +1545,7 @@ class Shell:
     def _set_hearing_engine(self, engine: str) -> None:
         from babysitter.modelpacks import ready as pack_ready
 
-        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "moonshine"
+        self.controller.settings.hearing_engine = engine if engine in {"whisper", "moonshine", "parakeet"} else "parakeet"
         save_settings(self.controller.settings)
         if engine in {"moonshine", "parakeet"} and not pack_ready(engine):
             self._offer_pack(engine)
