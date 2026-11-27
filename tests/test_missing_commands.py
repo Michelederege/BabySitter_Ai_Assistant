@@ -31,6 +31,28 @@ def test_local_commands(said, kind):
     assert quick is not None and quick.kind == kind
 
 
+_ORDINARY = [
+    "how do I turn off the lights in minecraft", "why do cats slow down when they get old", "what makes a car go faster",
+    "can you help me with my math homework", "what happens when you go to sleep", "is game mode on the ps5 worth it",
+    "how loud is a jet engine", "my alarm didn't go off this morning", "what time should I set my alarm for school",
+    "thanks to the rain the game was cancelled", "how do you say thank you in japanese", "should I turn off my pc at night",
+    "how do I speed up my laptop", "what can you do with leftover rice", "i need to slow down and relax",
+    "turn it up by AC/DC", "the game mode setting on my tv", "come back to me later", "wake up song by arcade fire",
+    "set an alarm clock on android", "remind me what photosynthesis is", "open source software", "I'm going to sleep now",
+    "go to sleep you are drunk", "power off a mac", "bye bye bye nsync",
+]
+
+
+@pytest.mark.parametrize("sentence", _ORDINARY)
+def test_ordinary_sentences_set_off_no_command(sentence):
+    """Scan L: none of these may turn the AI off, change the voice, set an alarm, or open anything."""
+    quick = match_quick_command(sentence)
+    assert quick is None or quick.kind not in {
+        "help", "voice_speed", "volume", "power_off", "game_mode", "leave_game",
+        "thanks", "bye", "remind", "open_number", "cancel_reminder",
+    }, (sentence, quick)
+
+
 @pytest.mark.parametrize("question", ["help me write an essay", "slow down the video", "what can you do about climate change"])
 def test_longer_sentences_still_reach_the_model(question):
     quick = match_quick_command(question)
