@@ -33,6 +33,7 @@ def test_closing_offers_are_trimmed_real_questions_kept():
     assert trim_closing_offer("Jane Austen wrote it. Want to hear about her other books?") == "Jane Austen wrote it."
     assert trim_closing_offer("It's 12. Would you like another practice problem?") == "It's 12."
     assert trim_closing_offer("Fifteen percent of 80 is 12. Shall we try another, or take a break?") == "Fifteen percent of 80 is 12."
+    assert trim_closing_offer("It varies as it orbits. Did you want to set a reminder for the full moon?") == "It varies as it orbits."
     kept = "Which town do you mean, Paris in France or Paris in Texas?"
     assert trim_closing_offer(kept) == kept
     assert trim_closing_offer("Want some?") == "Want some?"  # nothing before it: left alone
