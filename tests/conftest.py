@@ -46,3 +46,44 @@ def _never_open_real_files(monkeypatch):
     except ImportError:
         pass
     return opened
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Take Qt down in order before Python's own teardown.
+
+    Every test passed, then the process crashed while Python destroyed the
+    windows, timers and threads the tests left behind in no particular order
+    (a segmentation fault on Linux about 2 runs in 5, 0xC0000005 / 0xC0000409
+    on Windows), and CI reported the run as failed. Here they're closed while
+    Qt is still whole: threads are asked to stop and waited for, windows are
+    deleted, pending deletes run, and the application object goes last.
+    """
+    try:
+        from PySide6.QtCore import QCoreApplication, QThread
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+    import gc
+
+    gc.collect()
+    for thread in [obj for obj in gc.get_objects() if isinstance(obj, QThread)]:
+        try:
+            if thread.isRunning():
+                thread.requestInterruption()
+                thread.quit()
+                thread.wait(2000)
+        except RuntimeError:
+            continue
+    for widget in app.topLevelWidgets():
+        try:
+            widget.close()
+            widget.deleteLater()
+        except RuntimeError:
+            continue
+    for _ in range(3):
+        QCoreApplication.sendPostedEvents(None, 0)  # 0 = every event type, including DeferredDelete
+        app.processEvents()
+    gc.collect()
