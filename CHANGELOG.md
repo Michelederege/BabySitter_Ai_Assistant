@@ -2,6 +2,35 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.34.0 — It knows when a game needs the graphics card, and five bug hunts
+
+**It sees how hard a game works the graphics card.** Windows keeps a per-program count of how busy the card is, the same number Task Manager shows. BabySitter now reads it for the game that's running, every 2 seconds, in about 3 ms. If the game keeps the card 85% busy or more for about 6 seconds, BabySitter steps aside into game mode, even when its memory would still fit, so the game keeps its frame rate. It comes back on its own when the game closes. Pressing On while a heavy game runs starts straight in game mode. Ask "how much is the game using" (or "how busy is my GPU") to hear the game's share, and what BabySitter will do about it.
+
+**A game-mode bug fixed:** the graphics card wasn't read while the window was hidden, which is exactly when you're playing, so a game started after hiding the window was never measured. It's read now whenever game mode is watching.
+
+**Five rounds of bug hunting, 19 bugs fixed:**
+- **Newer features:**
+  - The requests list saved questions like "can you explain…" whenever the reply said "I can't be sure".
+  - "Copy that" copied an old citation instead of the newest reply.
+  - "Is MLA better than APA" was taken as "switch the citation to APA".
+  - A new version could remove a request just because it loosely looked like a reminder.
+- **Commands:**
+  - "In 3 days" and "in 2 weeks" weren't understood ("in 2 days at 9" became today at 9).
+  - "Tomorrow at 3" and "next Friday at 3" became 3 AM; now 1 to 5 o'clock means the afternoon.
+  - "Tonight at 2" became 2 PM tomorrow.
+  - February 29 became today.
+  - "Can you remember the name of that movie" saved a fact.
+  - "How much VRAM do I need for 4K" read your own card instead of answering.
+  - "Reference this in my essay" started a citation.
+- **Quitting:** quitting during a download or a page fetch could crash on the way out; it now waits briefly, or leaves cleanly.
+- **Buttons:**
+  - "Look at my screen" with the AI off crashed.
+  - The memory Back up button never worked.
+  - History's Export and Wipe crashed after doing their work.
+- **Saved files:** a damaged requests file stopped BabySitter opening at all, and an odd value in settings could too.
+
+All of it was then run through the real app with the real AI.
+
 ## 0.33.0 — Watch a monitor, cite a page, keep what it can't do yet
 
 **"Look at monitor one."** BabySitter watches the monitor you name: monitor one or two, the left or right one, the main one, the portrait one, or both. Each time you ask something it takes a fresh picture of that monitor, and Windows' own text recognition reads every word on it at full size, so it can quote small print exactly instead of guessing from a shrunk picture. Nothing is recorded in between, and nothing is saved. "Read my screen" reads the text out, "copy the text on monitor two" puts it on the clipboard, and "stop watching" ends it. On this PC it read the Steam store on monitor 1 correctly in about 3.5 seconds a question.

@@ -79,6 +79,19 @@ def explicit_request(line: str) -> str:
     return found.group(1).strip(" .,:")
 
 
+def _times(item: dict) -> int:
+    """How often it was asked. A hand-edited or damaged entry counts once."""
+    try:
+        return max(1, int(item.get("times") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _text(item: dict) -> str:
+    value = item.get("text")
+    return " ".join(value.split()) if isinstance(value, str) else ""
+
+
 def _key(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9']+", (text or "").lower()))
 
@@ -90,8 +103,8 @@ def add(items: list[dict], text: str, today: date | None = None) -> tuple[list[d
         return items, False
     key = _key(words)
     for item in items:
-        if _key(str(item.get("text") or "")) == key:
-            item["times"] = int(item.get("times") or 1) + 1
+        if _key(_text(item)) == key:
+            item["times"] = _times(item) + 1
             return items, False
     from uuid import uuid4
 
@@ -115,7 +128,7 @@ def now_possible(items: list[dict], can_do) -> tuple[list[dict], list[dict]]:
     kept: list[dict] = []
     built: list[dict] = []
     for item in items:
-        text = str(item.get("text") or "")
+        text = _text(item)
         try:
             done = bool(text) and bool(can_do(text))
         except Exception:
@@ -131,16 +144,16 @@ def sheet_lines(items: list[dict]) -> list[str]:
         lines.append("Nothing saved yet. When I can't do something you ask, it's added here.")
         return lines
     for number, item in enumerate(items, start=1):
-        times = int(item.get("times") or 1)
+        times = _times(item)
         asked = f" ({times} times)" if times > 1 else ""
-        lines.append(f"{number}. {item.get('text', '')} — asked {item.get('asked', '')}{asked}")
+        lines.append(f"{number}. {_text(item) or '(empty)'} — asked {item.get('asked') or 'some time ago'}{asked}")
     return lines
 
 
 def spoken_list(items: list[dict]) -> str:
     if not items:
         return "Your requests list is empty."
-    first = [str(item.get("text") or "") for item in items[:3]]
+    first = [_text(item) or "(empty)" for item in items[:3]]
     count = len(items)
     lead = "You have one request saved: " if count == 1 else f"You have {count} requests saved. "
     if count == 1:

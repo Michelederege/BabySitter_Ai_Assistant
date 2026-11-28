@@ -427,7 +427,8 @@ def _clean_keyword(value: object, notices: list[str]) -> str:
 def settings_from_dict(data: dict) -> Settings:
     notices: list[str] = []
     intelligence = data.get("intelligence", "low")
-    if intelligence not in MODES:
+    # A hand-edited file can hold a list or an object here; that must not stop BabySitter opening.
+    if not isinstance(intelligence, str) or intelligence not in MODES:
         notices.append(
             f"Saved intelligence '{intelligence}' is not Low, Medium, or High. "
             "Using Low."

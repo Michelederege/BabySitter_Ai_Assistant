@@ -86,3 +86,29 @@ def test_history_export_and_wipe_finish(tmp_path, monkeypatch):
         assert "Deleted" in page.body.toPlainText()
     finally:
         shell.window.close()
+
+
+def test_a_damaged_requests_file_doesnt_stop_babysitter_opening(tmp_path, monkeypatch):
+    """"times": "many" in requests.json raised ValueError while the window was built."""
+    import json
+
+    from babysitter import wishlist as wl
+
+    (tmp_path / wl.FILE).write_text(json.dumps([{"id": 5, "text": 7, "times": "many"}, {"text": None}, {"id": "a", "text": "ok"}]))
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    try:
+        shell._run_quick("show my requests")
+        rows = [shell.window.requests_list.item(i).text() for i in range(shell.window.requests_list.count())]
+        assert rows[0].startswith("1. (empty)") and rows[2].startswith("3. ok")
+    finally:
+        shell.window.close()
+
+
+def test_a_list_for_the_intelligence_level_falls_back_to_low(tmp_path):
+    import json
+
+    from babysitter.settings import load_settings
+
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"intelligence": ["high"]}))
+    assert load_settings(path).intelligence == "low"
