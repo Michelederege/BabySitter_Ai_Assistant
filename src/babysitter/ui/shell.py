@@ -6771,7 +6771,38 @@ class Shell:
                 backstop = threading.Timer(10.0, os._exit, args=(0,))
                 backstop.daemon = True
                 backstop.start()
+        if not self._settle_threads():
+            # A job still running (a model download, a page fetch) would make Qt
+            # abort when it is destroyed. Everything is saved and Windows ends
+            # every program BabySitter started, so leave now, cleanly.
+            import logging
+            import os
+
+            logging.shutdown()
+            os._exit(0)
         QApplication.quit()
+
+    def _settle_threads(self, budget_ms: int = 2000) -> bool:
+        """Give running jobs a moment to finish. True when none is left running."""
+        import time as _time
+
+        deadline = _time.monotonic() + budget_ms / 1000
+        for job in list(getattr(self, "_live_threads", None) or []):
+            try:
+                if not job.isRunning():
+                    continue
+                cancel = getattr(job, "cancel", None)
+                if cancel is not None and hasattr(cancel, "set"):
+                    cancel.set()
+                job.requestInterruption()
+                left = max(0, int((deadline - _time.monotonic()) * 1000))
+                job.wait(left)
+            except RuntimeError:
+                continue
+        try:
+            return not any(job.isRunning() for job in list(getattr(self, "_live_threads", None) or []))
+        except RuntimeError:
+            return True
 
 
 def _voice_label(name: str) -> str:
