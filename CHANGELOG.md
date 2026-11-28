@@ -14,6 +14,18 @@ BabySitter uses version numbers like v1.2.3.
 
 **Everything closes with it.** Every helper BabySitter starts (downloads, model pulls, the screen reader, Ollama) is now tied to it, so closing BabySitter, or a crash, ends them too. If you use an Ollama that BabySitter didn't start, it stays running for other programs, but BabySitter's model is taken off the graphics card when it closes. Nothing of BabySitter's starts with Windows unless you turn that on.
 
+**The window looks like the v3 design again.** The pages had drifted into old boxes stacked inside boxes. Now:
+- the side menu has proper line icons, with Settings at the bottom;
+- the title bar has Stop, Private and the bell as quiet icons, plus a round state pill with a coloured dot;
+- Talk has the pond picture standing on its own, the answer in large type, and quiet Show details / Pin / Copy / Fresh start buttons, with the talk bar (round orange Hold to talk, the typed line, a round send button) fixed at the bottom;
+- Board has its filters and Add a note at the top, the pins as cards, and the goals and requests as clean lists;
+- Today has the date, Your briefing, and Agenda and Inbox side by side;
+- Desk has four tidy cards, with buttons for the new monitor and citation commands;
+- Memory has its tabs at the top right;
+- Settings is calmer, with one large heading and grey buttons.
+
+Lists are only as tall as what's in them, and there's only one orange button per screen. The window builds as fast as before (0.83 s).
+
 **Small fixes:** "fix it" with nothing to fix gets a short answer instead of going to the AI, and adding a goal now says it's on the Board, not the Reminders page.
 
 ## 0.32.0 — One-tap fixes
