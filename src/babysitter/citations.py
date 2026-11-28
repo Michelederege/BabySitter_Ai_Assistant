@@ -135,10 +135,25 @@ def cite_command(phrase: str) -> str | None:
     return None
 
 
+_STYLE_VOCAB = {
+    "mla", "apa", "chicago", "harvard", "ieee", "ama", "vancouver", "asa", "turabian", "bibtex", "bib", "tex",
+    "latex", "footnote", "footnotes", "note", "notes", "author", "date", "author-date", "all", "every", "each",
+    "style", "styles", "format", "formats", "of", "them", "the", "m", "l", "a", "p", "i", "e", "s", "triple",
+    "eye", "em", "el", "ay", "pee", "versions", "ways", "kinds", "types",
+}
+
+
 def restyle_command(phrase: str) -> str:
-    """"Now in APA" or "give me that in Chicago" right after a citation: the style, or ""."""
+    """"Now in APA" or "give me that in Chicago" right after a citation: the style, or "".
+
+    Only when the words name a style and nothing else: "is MLA better than APA"
+    is a question, not a request to switch.
+    """
     found = _RESTYLE.match(phrase)
     if not found:
+        return ""
+    words = re.findall(r"[a-z\-]+", found.group("style").lower().replace(".", ""))
+    if not words or any(word not in _STYLE_VOCAB for word in words):
         return ""
     return style_in(found.group("style"))
 

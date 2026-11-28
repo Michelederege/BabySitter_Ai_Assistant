@@ -333,3 +333,52 @@ def test_no_author_in_text_uses_a_clean_short_title():
                       url="https://example.com/jobs/1", accessed=DAY)
     assert c.plain(c.in_text(source, "mla")) == "(\u201cGardien(ne) des étangs\u201d)"
     assert c.plain(c.in_text(source, "apa")) == "(Gardien(ne) des étangs, n.d.)"
+
+
+# ---------- audit 1 regressions ----------
+
+def test_only_a_refusal_to_act_is_a_missing_feature():
+    for reply in ("I can't be sure, but it was probably 1912.", "I can't help but laugh at that.",
+                  "Honestly, I can't wait for summer either.", "I cannot stress this enough: drink water."):
+        assert not wl.reply_says_cannot(reply), reply
+    for reply in ("I can't send texts from here.", "I can't place orders or handle money for you yet.",
+                  "That isn't something I can do yet.", "I don't have access to your phone."):
+        assert wl.reply_says_cannot(reply), reply
+
+
+def test_a_style_word_in_a_question_is_not_a_restyle():
+    for line in ("is mla better than apa", "what is apa", "explain chicago style to me", "tell me about harvard"):
+        assert c.restyle_command(line) == "", line
+    for line, style in (("now in apa", "apa"), ("give me that in chicago", "chicago"), ("in all formats", "all"),
+                        ("apa please", "apa"), ("chicago footnote", "chicago_note")):
+        assert c.restyle_command(line) == style, line
+
+
+def test_copy_that_follows_the_newest_reply(tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QApplication
+
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    try:
+        shell._show_citation(_article(), "mla")
+        shell._pending_line = "what is 2 plus 2"
+        shell._asked("It's 4.")
+        shell._run_quick("copy that")
+        assert QApplication.clipboard().text() == "It's 4."
+    finally:
+        if shell._citation_panel is not None:
+            shell._citation_panel.close()
+        shell.window.close()
+
+
+def test_a_loose_match_doesnt_take_a_request_off(tmp_path, monkeypatch):
+    from babysitter.deskstore import load_list, save_list
+
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    try:
+        save_list("requests_checked.json", [{"version": "0.0.1"}])
+        save_list(wl.FILE, [{"id": "a", "text": "remember to water my plants by texting me"},
+                            {"id": "b", "text": "remind me with a text message"}])
+        shell._check_requests_after_update()
+        assert len(load_list(wl.FILE)) == 2
+    finally:
+        shell.window.close()

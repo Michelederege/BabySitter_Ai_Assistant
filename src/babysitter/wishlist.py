@@ -25,9 +25,20 @@ SHEET_HEADER = (
 
 # The reply said it couldn't. Matched on the model's own reply, only for a
 # line that was a request (see looks_like_request).
+# Only a refusal to DO something counts: "I can't send texts", "that isn't
+# something I can do yet". "I can't be sure" or "I can't help but laugh" is
+# not a missing feature, so the verb after "can't" must be an action.
+_ACTION_VERBS = (
+    r"do|send|order|book|buy|pay|call|text|email|message|open|close|launch|start|stop|control|change|"
+    r"set|turn|switch|play|pause|install|download|upload|browse|access|reach|connect|sync|post|share|"
+    r"delete|move|edit|write to|print|record|take|make (?:calls|purchases|orders|payments)|place|schedule|"
+    r"see your|read your|check your|look at your|log ?in|sign ?in|run|click|type|use your|go online|"
+    r"handle|manage|track|lock|unlock|dim|adjust|translate|draw|generate images|create images"
+)
 _CANNOT = re.compile(
-    r"\b(?:i\s+)?(?:can'?t|cannot|can not|am not able to|'m not able to|am unable to|'m unable to|don'?t have (?:a way|the ability|access))\b"
-    r"|\bisn'?t something i can do\b|\bnot something i can do\b|\bbeyond what i can do\b",
+    rf"\bi\s*(?:can'?t|cannot|can not|am not able to|'m not able to|am unable to|'m unable to)\s+(?:actually\s+|directly\s+|yet\s+)?(?:{_ACTION_VERBS})\b"
+    r"|\bi\s*don'?t have (?:a way to|the ability to|access to)\b"
+    r"|\b(?:isn'?t|not) something i can do\b|\bbeyond what i can do\b|\bi can'?t do that\b",
     re.IGNORECASE,
 )
 _REQUEST_START = re.compile(

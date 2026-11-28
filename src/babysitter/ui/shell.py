@@ -3543,6 +3543,9 @@ class Shell:
             reply = trim_closing_offer(reply)
         spoken, rest = voice_and_rest(reply)
         spoken = spoken or early or "I don't have an answer for that."
+        # A new reply: "copy that" now means this reply, not an older citation or screen text.
+        self._last_copy = ""
+        self._last_copy_rich = False
         saved_request = self._maybe_save_request(getattr(self, "_pending_line", ""), reply)
         if saved_request:
             spoken = f"{spoken} {saved_request}"
@@ -4314,9 +4317,17 @@ class Shell:
         if not items:
             return
 
+        # Kinds that match almost any sentence ("remember …", a reminder with no
+        # time) don't prove the request was built; only a real command does.
+        loose = {"request_add", "requests", "request_remove", "remember", "copy"}
+
         def can_do(text: str) -> bool:
             quick = match_quick_command(text)
-            return (quick is not None and quick.kind not in {"request_add"}) or match_tool(text) is not None
+            if quick is not None and quick.kind not in loose:
+                if quick.kind == "remind" and not quick.when:
+                    return False
+                return True
+            return match_tool(text) is not None
 
         kept, built = now_possible(items, can_do)
         if not built:
