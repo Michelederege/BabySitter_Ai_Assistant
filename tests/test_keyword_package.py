@@ -41,7 +41,7 @@ def _import_allowing_sounddevice(name, globals=None, locals=None, fromlist=(), l
 
 def test_a_broken_vosk_import_leaves_keyword_listening_off(monkeypatch):
     def broken():
-        raise FileNotFoundError(r"C:\Users\Alex\AppData\Local\Temp\_MEI\vosk")
+        raise FileNotFoundError(r"C:\Users\you\AppData\Local\Temp\_MEI\vosk")
 
     monkeypatch.setattr("babysitter.plugins.voice.keyword._import_vosk", broken)
     monkeypatch.setattr("builtins.__import__", _import_allowing_sounddevice)

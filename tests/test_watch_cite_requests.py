@@ -329,8 +329,8 @@ def test_garbled_text_is_flagged_and_the_reading_stays_hidden():
 
 
 def test_no_author_in_text_uses_a_clean_short_title():
-    source = c.Source(title="Gardien(ne) des étangs - Pond keeper", site="example",
-                      url="https://example.com/jobs/1", accessed=DAY)
+    source = c.Source(title="Gardien(ne) des étangs - Pond keeper", site="Example",
+                      url="https://example.org/jobs/1", accessed=DAY)
     assert c.plain(c.in_text(source, "mla")) == "(\u201cGardien(ne) des étangs\u201d)"
     assert c.plain(c.in_text(source, "apa")) == "(Gardien(ne) des étangs, n.d.)"
 

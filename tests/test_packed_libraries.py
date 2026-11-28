@@ -30,7 +30,7 @@ def test_a_missing_kokoro_config_leaves_the_voice_off(monkeypatch):
         "builtins.__import__",
         _raising(
             "kokoro_onnx",
-            r"C:\Users\Alex\AppData\Local\Temp\_MEI000115002\kokoro_onnx\config.json",
+            r"C:\Users\you\AppData\Local\Temp\_MEI000115002\kokoro_onnx\config.json",
         ),
     )
     from babysitter.plugins.voice.kokoro_voice import packages_installed
@@ -41,7 +41,7 @@ def test_a_missing_kokoro_config_leaves_the_voice_off(monkeypatch):
 def test_a_missing_hearing_dll_leaves_speech_recognition_off(monkeypatch):
     monkeypatch.setattr(
         "builtins.__import__",
-        _raising("faster_whisper", r"C:\Users\Alex\AppData\Local\Temp\_MEI000115002\ctranslate2"),
+        _raising("faster_whisper", r"C:\Users\you\AppData\Local\Temp\_MEI000115002\ctranslate2"),
     )
     from babysitter.plugins.voice.hearing import packages_installed
 
@@ -51,7 +51,7 @@ def test_a_missing_hearing_dll_leaves_speech_recognition_off(monkeypatch):
 def test_a_missing_onnx_dll_leaves_the_sharper_memory_off(monkeypatch):
     def broken(imported, globals=None, locals=None, fromlist=(), level=0):
         if imported in {"numpy", "onnxruntime"}:
-            raise FileNotFoundError(r"C:\Users\Alex\AppData\Local\Temp\_MEI000115002\onnxruntime")
+            raise FileNotFoundError(r"C:\Users\you\AppData\Local\Temp\_MEI000115002\onnxruntime")
         return _original_import(imported, globals, locals, fromlist, level)
 
     monkeypatch.setattr("builtins.__import__", broken)
