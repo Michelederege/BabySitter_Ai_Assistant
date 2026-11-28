@@ -807,6 +807,17 @@ class MainWindow(FramelessWindow):
         self._notice_callback = callback
         self.notice_strip.show()
 
+    def has_notice(self) -> bool:
+        """A notice with a button is showing."""
+        return self._notice_callback is not None and not self.notice_strip.isHidden()
+
+    def run_notice(self) -> bool:
+        """Press the notice's button, as "fix it" does. False when there is none."""
+        if not self.has_notice():
+            return False
+        self._notice_clicked()
+        return True
+
     def _notice_clicked(self) -> None:
         self.notice_strip.hide()
         callback, self._notice_callback = self._notice_callback, None

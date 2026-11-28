@@ -2,6 +2,18 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.32.0 — One-tap fixes
+
+**A problem comes with the button that fixes it.** When something stops BabySitter, the notice bar now says what's wrong in plain words and has one button for the fix. You can also just say or type "fix it".
+
+- Ollama isn't installed: **Get Ollama** opens its download page.
+- Ollama didn't answer: **Try again**.
+- Ollama is open to the whole network: **Restart it privately**.
+- A model isn't downloaded: **Download it** (it asks first, then turns the AI on).
+- Not enough room on the graphics card: **Use Low instead**.
+- Quiet hours are on: **Turn quiet hours off** (and the AI starts).
+- No speech recognition, a silent microphone, web search or Google off, the voice detector downloaded but off: one button each.
+
 ## 0.31.0 — Say it your own way
 
 **Requests in your own words get done.** "Put dentist on Friday at 3", "give me twenty minutes on the clock", "my sister's birthday is March 4" matched no command, so they went to the AI as a chat and nothing happened. Now the AI on this PC works out which command you mean, says it back ("Set a reminder for 3:00 PM on Friday, December 4: go to the dentist?") and waits for yes. It can only lead to a reminder, a timer, a remembered fact, a goal or a journal task, never opening, sending or changing anything else. On this PC it got 14 of 14 such requests right and mistook 0 of 10 ordinary questions for commands, in under half a second each.

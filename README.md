@@ -186,6 +186,8 @@ Days and dates work too: “remind me on Friday at 3 pm”, “next Tuesday at 4
 
 Say undo within 10 seconds to remove a new one, or press Remove on the Reminders page. A reminder with no time stays on the list and does not count down.
 
+**When something is wrong.** If the AI can't start, a microphone sends silence, or a download is missing, the notice bar says so in plain words and has one button that fixes it: Get Ollama, Try again, Use Low instead, Turn quiet hours off, Download it, Pick a microphone. Saying or typing “fix it” presses that button. A download still asks first.
+
 **Your own words.** With the AI on, you do not have to use these exact phrases. “Put dentist on Friday at 3”, “give me twenty minutes on the clock”, or “my sister’s birthday is March 4” are worked out by the model on this PC, which says what it will do (“Set a reminder for 3:00 PM on Friday: go to the dentist?”) and waits for yes. It can only lead to a reminder, a timer, a remembered fact, a goal, or a journal task. It never opens anything, sends anything, or changes a setting. Anything that is not one of those goes to the model as an ordinary question.
 
 Goals are on that same page, above the reminders. A goal does not ring. Say “my goal is to finish the bracket”, then “say my goals”, and the list is shown and read out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. After the talk ends, “done” finishes a journal task again.

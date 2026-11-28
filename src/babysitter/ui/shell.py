@@ -1440,6 +1440,8 @@ class Shell:
         self.window.home.set_history(self.controller.history)
         self._show_mode(state, message)
         self.window.set_status_line(message)
+        if state in {"error", "off"}:
+            self._offer_fix(message)
         try:
             self._sync_keyword()
         except (ImportError, OSError):
@@ -1960,6 +1962,110 @@ class Shell:
             lambda: self.window.show_settings_section("voice"),
         )
 
+    # ---------- one-tap fixes ----------
+
+    def _offer_fix(self, message: str) -> bool:
+        """Show the one button that fixes the problem just reported. Nothing runs until it is pressed."""
+        from babysitter.fixes import fix_for
+
+        level = getattr(self.controller, "loaded_level", "") or self.controller.settings.intelligence
+        fix = fix_for(message, level=level)
+        if fix is None:
+            return False
+        self.window.show_notice(
+            fix.text + ' Press the button, or say "fix it".',
+            fix.button,
+            lambda action=fix.action: self._run_fix(action),
+        )
+        return True
+
+    def _run_fix(self, action: str) -> None:
+        from babysitter.fixes import OLLAMA_PAGE, section_of
+
+        controller = self.controller
+        section = section_of(action)
+        if section:
+            self.window.show_settings_section(section)
+        elif action == "open_ollama_page":
+            QDesktopServices.openUrl(QUrl(OLLAMA_PAGE))
+            self.window.home.set_phase(
+                controller.state,
+                "The Ollama download page is open in your browser. Install it, then press On again.",
+            )
+        elif action == "retry":
+            controller.turn_on()
+        elif action == "restart_ollama":
+            controller.turn_on(ollama_choice="restart")
+        elif action == "use_low":
+            controller.set_intelligence("low")
+            controller.turn_on()
+        elif action == "quiet_off":
+            controller.settings.quiet_hours = False
+            save_settings(controller.settings)
+            self._fill_settings()
+            controller.turn_on()
+        elif action == "get_hearing":
+            self.window.show_settings_section("voice")
+            self._set_hearing_engine("parakeet")
+        elif action == "silero_on":
+            self._set_flag("vad_enabled", True)
+            self._fill_settings()
+            self.window.voice_page.status.setText("The sharper voice detector is on.")
+        elif action.startswith("pull_model:"):
+            self._pull_model(action.split(":", 1)[1])
+
+    def _pull_model(self, model: str) -> None:
+        """Ollama downloads one of this app's own models, after a yes."""
+        from babysitter.intelligence import MAIN_MODEL, VISION_MODEL, WRITING_MODEL
+
+        if model not in {MAIN_MODEL, WRITING_MODEL, VISION_MODEL}:
+            self.window.home.set_phase(self.controller.state, f"BabySitter doesn't download {model}. Nothing was changed.")
+            return
+        running = getattr(self, "_pull_job", None)
+        if running is not None and running.isRunning():
+            self.window.home.set_phase(self.controller.state, f"Already downloading {model}.")
+            return
+        if not ask_yes_no(
+            self.window,
+            f"Download {model}?",
+            f"Ollama downloads {model} from ollama.com. It is several gigabytes, so it can take a while. "
+            "Then the AI turns on.",
+            "Download",
+            "Not now",
+        ):
+            return
+        from babysitter.ollama import find_ollama_executable
+        from babysitter.platform import run_hidden
+
+        def pull() -> str:
+            exe = find_ollama_executable()
+            if not exe:
+                raise RuntimeError("Ollama is not installed, so nothing was downloaded.")
+            done = run_hidden([exe, "pull", model], timeout=4 * 3600)
+            if done.returncode != 0:
+                raise RuntimeError(f"{model} did not finish downloading. Try again later.")
+            return model
+
+        job = _CallJob(pull)
+        self._store_job("_pull_job", job)
+        self.window.home.set_phase(self.controller.state, f"Downloading {model}. This can take a while.")
+        job.ready.connect(self._model_pulled)
+        job.start()
+
+    def _model_pulled(self, model, problem: str) -> None:
+        if problem:
+            self.window.home.set_phase(self.controller.state, problem)
+            return
+        self.window.home.set_phase(self.controller.state, f"{model} is downloaded. Turning the AI on.")
+        self.controller.turn_on()
+
+    def _fix_requested(self, text: str) -> bool:
+        """ "Fix it" presses the notice's button. """
+        from babysitter.fixes import asks_for_the_fix
+
+        # With nothing showing, "fix it" goes on like any other line.
+        return asks_for_the_fix(text) and self.window.run_notice()
+
     def _mic_name(self) -> str:
         from babysitter.microphones import shown_name
 
@@ -2237,6 +2343,8 @@ class Shell:
         except SileroError as exc:
             speech = str(exc)
         self.window.voice_page.status.setText(speech)
+        if not self.controller.settings.vad_enabled:
+            self._offer_fix(speech)
 
     def _download_embedder(self) -> None:
         from babysitter.embedder import ready as embedder_ready
@@ -2488,6 +2596,7 @@ class Shell:
         if not settings.searx_enabled:
             self._tool_summary = ""
             self._speak("Web search is off. Turn on SearXNG in Settings. Nothing was sent.")
+            self._offer_fix("Web search is off.")
             return
         try:
             detail = searx_search(settings.searx_port, intent.query)
@@ -2746,6 +2855,7 @@ class Shell:
                 "I didn't hear words.",
                 "Open the Voice tab and click Download speech recognition. Nothing was sent.",
             )
+            self._offer_fix("Download speech recognition")
             self._sync_keyword()
             return
         self._show_mode("thinking", "Turning speech into text on this PC.")
@@ -2983,6 +3093,7 @@ class Shell:
                 f"No sound came from {self._mic_name()}. Keyword listening is off. "
                 "Pick the microphone you talk into under Settings, Microphone, then turn it on again.",
             )
+            self._dead_mic_notice(self._mic_name())
             return
         if status == "silent":
             # Open, but only exact silence for several seconds: a dead microphone.
@@ -3196,6 +3307,7 @@ class Shell:
                 "Google is off. Turn it on under Tools, then open the Google Doc. Nothing was read.",
                 speak=True,
             )
+            self._offer_fix("Google is off.")
             return
         running = getattr(self, "_draft_job", None)
         if running is not None and running.isRunning():
@@ -4238,6 +4350,8 @@ class Shell:
     def _run_quick(self, text: str) -> bool:
         from babysitter.goals import goal_followup
 
+        if self._fix_requested(text):
+            return True
         if getattr(self, "_goals_open", False):
             followed = goal_followup(text, load_list("goals.json"), getattr(self, "_goal_last", ""))
             if followed is not None:
@@ -4670,6 +4784,7 @@ class Shell:
             speech = "Google is off. Turn it on and sign in on Settings, Accounts and home. Nothing was sent."
             self.window.home.set_reply(text, speech, "")
             self._speak(speech)
+            self._offer_fix(speech)
             return
         running = getattr(self, "_drive_job", None)
         if running is not None and running.isRunning():
