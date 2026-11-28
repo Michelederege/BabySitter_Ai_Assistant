@@ -66,6 +66,9 @@ def test_http_targets_are_local_or_documented_pages():
         "https://api.open-meteo.com/v1/forecast",
         # Word's XML namespace, used as a name when reading a .docx. Never fetched.
         "http://schemas.openxmlformats.org/wordprocessingml/2006/main",
+        # Written into citations as text (a DOI link). Never fetched. The one page a
+        # citation fetches is the address in his own browser, after his yes.
+        "https://doi.org/",
         # Built only after the host is checked to be 127.0.0.1.
         "http://{self.host}:{self.port}",
     )

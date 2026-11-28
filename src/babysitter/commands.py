@@ -338,6 +338,93 @@ _SAME_AS = {
     "save that reply": "pin that",
     "keep that": "pin that",
 }
+# 0.33.0: more of the everyday ways to say commands that already exist.
+_MORE_SAME_AS = {
+    # Time
+    "what's the time please": "what time is it", "tell me what time it is": "what time is it",
+    "what hour is it": "what time is it", "clock": "what time is it", "check the time": "what time is it",
+    "what's the day today": "what day is it", "which day is it": "what day is it",
+    "what month is it": "what is the date", "what year is it": "what is the date", "todays date": "what is the date",
+    # Timers and reminders
+    "how much time do i have left": "what's my next reminder", "how long do i have": "what's my next reminder",
+    "how long have i got": "what's my next reminder", "time left": "what's my next reminder",
+    "check the timer": "what's my next reminder", "how's the timer": "what's my next reminder",
+    "hows the timer": "what's my next reminder", "is the timer still going": "what's my next reminder",
+    "show my reminders": "what's my next reminder", "list my reminders": "what's my next reminder",
+    "read my reminders": "what's my next reminder", "what's on my plate": "what's my next reminder",
+    "whats on my plate": "what's my next reminder", "what do i need to do": "what's my next reminder",
+    "stop the alarm": "cancel the reminder", "kill the alarm": "cancel the reminder",
+    "scrap the timer": "cancel the timer", "drop the timer": "cancel the timer", "clear the timer": "cancel the timer",
+    "scrap that": "undo", "nevermind that": "undo", "never mind that": "undo", "reverse that": "undo",
+    # Mail, calendar, briefing
+    "any new messages": "check my email", "check my messages": "check my email", "anything new in my email": "check my email",
+    "what's new in my inbox": "check my email", "whats new in my inbox": "check my email",
+    "what's on the agenda": "check my calendar", "whats on the agenda": "check my calendar",
+    "what's on my agenda": "check my calendar", "whats on my agenda": "check my calendar",
+    "do i have anything on": "check my calendar", "am i free": "check my calendar",
+    "what does today look like": "check my calendar", "what's planned today": "check my calendar",
+    # The PC and the screen
+    "how's my pc running": "how's my pc", "hows my pc running": "how's my pc", "is my pc running ok": "how's my pc",
+    "how's my computer running": "how's my pc", "check on my pc": "how's my pc", "pc status": "how's my pc",
+    "what's on my monitor": "look at my screen", "whats on my monitor": "look at my screen",
+    "what is on my monitor": "look at my screen", "describe my screen": "look at my screen",
+    "describe the screen": "look at my screen", "what's showing on my screen": "look at my screen",
+    "glance at my screen": "look at my screen", "have a look at my screen": "look at my screen",
+    # Talking
+    "say it slower": "speak slower", "slow it down": "speak slower", "a bit slower": "speak slower",
+    "say it faster": "speak faster", "pick up the pace": "speak faster", "a bit faster": "speak faster",
+    "stop talking please": "stop talking", "that's all i needed": "stop talking",
+    "repeat what you said": "say that again", "say that one more time": "say that again",
+    "can you repeat that": "say that again", "could you repeat that": "say that again",
+    # Power
+    "shut down": "turn off the ai", "turn off": "turn off the ai", "switch off": "turn off the ai",
+    "i'm playing a game": "game mode", "im playing a game": "game mode", "free up the graphics card": "game mode",
+    "free the gpu": "game mode", "i'm done gaming": "leave game mode", "im done gaming": "leave game mode",
+    "back to normal": "leave game mode",
+    # Help
+    "what are you capable of": "what can you do", "show me what you can do": "what can you do",
+    "what commands are there": "what can you do", "give me some examples": "what can you do",
+    "commands": "what can you do", "help me out": "what can you do",
+}
+for _key, _value in _MORE_SAME_AS.items():
+    _SAME_AS.setdefault(_key, _value)
+
+_REQUEST_LIST = {
+    "show my requests", "read my requests", "what have i requested", "what have i asked for", "my requests",
+    "what's on my requests list", "whats on my requests list", "show my wish list", "show my wishlist",
+    "read my wish list", "read my wishlist", "what's on my wishlist", "whats on my wishlist",
+    "what's on my wish list", "whats on my wish list", "open my requests", "list my requests",
+    "what can't you do yet", "what cant you do yet", "show the request list", "what requests have i made",
+}
+_REQUEST_REMOVE = re.compile(
+    r"^(?:remove|delete|drop|cross off|take off|scratch|clear)\s+(?:the\s+)?(?:request|wish)\s+(?:number\s+)?(\w+)"
+    r"(?:\s+from (?:my|the) (?:requests?|wish ?list))?$"
+    r"|^(?:request|wish)\s+(?:number\s+)?(\w+)\s+is\s+(?:done|built|finished|in the app)$"
+)
+_COPY_THAT = {
+    "copy that", "copy it", "copy this", "copy the reply", "copy your answer", "copy the answer", "copy what you said",
+    "copy the citation", "copy that citation", "put that on the clipboard", "copy that to the clipboard",
+    "copy to clipboard", "copy it to the clipboard",
+}
+
+
+def _request_command(phrase: str, original: str) -> QuickCommand | None:
+    from babysitter.wishlist import explicit_request
+
+    if phrase in _REQUEST_LIST:
+        return QuickCommand("requests")
+    removed = _REQUEST_REMOVE.match(phrase)
+    if removed:
+        word = removed.group(1) or removed.group(2)
+        number = int(word) if word.isdigit() else _COUNT.get(word, {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5}.get(word, 0))
+        if number:
+            return QuickCommand("request_remove", seconds=number)
+    wanted = explicit_request(original)
+    if wanted:
+        return QuickCommand("request_add", detail=wanted)
+    return None
+
+
 _COUNTDOWN = re.compile(
     r"(?:(?:set|start|make|put on|give me)\s+)?(?:a|an|me a)?\s*([a-z0-9]+(?:\s+and\s+a\s+half)?)\s*"
     r"(second|seconds|minute|minutes|min|mins|hour|hours)\s+timer(?:\s+(?:for|to)\s+(.+))?"
@@ -395,6 +482,20 @@ def _match_quick_command(text: str) -> QuickCommand | None:
         words = phrase.split()
     if phrase in {"undo", "cancel that"}:
         return QuickCommand("undo", "Okay.")
+    from babysitter.citations import cite_command
+    from babysitter.screenwatch import watch_command
+
+    watched = watch_command(phrase)
+    if watched is not None:
+        return QuickCommand(watched[0], detail=watched[1])
+    style = cite_command(phrase)
+    if style is not None:
+        return QuickCommand("cite", detail=style)
+    request = _request_command(phrase, original)
+    if request is not None:
+        return request
+    if phrase in _COPY_THAT:
+        return QuickCommand("copy")
     if phrase == "cancel the timer":
         # Not "undo": undo only reaches back 10 seconds, and a timer can be
         # stopped at any point before it rings.
@@ -961,6 +1062,7 @@ _REMINDER_LABELS = (
 HELP_SPEECH = (
     "I can tell the time, set timers, reminders and alarms, read your mail and calendar, "
     "give you a morning briefing, find files on this PC, remember things you tell me, "
+    "watch one of your monitors and read it, cite the web page you're on in MLA, APA or other styles, "
     "and answer questions. The full list is on the screen."
 )
 HELP_DETAIL = "\n".join([
@@ -973,6 +1075,10 @@ HELP_DETAIL = "\n".join([
     "Memory: remember that … · what do you remember about me · note to self …",
     "Goals: what are my goals · add a goal to … · mark goal done",
     "Your PC: scan my PC · check for updates",
+    "Your monitors: look at monitor one · watch my left screen · stop watching · read my screen · copy the text on monitor two",
+    "Citations (from the page in your browser): cite this in MLA · APA citation · Chicago footnote · cite this in all formats · now in Harvard",
+    "Requests I can't do yet: show my requests · I wish you could … · remove request 2",
+    "Copy: copy that (the last reply or citation)",
     "Look something up (asks before it goes online): look up …",
     "Talking: say that again · new topic · speak slower · speak faster · call yourself …",
     "Power: game mode · leave game mode · turn off the AI",

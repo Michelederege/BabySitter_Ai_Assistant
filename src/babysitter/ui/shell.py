@@ -218,6 +218,12 @@ class _WarmVoiceJob(QThread):
             return
 
 
+def _style_label(style: str) -> str:
+    from babysitter.citations import STYLES
+
+    return STYLES.get(style, style.upper())
+
+
 def _png_base64(picture: QPixmap) -> str:
     buffer = QBuffer()
     buffer.open(QIODevice.OpenModeFlag.WriteOnly)
@@ -283,8 +289,10 @@ class _AskJob(QThread):
         personality: str = "",
         context_note: str = "",
         note_more=None,
+        screen_text=None,
     ) -> None:
         super().__init__()
+        self._screen_text = screen_text
         self._ollama = ollama
         self._model = model
         self._prompt = prompt
@@ -315,6 +323,15 @@ class _AskJob(QThread):
                 more = ""
         if more:
             note = f"{note}\n{more}".strip() if note else more
+        if self._screen_text is not None:
+            # The watched monitor's words, read here off the window's thread.
+            try:
+                seen = self._screen_text() or ""
+            except Exception:
+                seen = ""
+            self._screen_text = None
+            if seen:
+                prompt = f"{seen}\n\nMy question about that screen: {prompt}"
         extra = {"context_note": note} if note else {}
         try:
             for piece in self._ollama.iter_reply(
@@ -1216,6 +1233,14 @@ class Shell:
         self.window.health_page.notice.connect(self._on_page_notice)
         self.window.models_page.notice.connect(self._on_page_notice)
         settings.quit_off.toggled.connect(self._set_quit_off)
+        self.window.requests_remove.clicked.connect(self._remove_selected_request)
+        self._watching: list[int] = []
+        self._last_source = None
+        self._last_copy = ""
+        self._cite_style = "mla"
+        self._citation_panel = None
+        self._refresh_requests()
+        QTimer.singleShot(4000, self._check_requests_after_update)
         self._refresh_pins()
         if hero_path().is_file():
             self.window.home.set_hero(str(hero_path()))
@@ -2461,6 +2486,9 @@ class Shell:
     def _answer_tool(self, answer: str) -> None:
         intent = self._pending_tool
         self._pending_tool = None
+        if intent is not None and intent.kind == "cite":
+            self._cite_answer(answer == "yes")
+            return
         if intent is None or answer != "yes":
             if intent is not None and intent.kind == "command":
                 self._suggested_command = None
@@ -3223,18 +3251,28 @@ class Shell:
             self._interrupt_note = ""
         alive = self._reply_keep_alive()
         facts = self._facts_for(text)
+        images, screen_text, history = None, None, self._history
+        watched = self._capture_watched(mode) if getattr(self, "_watching", None) else None
+        if watched is not None:
+            images, pngs, labels = watched
+            # The picture and its words take the room; the last two exchanges stay.
+            history = self._history[-4:]
+            screen_text = lambda shots=pngs, names=labels, question=text, ctx=mode.num_ctx: self._screen_words(shots, names, question, ctx)  # noqa: E731
+            self.window.home.set_phase("thinking", "Reading the monitor you're watching.")
         job = _AskJob(
             self.controller.ollama,
             mode.model,
             text,
             mode.num_ctx,
-            self._history,
+            history,
+            images,
             keep_alive=alive,
             num_batch=mode.num_batch,
             facts=facts,
             personality=getattr(self, "_session_personality", ""),
             context_note=self._desk_context_note(text),
             note_more=lambda prompt=text, ctx=mode.num_ctx: self._writing_note(prompt, ctx),
+            screen_text=screen_text,
         )
         job.turn = self._turn_id
         self._store_job("_ask_job", job)
@@ -3500,6 +3538,9 @@ class Shell:
             reply = trim_closing_offer(reply)
         spoken, rest = voice_and_rest(reply)
         spoken = spoken or early or "I don't have an answer for that."
+        saved_request = self._maybe_save_request(getattr(self, "_pending_line", ""), reply)
+        if saved_request:
+            spoken = f"{spoken} {saved_request}"
         self._last_reply = (spoken[:80] or "Reply", reply)
         self._full_reply = reply
         self._spoken_for_history = remembered_reply(reply) or spoken
@@ -3858,6 +3899,396 @@ class Shell:
         job.failed.connect(lambda message, heard=text, turn=job.turn: self._ask_failed(heard, message, turn))
         self._show_mode("thinking", "Looking.")
         job.start()
+
+    # ---------- monitors: watch one, read it, copy its text ----------
+
+    def _monitors(self):
+        from babysitter.screenwatch import number_monitors, windows_monitors
+
+        screens = QApplication.screens()
+        qt = [(s.geometry().x(), s.geometry().y(), s.geometry().width(), s.geometry().height()) for s in screens]
+        try:
+            native = windows_monitors()
+        except Exception:
+            native = []
+        return number_monitors(native, qt)
+
+    def _pick_monitors(self, spec: str):
+        """The monitors a spec means. "" is the watched ones, else the main monitor."""
+        from PySide6.QtGui import QCursor
+
+        from babysitter.screenwatch import pick
+
+        monitors = self._monitors()
+        if not spec and self._watching:
+            chosen = [m for m in monitors if m.number in self._watching]
+            if chosen:
+                return chosen, ""
+        if spec == "cursor":
+            screen = QApplication.screenAt(QCursor.pos())
+            screens = QApplication.screens()
+            if screen is not None and screen in screens:
+                index = screens.index(screen)
+                chosen = [m for m in monitors if m.qt_index == index]
+                if chosen:
+                    return chosen, ""
+        return pick(spec or "primary", monitors)
+
+    def _grab(self, monitor):
+        screens = QApplication.screens()
+        if not 0 <= monitor.qt_index < len(screens):
+            return None
+        return screens[monitor.qt_index].grabWindow(0)
+
+    @staticmethod
+    def _png_bytes(picture) -> bytes:
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        picture.save(buffer, "PNG")
+        return bytes(buffer.data())
+
+    def _capture_watched(self, mode):
+        """(shrunk pictures for the model, full-size PNGs for the words, labels), taken now. In memory only."""
+        monitors, _problem = self._pick_monitors("")
+        if not monitors:
+            return None
+        images: list[str] = []
+        pngs: list[bytes] = []
+        labels: list[str] = []
+        # Room for the words read off the screen is kept back from the picture.
+        budget = max(1400, mode.num_ctx - 1700) // max(1, len(monitors))
+        for monitor in monitors:
+            picture = self._grab(monitor)
+            if picture is None or picture.isNull():
+                continue
+            pngs.append(self._png_bytes(picture))
+            width, height = fit_screenshot(picture.width(), picture.height(), edge=mode.image_edge, num_ctx=budget)
+            if (width, height) != (picture.width(), picture.height()):
+                picture = picture.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            images.append(_png_base64(picture))
+            labels.append(monitor.label)
+            del picture
+        if not images:
+            return None
+        return images, pngs, labels
+
+    @staticmethod
+    def _screen_words(pngs: list[bytes], labels: list[str], question: str, num_ctx: int) -> str:
+        """Runs on the reply's thread: Windows reads each picture, and the lines that matter are kept."""
+        from babysitter.screenwatch import ScreenError, read_text, relevant_text, screen_note
+
+        limit = (2600 if num_ctx <= 4096 else 7000) // max(1, len(pngs))
+        notes = []
+        for png, label in zip(pngs, labels):
+            try:
+                lines = read_text(png)
+            except ScreenError:
+                notes.append(f"The picture is {label}. Windows couldn't read its text, so go by the picture.")
+                continue
+            notes.append(screen_note(label, relevant_text(lines, question, limit)))
+        return "\n\n".join(notes)
+
+    def _watch(self, spec: str) -> None:
+        chosen, problem = self._pick_monitors(spec or "cursor")
+        if problem or not chosen:
+            speech = problem or "I can't find that monitor."
+            self.window.home.set_reply("watch", speech, "")
+            self._speak(speech)
+            return
+        self._watching = [m.number for m in chosen]
+        names = " and ".join(f"monitor {m.number}" for m in chosen)
+        if self.controller.state == "on":
+            speech = f"Watching {names}. Ask me anything about what's on it."
+        else:
+            speech = f"Watching {names}. I can read it out or copy its text now; turn the AI on to ask about it."
+        self.window.home.set_reply(
+            "watch",
+            speech,
+            "A picture is taken only when you ask something, and it stays in memory. Nothing is recorded "
+            "in between and nothing is saved. Say \"stop watching\" to end it.",
+        )
+        self.window.set_status_line(f"Watching {names}.")
+        self._speak(speech)
+
+    def _unwatch(self) -> None:
+        was = bool(self._watching)
+        self._watching = []
+        speech = "Stopped watching. Nothing was kept." if was else "I wasn't watching a monitor."
+        self.window.home.set_reply("watch", speech, "")
+        self.window.set_status_line(speech)
+        self._speak(speech)
+
+    def _watch_status(self) -> None:
+        if self._watching:
+            names = " and ".join(f"monitor {n}" for n in self._watching)
+            speech = f"I'm watching {names}."
+        else:
+            speech = "I'm not watching a monitor. Say \"look at monitor one\" to start."
+        self._speak(speech)
+
+    def _say_monitors(self) -> None:
+        from babysitter.screenwatch import spoken_monitors
+
+        speech = spoken_monitors(self._monitors())
+        self.window.home.set_reply("monitors", speech, "")
+        self._speak(speech)
+
+    def _read_screen(self, spec: str, *, copy: bool = False) -> None:
+        """Windows reads the monitor's words; they're read out, or put on the clipboard."""
+        from babysitter.screenwatch import read_text
+
+        chosen, problem = self._pick_monitors(spec)
+        if problem or not chosen:
+            self._speak(problem or "I can't find that monitor.")
+            return
+        monitor = chosen[0]
+        picture = self._grab(monitor)
+        if picture is None or picture.isNull():
+            self._speak("I couldn't take a picture of that monitor.")
+            return
+        png = self._png_bytes(picture)
+        del picture
+        running = getattr(self, "_read_screen_job", None)
+        if running is not None and running.isRunning():
+            self._speak("I'm still reading the last one.")
+            return
+        self.window.home.set_phase(self.controller.state, f"Reading the text on monitor {monitor.number}.")
+        job = _CallJob(lambda: read_text(png))
+        self._store_job("_read_screen_job", job)
+        job.ready.connect(lambda lines, problem, m=monitor, c=copy: self._screen_read(m, lines, problem, c))
+        job.start()
+
+    def _screen_read(self, monitor, lines, problem: str, copy: bool) -> None:
+        if problem:
+            self.window.home.set_reply(f"monitor {monitor.number}", problem, "Nothing was sent anywhere.")
+            self._speak(problem)
+            return
+        lines = list(lines or [])
+        text = "\n".join(lines)
+        self._last_copy = text
+        self._last_copy_rich = False
+        if not text:
+            speech = f"I don't see any text on monitor {monitor.number}."
+            self.window.home.set_reply(f"monitor {monitor.number}", speech, "")
+            self._speak(speech)
+            return
+        if copy:
+            QApplication.clipboard().setText(text)
+            speech = f"Copied {len(lines)} lines of text from monitor {monitor.number}."
+            self.window.home.set_reply(f"monitor {monitor.number}", speech, text)
+            self._speak(speech)
+            return
+        words = text.split()
+        spoken = " ".join(words[:70]) + ("…" if len(words) > 70 else "")
+        speech = spoken if len(words) <= 70 else spoken + " That's the start. All of it is on the screen; say copy that to copy it."
+        self.window.home.set_reply(f"monitor {monitor.number}", speech, text)
+        self._speak(speech)
+
+    def _copy_that(self) -> None:
+        text = self._last_copy or (getattr(self, "_full_reply", "") or "")
+        if not text.strip():
+            self._speak("There's nothing to copy yet.")
+            return
+        if self._last_copy and getattr(self, "_last_copy_rich", False):
+            from babysitter.ui.citation_panel import copy_rich
+
+            copy_rich(self._last_copy)
+        else:
+            from babysitter.citations import plain
+
+            QApplication.clipboard().setText(plain(text))
+        self._speak("Copied.")
+
+    # ---------- citations of the page in the browser ----------
+
+    def _cite(self, style: str) -> None:
+        """Find the page, ask before fetching it, then format, show and copy the citation."""
+        from babysitter.intents import ToolIntent
+        from babysitter.screenwatch import browser_page
+
+        style = style or self._cite_style or "mla"
+        monitors, _problem = self._pick_monitors("")
+        if not self._watching:
+            monitors = self._monitors()  # not watching: the front browser on any monitor
+        page = browser_page(monitors)
+        if page is None:
+            speech = "I don't see a browser window. Open the page in DuckDuckGo and ask again."
+            self.window.home.set_reply("citation", speech, "")
+            self._speak(speech)
+            return
+        if not page.url:
+            speech = "I found the browser, but I couldn't read its address. Click the page once, then ask again."
+            self.window.home.set_reply("citation", speech, page.title)
+            self._speak(speech)
+            return
+        from urllib.parse import urlsplit
+
+        host = urlsplit(page.url).netloc
+        self._cite_style = style if style != "all" else self._cite_style
+        self._pending_cite = (page, style)
+        label = "every style" if style == "all" else _style_label(style)
+        title = page.title or host
+        intent = ToolIntent(
+            "cite",
+            style,
+            page.url,
+            f"Cite “{title[:80]}” in {label}? I'll load that one page from {host} to read its author and date.",
+        )
+        self._offer_tool(intent)
+
+    def _cite_answer(self, agreed: bool) -> None:
+        pending = getattr(self, "_pending_cite", None)
+        self._pending_cite = None
+        if pending is None:
+            return
+        page, style = pending
+        from babysitter.citations import source_from_title
+
+        if not agreed:
+            # Nothing goes online: the tab's title and address are enough for a start.
+            self._show_citation(source_from_title(page.title, page.url), style, "Made from the tab's title only, because nothing was loaded. Check the author and date.")
+            return
+        from babysitter.citations import fetch_page, source_from_html
+
+        self.window.home.set_reply("citation", "Reading the page's details…", "Only that page was loaded.")
+        job = _CallJob(lambda: source_from_html(fetch_page(page.url), page.url))
+        self._store_job("_cite_job", job)
+        job.ready.connect(lambda source, problem, p=page, s=style: self._cite_ready(p, s, source, problem))
+        job.start()
+
+    def _cite_ready(self, page, style: str, source, problem: str) -> None:
+        from babysitter.citations import source_from_title
+
+        note = ""
+        if problem or source is None:
+            source = source_from_title(page.title, page.url)
+            note = (problem or "The page didn't load.") + " Check the author and date."
+        self._show_citation(source, style, note)
+
+    def _show_citation(self, source, style: str, note: str = "") -> None:
+        from babysitter.citations import missing_note, plain
+        from babysitter.ui.citation_panel import CitationPanel
+
+        self._last_source = source
+        gaps = missing_note(source)
+        note = " ".join(part for part in (note, gaps) if part)
+        if self._citation_panel is None:
+            self._citation_panel = CitationPanel(self.window)
+            self._citation_panel.style_changed.connect(self._citation_style_picked)
+        text = self._citation_panel.show_source(source, style, note)
+        self._last_copy = text
+        self._last_copy_rich = True
+        label = "Every style is" if style == "all" else f"The {_style_label(style)} citation is"
+        speech = f"{label} on your clipboard and in the Citation window."
+        if gaps:
+            speech += " " + gaps
+        self.window.home.set_reply("citation", speech, plain(text))
+        self._speak(speech)
+
+    def _citation_style_picked(self, style: str) -> None:
+        if style != "all":
+            self._cite_style = style
+        if self._citation_panel is not None:
+            self._last_copy = self._citation_panel.current_text()
+
+    def _restyle(self, style: str) -> None:
+        """"Now in APA": the same source, another style, nothing loaded again."""
+        if self._last_source is None:
+            self._cite(style)
+            return
+        if style != "all":
+            self._cite_style = style
+        self._show_citation(self._last_source, style)
+
+    # ---------- requests BabySitter can't do yet ----------
+
+    def _refresh_requests(self) -> None:
+        from babysitter.wishlist import FILE, sheet_lines
+
+        lines = sheet_lines(load_list(FILE))[2:]
+        items = load_list(FILE)
+        self.window.set_requests(lines if items else [])
+
+    def _save_request(self, text: str) -> bool:
+        from babysitter.wishlist import FILE, add
+
+        items, added = add(load_list(FILE), text)
+        save_list(FILE, items)
+        self._refresh_requests()
+        return added
+
+    def _add_request(self, text: str) -> None:
+        added = self._save_request(text)
+        speech = "Saved to your requests." if added else "That's already on your requests list; I counted it again."
+        self.window.home.set_reply(text, speech, "It's on the Board, under Requests.")
+        self._speak(speech)
+
+    def _say_requests(self) -> None:
+        from babysitter.wishlist import FILE, sheet_lines, spoken_list
+
+        items = load_list(FILE)
+        speech = spoken_list(items)
+        self.window.home.set_reply("requests", speech, "\n".join(sheet_lines(items)))
+        self._speak(speech)
+
+    def _remove_request(self, number: int) -> None:
+        from babysitter.wishlist import FILE, remove_number
+
+        items, gone = remove_number(load_list(FILE), number)
+        if gone is None:
+            speech = f"There's no request number {number}."
+        else:
+            save_list(FILE, items)
+            speech = f"Removed: {gone.get('text', '')}."
+        self._refresh_requests()
+        self.window.home.set_reply("requests", speech, "")
+        self._speak(speech)
+
+    def _remove_selected_request(self) -> None:
+        row = self.window.requests_list.currentRow()
+        if row < 0:
+            self.window.set_status_line("Pick a request in the list first.")
+            return
+        self._remove_request(row + 1)
+
+    def _check_requests_after_update(self) -> None:
+        """On a new version, take off every request a command can do now, and say which."""
+        from babysitter.version import __version__
+        from babysitter.wishlist import FILE, now_possible
+
+        seen = load_list("requests_checked.json")
+        if seen and seen[0].get("version") == __version__:
+            return
+        save_list("requests_checked.json", [{"version": __version__}])
+        items = load_list(FILE)
+        if not items:
+            return
+
+        def can_do(text: str) -> bool:
+            quick = match_quick_command(text)
+            return (quick is not None and quick.kind not in {"request_add"}) or match_tool(text) is not None
+
+        kept, built = now_possible(items, can_do)
+        if not built:
+            return
+        save_list(FILE, kept)
+        self._refresh_requests()
+        names = "; ".join(str(item.get("text") or "") for item in built[:3])
+        self.window.show_notice(
+            f"This version can do {len(built)} thing{'s' if len(built) != 1 else ''} you asked for, so "
+            f"{'they were' if len(built) != 1 else 'it was'} taken off your requests: {names}.",
+            "Open Board",
+            lambda: self.window.show_place("board"),
+        )
+
+    def _maybe_save_request(self, heard: str, reply: str) -> str:
+        """The model said it can't: the request is saved. Returns the sentence to add, or ""."""
+        from babysitter.wishlist import looks_like_request, reply_says_cannot
+
+        if not heard or not looks_like_request(heard) or not reply_says_cannot(reply):
+            return ""
+        added = self._save_request(heard)
+        return "I've saved that to your requests." if added else ""
 
     def _read_health(self) -> None:
         if self.turns.busy():
@@ -4360,6 +4791,14 @@ class Shell:
         quick = match_quick_command(text)
         if quick is not None and quick.kind == "undo":
             return False
+        if quick is None and getattr(self, "_last_source", None) is not None:
+            from babysitter.citations import restyle_command
+            from babysitter.commands import strip_lead
+
+            style = restyle_command(" ".join(re.findall(r"[a-z0-9']+", strip_lead(text).lower())))
+            if style:
+                self._restyle(style)
+                return True
         if quick is None:
             intent = match_tool(text)
             if intent is None:
@@ -4484,7 +4923,29 @@ class Shell:
             self._speak(speech)
             return True
         if quick.kind == "screen":
+            if self._watching:
+                # Watching already: "what's on my screen" is a question about that monitor.
+                self._skip_quick_once = True
+                self._pending_line = text
+                self._send_heard()
+                return True
             self._look_at_screen()
+            return True
+        handlers = {
+            "watch": lambda: self._watch(quick.detail),
+            "unwatch": self._unwatch,
+            "watch_status": self._watch_status,
+            "monitors": self._say_monitors,
+            "screen_read": lambda: self._read_screen(quick.detail),
+            "screen_copy": lambda: self._read_screen(quick.detail, copy=True),
+            "cite": lambda: self._cite(quick.detail),
+            "copy": self._copy_that,
+            "requests": self._say_requests,
+            "request_remove": lambda: self._remove_request(quick.seconds),
+            "request_add": lambda: self._add_request(quick.detail),
+        }
+        if quick.kind in handlers:
+            handlers[quick.kind]()
             return True
         if quick.kind == "screen_text":
             self._look_at_screen(full=True)

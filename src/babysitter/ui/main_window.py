@@ -407,6 +407,22 @@ class MainWindow(FramelessWindow):
         goals, goals_layout = _card("Goals")
         goals_layout.addWidget(self.schedule_page.goals_box)
         layout.addWidget(goals)
+        from babysitter.wishlist import SHEET_HEADER
+
+        # Requests BabySitter can't do yet. The header is the rule he asked for.
+        requests, requests_layout = _card("Requests", SHEET_HEADER)
+        self.requests_list = QListWidget()
+        self.requests_list.setAccessibleName("Requests BabySitter can't do yet")
+        self.requests_list.setWordWrap(True)
+        self.requests_list.setMinimumHeight(90)
+        requests_layout.addWidget(self.requests_list)
+        row = QHBoxLayout()
+        self.requests_remove = QPushButton("Remove the selected request")
+        self.requests_remove.setToolTip("For a request that's been built, or one you no longer want.")
+        row.addWidget(self.requests_remove)
+        row.addStretch(1)
+        requests_layout.addLayout(row)
+        layout.addWidget(requests)
         layout.addStretch(1)
         self._place_page("board", board)
 
@@ -806,6 +822,13 @@ class MainWindow(FramelessWindow):
         self.notice_action.setText(action)
         self._notice_callback = callback
         self.notice_strip.show()
+
+    def set_requests(self, lines: list[str]) -> None:
+        """The numbered request lines (the header is the card's own hint)."""
+        self.requests_list.clear()
+        for line in lines:
+            self.requests_list.addItem(line)
+        self.requests_remove.setEnabled(bool(lines))
 
     def has_notice(self) -> bool:
         """A notice with a button is showing."""
