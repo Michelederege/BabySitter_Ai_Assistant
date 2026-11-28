@@ -555,4 +555,5 @@ def save_settings(settings: Settings, path: Path | None = None) -> None:
     payload = json.dumps(settings.to_dict(), indent=2) + "\n"
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(payload, encoding="utf-8")
-    temporary.replace(path)
+    from babysitter.privatefile import replace_with_retry
+    replace_with_retry(temporary, path)

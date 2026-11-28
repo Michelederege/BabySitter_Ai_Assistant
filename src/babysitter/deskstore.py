@@ -56,7 +56,9 @@ def save_list(name: str, items: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(items, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    from babysitter.privatefile import replace_with_retry
+
+    replace_with_retry(temporary, path)
 
 
 def add_item(name: str, **fields: str) -> dict:

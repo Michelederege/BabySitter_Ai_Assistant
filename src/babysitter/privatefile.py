@@ -60,7 +60,26 @@ def write_private(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_bytes(seal(text))
-    temporary.replace(path)
+    replace_with_retry(temporary, path)
+
+
+def replace_with_retry(temporary: Path, path: Path, attempts: int = 10) -> None:
+    """Move the new file into place, waiting out a brief lock.
+
+    Antivirus and Windows Search open a file for a moment after it changes;
+    a replace in that moment fails with PermissionError. Failing outright
+    meant a reminder's "rung" mark wasn't saved, so it rang again.
+    """
+    import time
+
+    for attempt in range(attempts):
+        try:
+            Path(temporary).replace(path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.05)
 
 
 def seal_existing(paths) -> int:

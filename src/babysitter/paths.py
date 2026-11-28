@@ -43,7 +43,8 @@ def write_text_safely(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding="utf-8")
-    temporary.replace(path)
+    from babysitter.privatefile import replace_with_retry
+    replace_with_retry(temporary, path)
 
 
 def read_json_dict(path: Path) -> dict:

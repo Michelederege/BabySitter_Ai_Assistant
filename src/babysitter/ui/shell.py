@@ -3515,6 +3515,7 @@ class Shell:
         self._end_model_turn()
         self._pending_offer = ""
         self.window.home.set_reply(heard, "The model did not answer.", message)
+        self._offer_fix(message)
         self._speaking = False
         self._sync_keyword()
         self._release_waiting_scan()
@@ -5737,16 +5738,26 @@ class Shell:
 
     def _check_reminders(self, items: list | None = None) -> None:
         """Say a saved reminder once its clock time has arrived."""
+        if getattr(self, "_speaking", False) and not self._speech_alive():
+            # The flag outlived every voice job (a reply turn replaced mid-stream,
+            # a voice prompt dismissed). Left set, no reminder would ever ring again.
+            self._speaking = False
+            self._is_filler = False
         if getattr(self, "_speaking", False):
             return
         now = datetime.now().astimezone()
         if items is None:
             items = load_list("schedule.json")
         pending = None
+        rung = getattr(self, "_rung_ids", None)
+        if rung is None:
+            rung = self._rung_ids = set()
         for item in items:
             due = str(item.get("due") or "")
             if not due or str(item.get("fired") or "") == "yes":
                 continue
+            if str(item.get("id") or "") in rung:
+                continue  # already said this session, even if marking it on disk failed
             try:
                 moment = datetime.fromisoformat(due)
             except ValueError:
@@ -5759,7 +5770,12 @@ class Shell:
         if pending is None:
             return
         pending["fired"] = "yes"
-        save_list("schedule.json", items)
+        if pending.get("id"):
+            rung.add(str(pending.get("id")))
+        try:
+            save_list("schedule.json", items)
+        except OSError as exc:
+            self.controller._remember(f"The reminder was said, but marking it done didn't save ({exc}).")
         self.window.schedule_page.refresh()
         from babysitter.phrasing import PhraseBook
 
@@ -5771,6 +5787,24 @@ class Shell:
         )
         self.tray.notify("Reminder", speech)
         self._speak(speech, alert=True)
+
+    def _speech_alive(self) -> bool:
+        """A voice job is really running (or a voice download that will speak when done)."""
+        for name in ("_speak_job", "_filler_job", "_kokoro_job"):
+            if self._thread_busy(getattr(self, name, None)):
+                job = getattr(self, name)
+                started = getattr(job, "_alive_since", None)
+                if started is None:
+                    job._alive_since = time.monotonic()
+                elif name == "_speak_job" and time.monotonic() - started > 300:
+                    # A reply stream left open for five minutes is waiting for text that
+                    # will never come: close it so it finishes and frees the voice.
+                    try:
+                        job.close_input()
+                    except RuntimeError:
+                        pass
+                return True
+        return False
 
     def _speak_saved_history(self, text: str) -> None:
         """Read the saved conversation here. The model is not asked, and the voice gets a short piece."""
@@ -6220,7 +6254,8 @@ class Shell:
         kept = list(self._seen_google)[-200:]
         temporary = path.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(kept), encoding="utf-8")
-        temporary.replace(path)
+        from babysitter.privatefile import replace_with_retry
+        replace_with_retry(temporary, path)
 
     def _warn_google_week(self) -> None:
         """A day before Google's weekly sign-out, one notice a day with Sign in again."""

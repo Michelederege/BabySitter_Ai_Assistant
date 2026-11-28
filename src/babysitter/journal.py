@@ -74,7 +74,8 @@ def save_day(record: dict) -> None:
     path = journal_dir() / f"{record['date']}.json"
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    from babysitter.privatefile import replace_with_retry
+    replace_with_retry(temporary, path)
 
 
 def plain_app(name: str) -> str:

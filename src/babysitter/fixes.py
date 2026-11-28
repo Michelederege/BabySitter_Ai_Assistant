@@ -63,7 +63,12 @@ def fix_for(message: str, *, level: str = "") -> Fix | None:
             "Try again",
             "retry",
         )
-    if "did not answer at 127.0.0.1" in lowered or "could not reach ollama" in lowered or "took too long" in lowered:
+    if (
+        "did not answer at 127.0.0.1" in lowered
+        or "could not reach ollama" in lowered
+        or "took too long" in lowered
+        or "ollama stopped unexpectedly" in lowered
+    ):
         return Fix("Ollama didn't answer.", "Try again", "retry")
     if lowered.startswith("quiet hours are"):
         return Fix("Quiet hours are on, so the AI stays off.", "Turn quiet hours off", "quiet_off")

@@ -612,6 +612,7 @@ class Controller(QObject):
         self.probe.keep_reading = bool(self.settings.auto_game_mode and self.state in {ON, GAME})
         self.status_changed.emit(snap)
         self._journal_tick()
+        self._watch_ollama(snap)
         if self._busy or not self.settings.auto_game_mode or self.state not in {ON, GAME}:
             return
         if self.reply_busy():
@@ -638,6 +639,26 @@ class Controller(QObject):
             game_busy=self._game_busy(snap, game),
         )
         self._carry_out(action, game)
+
+    def _watch_ollama(self, snap: StatusSnapshot) -> None:
+        """Ollama gone while the AI says On: say so, so Try again can start it.
+
+        Nothing noticed a crashed or closed Ollama before. The state stayed On,
+        every question failed, and Try again did nothing because the power
+        switch thought it was already on. Three silent readings (about 6 s)
+        count, so one slow answer on the port isn't mistaken for a crash.
+        """
+        if self._busy or self.state != ON or getattr(snap, "port_open", True):
+            self._ollama_gone = 0
+            return
+        self._ollama_gone = getattr(self, "_ollama_gone", 0) + 1
+        if self._ollama_gone < 3:
+            return
+        self._ollama_gone = 0
+        self.power.state = ERROR
+        message = "Ollama stopped unexpectedly, so the AI can't answer. Press Try again to start it."
+        self._remember(message)
+        self.state_changed.emit(ERROR, message)
 
     @staticmethod
     def _game_busy(snap: StatusSnapshot, game: str | None) -> float | None:
