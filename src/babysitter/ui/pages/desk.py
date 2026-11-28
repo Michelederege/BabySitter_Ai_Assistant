@@ -479,7 +479,7 @@ class HistoryPage(_Page):
         count = wipe_sessions()
         self.wipe_box.clear()
         self.refresh()
-        self.body.append(f"\nDeleted {count} saved file(s). They stayed on this PC until then.")
+        self.body.appendPlainText(f"\nDeleted {count} saved file(s). They stayed on this PC until then.")
 
 
 class ScreenPage(_Page):

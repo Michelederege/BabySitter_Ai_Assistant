@@ -1163,7 +1163,8 @@ class Shell:
         settings.add_search_folder.clicked.connect(self._add_search_folder)
         settings.remove_search_folder.clicked.connect(self._remove_search_folder)
         settings.open_data.clicked.connect(lambda: open_folder(self.controller.data_folder()))
-        settings.backup.clicked.connect(self._back_up_memory)
+        # clicked passes a bool; the folder must be asked for, not taken from it.
+        settings.backup.clicked.connect(lambda _checked=False: self._back_up_memory())
         settings.open_log.clicked.connect(lambda: open_folder(self.controller.log_folder()))
         tools = self.window.tools_page
         tools.enabled_changed.connect(self._set_social)
@@ -2427,7 +2428,7 @@ class Shell:
         except ValueError as exc:
             self.window.history_page.body.setPlainText(str(exc))
             return
-        self.window.history_page.body.append(f"\nExported to {path.name} in the BabySitter folder. It was not uploaded.")
+        self.window.history_page.body.appendPlainText(f"\nExported to {path.name} in the BabySitter folder. It was not uploaded.")
 
     def _delete_session(self) -> None:
         session_id = self.window.history_page.selected_id()
@@ -3868,7 +3869,11 @@ class Shell:
         )
         del picture
         if self.controller.state != "on":
-            self.window.screen_page.body.append("\nTurn the AI on before asking about the screen. Nothing was sent.")
+            self.window.screen_page.body.appendPlainText("\nTurn the AI on before asking about the screen. Nothing was sent.")
+            speech = "Turn the AI on first, then ask me about the screen. Nothing was sent."
+            self.window.home.set_reply("screen", speech, "")
+            self._offer_fix("Ollama did not answer at 127.0.0.1")  # one-tap: Try again turns it on
+            self._speak(speech)
             return
         self.window.home.set_phase("thinking", "Looking at the screen.")
         self._speak("Looking at the screen.", filler=True)

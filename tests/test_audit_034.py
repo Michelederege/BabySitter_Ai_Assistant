@@ -39,3 +39,50 @@ def test_quit_waits_for_a_running_job_and_says_when_one_wont_stop(tmp_path, monk
         release.set()
         slow.wait(3000)
         shell.window.close()
+
+
+def test_look_at_my_screen_with_the_ai_off_says_so(tmp_path, monkeypatch):
+    """It crashed: a plain-text box has no append()."""
+    shell, spoken = _shell(tmp_path, monkeypatch)
+    try:
+        assert shell.controller.state != "on"
+        shell._look_at_screen()
+        assert spoken[-1].startswith("Turn the AI on first")
+        assert "Turn the AI on" in shell.window.screen_page.body.toPlainText()
+    finally:
+        shell.window.close()
+
+
+def test_back_up_asks_for_a_folder_instead_of_taking_the_click(tmp_path, monkeypatch):
+    """clicked(False) was used as the folder: Path(False) raised."""
+    from PySide6.QtWidgets import QFileDialog
+
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    asked = []
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: asked.append(a) or ""))
+    try:
+        shell.window.settings_page.backup.click()
+        assert len(asked) == 1
+    finally:
+        shell.window.close()
+
+
+def test_history_export_and_wipe_finish(tmp_path, monkeypatch):
+    """Both did their work, then crashed writing the last line."""
+    from babysitter.sessions import append_turn, begin_session
+
+    shell, _spoken = _shell(tmp_path, monkeypatch)
+    try:
+        session = begin_session()
+        append_turn(session, "hello", "hi there")
+        page = shell.window.history_page
+        page.refresh()
+        page.sessions.setCurrentRow(0)
+        assert page.selected_id() == session
+        shell._export_session()
+        assert "Exported to" in page.body.toPlainText()
+        page.wipe_box.setText("WIPE")
+        page._wipe()
+        assert "Deleted" in page.body.toPlainText()
+    finally:
+        shell.window.close()
