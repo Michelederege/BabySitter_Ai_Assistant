@@ -168,6 +168,11 @@ class HomePage(QWidget):
         QTimer.singleShot(0, self._fit_to_width)
 
     def _arrange(self) -> None:
+        # v3 moves these cards into the window's places. Re-adding them here would
+        # pull them off Talk and the Board into this page, which is never shown.
+        if any(card.parentWidget() is not self.detail_host for card in (self.pin_card, self.assistant_card)
+               if card.parentWidget() is not None):
+            return
         for card in (self.pin_card, self.assistant_card, self.pc_card, self.log_card):
             self._grid.removeWidget(card)
         if self._side_by_side:

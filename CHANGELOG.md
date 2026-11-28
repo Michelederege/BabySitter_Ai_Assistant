@@ -2,6 +2,13 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.35.0 — Hard bugs: things that only go wrong now and then
+
+- **Reminders could stop ringing for good.** A reminder waits while BabySitter is speaking. If a reply ended oddly (replaced mid-stream, or a voice prompt dismissed), the "speaking" mark stayed on with nothing speaking, and no reminder rang again until a restart. Now a mark with no voice behind it is cleared, and a reply left open for five minutes is closed.
+- **A reminder could ring every second.** Antivirus and Windows Search briefly lock a file after it changes. When marking a reminder as said hit that moment, the mark wasn't saved, so it rang again on the next tick. Saves now wait out a brief lock (settings, reminders, the journal, memory, personality), and a reminder is never said twice in one session.
+- **A crashed Ollama went unnoticed.** If Ollama closed or crashed while the AI was on, BabySitter still said On, every question failed, and Try again did nothing because the switch thought it was already on. Now about 6 seconds of silence from Ollama shows Needs you with a Try again button that starts it again, and a failed answer offers the same button.
+- Checked and fine: daylight saving (reminders keep that day's own offset), every model that can watch a monitor accepts pictures (qwen3.5, gemma4, qwen3-vl), and the background threads never touch the window. A guard was added so the old Home grid can never pull the Talk or Board cards away.
+
 ## 0.34.0 — It knows when a game needs the graphics card, and five bug hunts
 
 **It sees how hard a game works the graphics card.** Windows keeps a per-program count of how busy the card is, the same number Task Manager shows. BabySitter now reads it for the game that's running, every 2 seconds, in about 3 ms. If the game keeps the card 85% busy or more for about 6 seconds, BabySitter steps aside into game mode, even when its memory would still fit, so the game keeps its frame rate. It comes back on its own when the game closes. Pressing On while a heavy game runs starts straight in game mode. Ask "how much is the game using" (or "how busy is my GPU") to hear the game's share, and what BabySitter will do about it.
