@@ -271,9 +271,9 @@ def test_a_cannot_reply_saves_the_request(tmp_path, monkeypatch):
         shell._pending_line = "can you order me a pizza"
         assert shell._maybe_save_request(shell._pending_line, "That isn't something I can do yet.") == "I've saved that to your requests."
         assert [i["text"] for i in load_list(wl.FILE)] == ["can you order me a pizza"]
-        assert shell.window.requests_list.count() == 1
+        assert shell.window.requests_list.item(0).text().startswith("1. can you order me a pizza")
         shell._run_quick("remove request 1")
-        assert load_list(wl.FILE) == [] and shell.window.requests_list.count() == 0
+        assert load_list(wl.FILE) == [] and shell.window.requests_list.item(0).text().startswith("Nothing saved yet")
     finally:
         shell.window.close()
 

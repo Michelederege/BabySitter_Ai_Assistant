@@ -87,6 +87,9 @@ def wrap_wide_rows(root: QWidget, threshold: int = 300) -> int:
     for row in list(root.findChildren(QHBoxLayout)):
         if row.minimumSize().width() <= threshold:
             continue
+        owner = row.parentWidget()
+        if owner is not None and owner.property("noWrap"):
+            continue  # a row laid out on purpose, like the talk bar
         widgets = [row.itemAt(i).widget() for i in range(row.count())]
         if not widgets or any(w is None for w in widgets if w is not None) or not all(
             w is None or isinstance(w, QWidget) for w in widgets
@@ -98,6 +101,7 @@ def wrap_wide_rows(root: QWidget, threshold: int = 300) -> int:
         if parent is None or not hasattr(parent, "insertWidget"):
             continue
         host = QWidget()
+        host.setObjectName("flowHost")
         host.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         flow = FlowLayout(host)
         for widget in widgets:
@@ -108,6 +112,22 @@ def wrap_wide_rows(root: QWidget, threshold: int = 300) -> int:
         parent.insertWidget(index, host)
         swapped += 1
     return swapped
+
+
+def fit_list(widget, max_rows: int = 10) -> None:
+    """A list as tall as its rows (up to max_rows), so a short list leaves no empty box."""
+    widget.setWordWrap(True)
+    widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    rows = widget.count()
+    if rows == 0:
+        widget.setFixedHeight(0)
+        widget.hide()
+        return
+    widget.show()
+    shown = min(rows, max_rows)
+    height = sum(max(widget.sizeHintForRow(i), 20) for i in range(shown))
+    frame = widget.frameWidth() * 2
+    widget.setFixedHeight(height + frame + 6)
 
 
 class WrapGrid(QWidget):

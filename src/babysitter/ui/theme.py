@@ -387,6 +387,131 @@ QLabel#mono { font-family: "JetBrains Mono", Consolas, monospace; color: #a3aec5
 QFrame#statePopup { background-color: #1d2439; border: 1px solid #2f395a; border-radius: 14px; color: #e8ecf4; }
 *:focus { outline: none; }
 #appRoot QPushButton:focus, #appRoot QLineEdit:focus, #appRoot QListWidget:focus { border: 1px solid #f6b977; }
+
+/* ---------- v3, matched to the design screenshots (babysitter-ui-v3) ---------- */
+#appRoot, #appRoot QWidget { font-family: "Inter", "Segoe UI"; }
+#appRoot QPushButton { background-color: #2f395a; border-radius: 9px; padding: 8px 14px; font-size: 13px; }
+#appRoot QPushButton:hover { background-color: #3a4568; }
+#appRoot QFrame#v3card, #appRoot QFrame#card { background-color: #252e4a; border: 1px solid #2f395a; border-radius: 14px; }
+#appRoot QFrame#innerCard { background-color: #252e4a; border: 1px solid #2f395a; border-radius: 14px; }
+#appRoot QLabel#title { font-family: "Space Grotesk", "Inter"; font-size: 30px; font-weight: 700; color: #f2f5fa; }
+#appRoot QLabel#hint { color: #a3aec5; font-size: 14px; }
+#appRoot QLineEdit, #appRoot QComboBox, #appRoot QPlainTextEdit, #appRoot QListWidget {
+    background-color: #1a2136; border: 1px solid #38436a; border-radius: 9px; padding: 7px 11px;
+}
+
+/* title bar */
+#appRoot #titlebar { background-color: #1a2136; border-bottom: 1px solid #2f395a; }
+#appRoot QPushButton#titleAction {
+    background: transparent; border: none; color: #e8ecf4; font-size: 15px; font-weight: 600; padding: 6px 10px;
+}
+#appRoot QPushButton#titleAction:hover { background: #252e4a; }
+#appRoot QPushButton#windowButton, #appRoot QPushButton#closeButton {
+    background: transparent; border: none; padding: 6px 12px; color: #f5a54a; font-size: 12px; font-weight: 700;
+}
+#appRoot QPushButton#windowButton:hover { background: #2f395a; }
+#appRoot QPushButton#closeButton:hover { background: #8a3e48; }
+#appRoot QPushButton#statePill {
+    background: #202840; color: #e8ecf4; border: 1px solid #38436a; border-radius: 15px;
+    padding: 0 16px 0 10px; min-height: 30px; max-height: 30px; font-size: 15px; font-weight: 600;
+}
+#appRoot QPushButton#statePill:hover { background: #252e4a; }
+
+/* side menu and bottom bar */
+#appRoot QFrame#sideMenu { background-color: #1d2439; border-right: 1px solid #2f395a; }
+#appRoot QPushButton#place {
+    background: transparent; color: #c6cddc; border: none; border-radius: 10px;
+    padding: 12px 14px; text-align: left; font-size: 16px; font-weight: 500;
+}
+#appRoot QPushButton#place:hover { background: #252e4a; color: #e8ecf4; }
+#appRoot QPushButton#place:checked { background: #2f395a; color: #f2f5fa; font-weight: 600; }
+#appRoot QToolButton#placeBottom {
+    background: transparent; color: #a3aec5; border: none; border-radius: 9px; padding: 4px 2px; font-size: 11px;
+}
+#appRoot QToolButton#placeBottom:checked { background: #2f395a; color: #f2f5fa; }
+
+/* Talk */
+#appRoot QWidget#talkBody { background: transparent; }
+#appRoot QLabel#heardLine { color: #a3aec5; font-size: 15px; }
+#appRoot QLabel#spokenLarge { color: #f2f5fa; font-size: 28px; font-weight: 700; }
+#appRoot QPushButton#textButton {
+    background: transparent; border: none; color: #dfe4ee; font-size: 15px; font-weight: 600; padding: 4px 0;
+    text-decoration: none;
+}
+#appRoot QPushButton#textButton:hover { color: #ffffff; text-decoration: none; }
+#appRoot QPushButton#textButton:disabled { color: #5f6a86; background: transparent; }
+#appRoot QFrame#talkBar { background-color: #202840; border-top: 1px solid #2f395a; }
+#appRoot QPushButton#holdButton {
+    background-color: #f5a54a; color: #2a1606; border: none; border-radius: 22px;
+    padding: 11px 24px; font-size: 16px; font-weight: 700; min-height: 22px;
+}
+#appRoot QPushButton#holdButton:hover { background-color: #f8b866; }
+#appRoot QPushButton#holdButton:pressed { background-color: #e8963a; }
+#appRoot QLineEdit#talkInput {
+    background-color: #1a2136; border: 1px solid #38436a; border-radius: 22px; padding: 11px 20px; font-size: 15px;
+}
+#appRoot QLineEdit#talkInput:focus { border-color: #f6b977; }
+#appRoot QPushButton#sendButton {
+    background-color: #252e4a; border: none; border-radius: 22px; min-width: 44px; max-width: 44px;
+    min-height: 44px; max-height: 44px; padding: 0;
+}
+#appRoot QPushButton#sendButton:hover { background-color: #2f395a; }
+#appRoot QPushButton#heroCorner {
+    background-color: rgba(20, 26, 44, 0.55); border: none; border-radius: 15px; padding: 6px;
+}
+#appRoot QLabel#sectionLabel { color: #a3aec5; font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+#appRoot QPushButton#sideLink { background: transparent; border: none; color: #dfe4ee; font-size: 15px; font-weight: 600; padding: 2px 0; }
+#appRoot QPushButton#sideLink:hover { color: #ffffff; }
+#appRoot QLabel#sideRow { color: #e8ecf4; font-size: 15px; }
+#appRoot QLabel#sideMuted { color: #a3aec5; font-size: 14px; }
+#appRoot QFrame#sideRowFrame { border: none; border-bottom: 1px solid #2f395a; background: transparent; }
+#appRoot QFrame#sideRowLast { border: none; background: transparent; }
+#appRoot QPushButton#chip { background: #252e4a; border: 1px solid #2f395a; border-radius: 15px; padding: 6px 14px; font-size: 13px; }
+QLabel#tag_reply, QLabel#tag_note, QLabel#tag_list, QLabel#tag_picture, QLabel#tag_fact {
+    border-radius: 5px; padding: 3px 8px; font-size: 11px; font-weight: 700; letter-spacing: 1px;
+}
+
+/* notice strip: one line, full width, under the title bar */
+#appRoot QFrame#noticeStrip { background: #252e4a; border: none; border-bottom: 1px solid #2f395a; border-radius: 0; }
+#appRoot QFrame#noticeStrip QLabel { color: #e8ecf4; font-size: 15px; }
+#appRoot QFrame#noticeStrip QPushButton#primary { background: #2f395a; color: #f2f5fa; }
+#appRoot QFrame#noticeStrip QPushButton#quiet { color: #dfe4ee; font-size: 15px; font-weight: 600; }
+
+/* Board */
+#appRoot QWidget#boardBody { background: transparent; }
+#appRoot QFrame#pinCard { background-color: #252e4a; border: 1px solid #2f395a; border-radius: 16px; }
+#appRoot QFrame#pinCard QLabel { background: transparent; }
+#appRoot QLabel#cardTitle { color: #f2f5fa; font-size: 17px; font-weight: 700; }
+#appRoot QLabel#cardBody { color: #a3aec5; font-size: 15px; }
+#appRoot QLabel#cardWhen { color: #a3aec5; font-size: 13px; }
+#appRoot QFrame#pinCard QPushButton#textButton { font-size: 14px; color: #dfe4ee; }
+#appRoot QPushButton#boardAdd { background: #2f395a; color: #f2f5fa; border-radius: 11px; padding: 10px 18px; font-size: 15px; font-weight: 600; }
+#appRoot QPushButton#boardAdd:hover { background: #3a4568; }
+#appRoot QLabel#boardSection { color: #f2f5fa; font-size: 18px; font-weight: 700; }
+#appRoot QListWidget#plainList { background: transparent; border: none; padding: 0; font-size: 15px; }
+#appRoot QListWidget#plainList::item { padding: 12px 6px; border-bottom: 1px solid #2f395a; color: #e8ecf4; }
+#appRoot QListWidget#plainList::item:selected { background: #252e4a; color: #ffffff; border-radius: 8px; }
+
+#appRoot QWidget#flowHost { background: transparent; }
+#appRoot QListWidget#sectionList { background: transparent; border: none; padding: 0; font-size: 15px; }
+#appRoot QListWidget#sectionList::item { padding: 11px 16px; border-radius: 10px; color: #c6cddc; margin: 1px 0; }
+#appRoot QListWidget#sectionList::item:hover { background: #252e4a; color: #e8ecf4; }
+#appRoot QListWidget#sectionList::item:selected { background: #2f395a; color: #f2f5fa; }
+#appRoot QLabel#sectionTitle { color: #f2f5fa; font-size: 22px; font-weight: 700; }
+#appRoot QLabel#section { color: #f2f5fa; font-size: 15px; font-weight: 700; letter-spacing: 0; }
+#appRoot QPushButton#quietButton { background: transparent; color: #c6cddc; border: 1px solid #2f395a; border-radius: 9px; padding: 7px 12px; }
+#appRoot QPushButton#quietButton:hover { background: #252e4a; color: #ffffff; }
+#appRoot QLabel#cardHead { color: #f2f5fa; font-size: 18px; font-weight: 700; }
+
+/* Today */
+#appRoot QFrame#listCard { background-color: #252e4a; border: 1px solid #2f395a; border-radius: 16px; }
+#appRoot QFrame#listCard QListWidget#plainList::item:last { border-bottom: none; }
+#appRoot QLabel#briefIcon { background: #2f395a; border-radius: 20px; }
+
+/* segmented filters and section list */
+#appRoot QPushButton#segment { background: transparent; color: #c6cddc; border: none; border-radius: 8px; padding: 7px 14px; font-size: 14px; }
+#appRoot QPushButton#segment:checked { background: #2f395a; color: #f2f5fa; }
+#appRoot QFrame#segmentGroup { background: #1d2439; border: 1px solid #2f395a; border-radius: 11px; }
 """
 
 MENU_QSS = """

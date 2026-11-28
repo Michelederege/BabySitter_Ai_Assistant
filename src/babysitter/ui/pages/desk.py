@@ -26,6 +26,18 @@ from babysitter.models import model_choice
 from babysitter.ui.pinbutton import fill_pinned_list, fit_pinned_row, list_width, pin_button
 
 
+def _list_card(widget: QWidget) -> QWidget:
+    """A list inside one rounded card, rows divided by thin lines (v3)."""
+    from PySide6.QtWidgets import QFrame
+
+    card = QFrame()
+    card.setObjectName("listCard")
+    layout = QVBoxLayout(card)
+    layout.setContentsMargins(18, 8, 18, 8)
+    layout.addWidget(widget)
+    return card
+
+
 class _Page(QWidget):
     notice = Signal(str)
     pin_line = Signal(str)
@@ -46,6 +58,27 @@ class _Page(QWidget):
         self.body.setAccessibleName(f"{title} details")
         self.root.addWidget(self.body)
 
+    def embed(self) -> None:
+        """Sit inside a v3 card: the card has the title, so the page's own heading and paragraph hide."""
+        self.root.setContentsMargins(0, 0, 0, 0)
+        for index in (0, 1):
+            item = self.root.itemAt(index)
+            if item is not None and item.widget() is not None:
+                item.widget().hide()
+        # The result box and its pin show only once there is something in them.
+        pin = getattr(self, "page_pin", None)
+        if pin is None:
+            return  # pages with their own lists keep the box hidden, as they built it
+
+        def follow() -> None:
+            has_text = bool(self.body.toPlainText().strip())
+            self.body.setVisible(has_text)
+            if pin is not None:
+                pin.setVisible(has_text)
+
+        self.body.textChanged.connect(follow)
+        follow()
+
     def _fresh(self, key: str) -> bool:
         """Enter and the button can both fire for one press. The second is ignored."""
         now = time.monotonic()
@@ -61,6 +94,7 @@ class _Page(QWidget):
         pin = pin_button()
         pin.setToolTip("Pin what is written on this page. It stays on this PC.")
         pin.clicked.connect(self._emit_body)
+        self.page_pin = pin
         row.addWidget(pin)
         row.addStretch(1)
         self.root.insertLayout(2, row)
@@ -91,15 +125,14 @@ class SchedulePage(_Page):
         goals_layout.setSpacing(8)
         self.root.insertWidget(2, self.goals_box)
         goal_head = QLabel("Goals")
-        goal_head.setObjectName("word")
+        goal_head.setObjectName("boardSection")
         goals_layout.addWidget(goal_head)
         goal_row = QHBoxLayout()
         self.goal_text = QLineEdit()
         self.goal_text.setAccessibleName("Goal text")
-        self.goal_text.setPlaceholderText("Finish the bracket")
+        self.goal_text.setPlaceholderText("Add a goal, like: finish the bracket")
         self.goal_text.setToolTip("A goal stays on this PC. It does not ring.")
         add_goal = QPushButton("Add goal")
-        add_goal.setObjectName("primary")
         add_goal.setToolTip("Saves the goal on this PC and shows it in the list below.")
         add_goal.clicked.connect(self._add_goal)
         self.goal_text.returnPressed.connect(self._add_goal)
@@ -117,8 +150,8 @@ class SchedulePage(_Page):
         goal_row.addWidget(remove_goal)
         goals_layout.addLayout(goal_row)
         self.goals = QListWidget()
+        self.goals.setObjectName("plainList")
         self.goals.setAccessibleName("Saved goals")
-        self.goals.setMinimumHeight(72)
         self.goals.setToolTip("Goals saved on this PC. Saying my goals opens this page.")
         goals_layout.addWidget(self.goals)
         remind_head = QLabel("Reminders")
@@ -147,8 +180,10 @@ class SchedulePage(_Page):
         row.addWidget(self.when, 1)
         row.addWidget(add)
         row.addWidget(remove)
+        self.add_button, self.remove_button = add, remove
         self.root.insertLayout(4, row)
         self.list = QListWidget()
+        self.list.setObjectName("plainList")
         self.list.setAccessibleName("Saved reminders")
         self.list.setToolTip("Reminders saved on this PC. The pin puts one on the board.")
         self.root.insertWidget(5, self.list)
@@ -161,12 +196,16 @@ class SchedulePage(_Page):
     def refresh_goals(self) -> None:
         from babysitter.goals import goal_rows
 
+        from babysitter.ui.flow import fit_list
+
         items = load_list("goals.json")
         if not items:
             self.goals.clear()
             self.goals.addItem("No goals yet.")
+            fit_list(self.goals)
             return
         fill_pinned_list(self.goals, goal_rows(items), self.pin_line.emit)
+        fit_list(self.goals)
 
     def _add_goal(self) -> None:
         if not self._fresh("goal"):
@@ -196,10 +235,13 @@ class SchedulePage(_Page):
         self.notice.emit(f"GOAL drop: {item_id}")
 
     def _show_reminders(self) -> None:
+        from babysitter.ui.flow import fit_list
+
         items = load_list("schedule.json")
         if not items:
             self.list.clear()
-            self.list.addItem("No reminders yet.")
+            self.list.addItem("No reminders yet. Say \"remind me at 6 to stretch\", or add one here.")
+            fit_list(self.list)
             return
         fill_pinned_list(
             self.list,
@@ -213,6 +255,7 @@ class SchedulePage(_Page):
             ],
             self.pin_line.emit,
         )
+        fit_list(self.list, max_rows=12)
 
     def tick(self, items: list | None = None) -> None:
         """Refresh the time left on each row without rebuilding the pins.
@@ -221,7 +264,8 @@ class SchedulePage(_Page):
         shown brings every row up to date within a second."""
         from PySide6.QtWidgets import QLabel
 
-        if not self.isVisible():
+        # v3 shows the list on Today, outside this page, so the list is what must be on screen.
+        if not self.list.isVisible():
             return
         if items is None:
             items = load_list("schedule.json")
@@ -278,10 +322,9 @@ class MemoryPage(_Page):
         row = QHBoxLayout()
         self.text = QLineEdit()
         self.text.setAccessibleName("Fact to remember")
-        self.text.setPlaceholderText("My name is …")
+        self.text.setPlaceholderText("Remember that… (for example: my chem lab is on Thursdays)")
         self.text.returnPressed.connect(self._add)
-        add = QPushButton("Remember this")
-        add.setObjectName("primary")
+        add = QPushButton("Remember")
         add.clicked.connect(self._add)
         forget = QPushButton("Delete the last fact")
         forget.clicked.connect(self._forget)
@@ -296,15 +339,24 @@ class MemoryPage(_Page):
         self.sharper.clicked.connect(lambda: self.notice.emit("INSTALL embedder"))
         row.addWidget(self.text, 1)
         row.addWidget(add)
-        row.addWidget(forget)
-        row.addWidget(review)
-        row.addWidget(self.sharper)
         self.refresh_sharper()
         self.root.insertLayout(2, row)
         self.facts = QListWidget()
+        self.facts.setObjectName("plainList")
         self.facts.setAccessibleName("Saved facts")
         self.facts.setToolTip("Facts saved on this PC. The pin puts one on the board.")
-        self.root.insertWidget(3, self.facts)
+        self.root.insertWidget(3, _list_card(self.facts))
+        extras = QHBoxLayout()
+        for button in (forget, review, self.sharper):
+            button.setObjectName("quietButton")
+            extras.addWidget(button)
+        extras.addStretch(1)
+        self.root.insertLayout(4, extras)
+        note = QLabel("I only remember what you tell me to. Say \"what do you know about me?\" to hear this list.")
+        note.setObjectName("hint")
+        note.setWordWrap(True)
+        self.root.insertWidget(5, note)
+        self.root.addStretch(1)
         self.body.hide()
         self.refresh()
 
@@ -319,11 +371,15 @@ class MemoryPage(_Page):
         items = load_list("memory.json")
         lines = [str(item.get("text") or "") for item in items]
         self.body.setPlainText("\n".join(f"• {line}" for line in lines) if lines else "Nothing is remembered yet.")
+        from babysitter.ui.flow import fit_list
+
         if not lines:
             self.facts.clear()
             self.facts.addItem("Nothing is remembered yet.")
+            fit_list(self.facts)
             return
         fill_pinned_list(self.facts, [(line, str(item.get("id") or "")) for item, line in zip(items, lines)], self.pin_line.emit)
+        fit_list(self.facts, max_rows=12)
 
     def _add(self) -> None:
         if not self._fresh("memory"):
@@ -362,9 +418,11 @@ class HistoryPage(_Page):
         search_row.addWidget(find)
         self.root.insertLayout(2, search_row)
         self.sessions = QListWidget()
+        self.sessions.setObjectName("plainList")
         self.sessions.setAccessibleName("Saved conversations")
         self.sessions.setToolTip("Saved conversations. The pin puts one on the board.")
-        self.root.insertWidget(3, self.sessions)
+        self.sessions.setMinimumHeight(220)
+        self.root.insertWidget(3, _list_card(self.sessions))
         buttons = QHBoxLayout()
         export = QPushButton("Export")
         export.setToolTip("Writes a text file in your BabySitter folder. It is not uploaded.")
@@ -383,6 +441,10 @@ class HistoryPage(_Page):
         wipe_row.addWidget(self.wipe_box, 1)
         wipe_row.addWidget(wipe)
         self.root.insertLayout(5, wipe_row)
+        note = QLabel("Kept on this PC and encrypted. Only you can read it.")
+        note.setObjectName("hint")
+        self.root.insertWidget(6, note)
+        self.body.setMaximumHeight(120)
         self.refresh()
 
     def selected_id(self) -> str:
@@ -428,9 +490,9 @@ class ScreenPage(_Page):
             "The picture stays in memory. It is not saved to disk.",
         )
         look = QPushButton("Look at this screen")
-        look.setObjectName("primary")
         look.setToolTip("Takes one picture in memory. It is not saved.")
         look.clicked.connect(lambda: self.notice.emit("CONFIRM screen"))
+        self.look_button = look
         self.root.insertWidget(2, look)
         self.add_page_pin()
 

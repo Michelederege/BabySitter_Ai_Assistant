@@ -4,7 +4,7 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 
 def _shell(tmp_path, monkeypatch):
@@ -68,14 +68,15 @@ def test_the_menu_reflows_from_labels_to_icons_to_a_bottom_bar(tmp_path, monkeyp
     app, controller, shell = _shell(tmp_path, monkeypatch)
     window = shell.window
     window.show()
-    for width, side, bottom, text in ((1180, True, False, "◉  Talk"), (900, True, False, "◉"), (460, False, True, None)):
+    for width, side, bottom, text in ((1180, True, False, "Talk"), (900, True, False, ""), (460, False, True, None)):
         window.resize(width, 700)
         app.processEvents()
         assert window.side_menu.isVisible() is side, width
         assert window.bottom_bar.isVisible() is bottom, width
         if text is not None:
             assert window.nav_group.button(0).text() == text
-        assert window.stack.currentWidget().horizontalScrollBar().maximum() == 0 if hasattr(window.stack.currentWidget(), "horizontalScrollBar") else True
+        for area in window.stack.currentWidget().findChildren(QScrollArea) or [window.stack.currentWidget()]:
+            assert not hasattr(area, "horizontalScrollBar") or area.horizontalScrollBar().maximum() == 0, width
     _close(app, controller, shell)
 
 
@@ -99,7 +100,7 @@ def test_journal_and_files_pages_drive_the_same_quick_commands(tmp_path, monkeyp
     (prints / "helmet.stl").write_text("solid", encoding="utf-8")
     controller.settings.search_folders = [str(prints)]
     shell._fill_settings()
-    assert str(prints) in files.folders_line.text()
+    assert str(prints) in files.folders_line.toolTip() and "prints" in files.folders_line.text()
     files.query.setText("helmet stl")
     files._find()
     job = shell._find_job
@@ -118,10 +119,10 @@ def test_pin_cards_build_and_unpin(tmp_path, monkeypatch):
 
     pins = load_list("pins.json")
     assert len(pins) == 1
-    assert shell.window.home.pin_count.text() == "1 of 12"
+    assert shell.window.home.pin_count.text() == "What you pinned. 1 of 12."
     shell._unpin_card(str(pins[0]["id"]))
     assert load_list("pins.json") == []
-    assert shell.window.home.pin_count.text() == "0 of 12"
+    assert shell.window.home.pin_count.text() == "What you pinned. 0 of 12."
     _close(app, controller, shell)
 
 
@@ -291,7 +292,7 @@ def test_the_home_picture_fills_the_panel_and_follows_the_state(tmp_path, monkey
     assert home.hero._key == "on"
     assert home.phase_hint.text() == "Hold Mouse 4 or say the keyword."
     picture = next(
-        child for child in home.hero.findChildren(type(home.hold)) if child.text() == "Choose my picture"
+        child for child in home.hero.findChildren(type(home.hold)) if child.accessibleName() == "Choose my picture"
     )
     assert picture.parent() is home.hero
     _close(app, _controller, shell)
@@ -314,7 +315,7 @@ def test_the_state_menu_holds_power_intelligence_game_and_the_keyword(tmp_path, 
     assert controller.state == "off"  # opening the menu does not turn anything on
     menu.hide()
     # The Talk page never scrolls sideways in a narrow window.
-    scroll = window.stack.currentWidget()
+    scroll = window.stack.currentWidget().findChild(QScrollArea)
     assert scroll.horizontalScrollBar().maximum() == 0
     _close(app, controller, shell)
 
@@ -328,10 +329,10 @@ def test_the_state_pill_and_status_line_follow_the_controller(tmp_path, monkeypa
     # The top-bar privacy word flips while an outside tool is on.
     controller.settings.google_enabled = True
     shell._refresh_privacy()
-    assert shell.window.privacy_chip.text() == "Online only when you approve"
+    assert shell.window.privacy_chip.text() == "Asks first"
     controller.settings.google_enabled = False
     shell._refresh_privacy()
-    assert shell.window.privacy_chip.text() == "Private to this computer"
+    assert shell.window.privacy_chip.text() == "Private"
     _close(app, controller, shell)
 
 

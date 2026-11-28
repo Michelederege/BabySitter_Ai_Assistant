@@ -24,6 +24,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 PANEL = QColor("#2a3350")
+WINDOW = QColor("#202840")
 # How grey the photo is, then how bright. Off is grey and dark.
 LOOK = {
     "off": (0.85, 0.60),
@@ -160,9 +161,9 @@ class HeroBanner(QWidget):
 
         self.frog = FrogSprite(sprites_dir, 78, self)
         self.word = QLabel("Off", self)
-        self.word.setStyleSheet("color:#ffffff; font:700 20px 'Inter'; background:transparent;")
+        self.word.setStyleSheet("color:#ffffff; font:700 24px 'Inter'; background:transparent;")
         self.hint = QLabel("The AI is off. Nothing is listening.", self)
-        self.hint.setStyleSheet("color:#e8ecf4; font:12px 'Inter'; background:transparent;")
+        self.hint.setStyleSheet("color:#e8ecf4; font:14px 'Inter'; background:transparent;")
         self.hint.setWordWrap(True)
         for label in (self.word, self.hint):
             shadow = QGraphicsDropShadowEffect(label)
@@ -314,7 +315,7 @@ class HeroBanner(QWidget):
         fade = QLinearGradient(0, 0, 0, pixel_h)
         fade.setColorAt(0.0, QColor(32, 40, 64, 51))
         fade.setColorAt(0.4, QColor(32, 40, 64, 0))
-        fade.setColorAt(1.0, QColor(42, 51, 80, 242))
+        fade.setColorAt(1.0, QColor(32, 40, 64, 225))
         painter.fillRect(out.rect(), fade)
         painter.end()
 
@@ -328,10 +329,11 @@ class HeroBanner(QWidget):
     def paintEvent(self, _event) -> None:  # noqa: N802
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), PANEL)
+        painter.fillRect(self.rect(), WINDOW)
         radius, width, height = self._radius, self.width(), self.height()
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, width, height + radius), radius, radius)
+        # v3: the banner stands on its own, rounded on every corner.
+        path.addRoundedRect(QRectF(0, 0, width, height), radius, radius)
         painter.setClipPath(path)
         if self._old is not None and self._fade < 1.0:
             painter.drawPixmap(0, 0, self._old)

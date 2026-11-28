@@ -344,9 +344,14 @@ class ToolsPage(QWidget):
         self.google_status.setText(text)
 
     def set_inbox(self, lines: list[str]) -> None:
+        from babysitter.ui.flow import fit_list
+
         self.inbox.clear()
         for line in lines:
             self.inbox.addItem(line)
+        if not lines:
+            self.inbox.addItem("Nothing new.")
+        fit_list(self.inbox, max_rows=10)
 
     def set_blackboard_enabled(self, on: bool) -> None:
         self.blackboard_enabled.blockSignals(True)

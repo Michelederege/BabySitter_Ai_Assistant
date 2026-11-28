@@ -36,6 +36,7 @@ class JournalPage(QWidget):
         title = QLabel("Journal")
         title.setObjectName("title")
         root.addWidget(title)
+        self._title, self._root = title, root
         intro = QLabel(
             "Keeps program names and minutes only, for 90 days. "
             "No window titles, no screenshots, no typing. It stays in your BabySitter folder."
@@ -43,6 +44,7 @@ class JournalPage(QWidget):
         intro.setWordWrap(True)
         intro.setObjectName("hint")
         root.addWidget(intro)
+        self._intro = intro
 
         self.enabled = QCheckBox("Keep the day journal")
         self.enabled.setToolTip(
@@ -53,7 +55,6 @@ class JournalPage(QWidget):
 
         say_row = QHBoxLayout()
         say = QPushButton("Say my day")
-        say.setObjectName("primary")
         say.setToolTip("Speaks today's summary. The same as asking what did I do today.")
         say.clicked.connect(lambda: self.notice.emit("JOURNAL today"))
         yesterday = QPushButton("Say yesterday")
@@ -100,9 +101,13 @@ class JournalPage(QWidget):
         today_row.addWidget(today_pin)
         root.addLayout(today_row)
         self.lines = QListWidget()
+        self.lines.setObjectName("plainList")
         self.lines.setAccessibleName("Today's journal entries")
         self.lines.setToolTip("Each line of today's journal. The pin puts that line on the board.")
-        root.addWidget(self.lines, 1)
+        self.lines.setMinimumHeight(180)
+        from babysitter.ui.pages.desk import _list_card
+
+        root.addWidget(_list_card(self.lines), 1)
         self.body = QPlainTextEdit()
         self.body.setReadOnly(True)
         self.body.setToolTip("Program names and minutes from today's journal file.")
@@ -120,6 +125,11 @@ class JournalPage(QWidget):
         wipe_row.addStretch(1)
         wipe_row.addWidget(self.wipe)
         root.addLayout(wipe_row)
+
+    def embed(self) -> None:
+        """Inside Memory, which has the title. The one line about what it keeps stays."""
+        self._root.setContentsMargins(0, 0, 0, 0)
+        self._title.hide()
 
     def _start_task(self) -> None:
         name = self.task_name.text().strip()
@@ -191,7 +201,6 @@ class FilesPage(QWidget):
         self.query.setToolTip("A few words from the file name. Current or latest picks the one opened most recently.")
         self.query.returnPressed.connect(self._find)
         find = QPushButton("Find")
-        find.setObjectName("primary")
         find.setToolTip("Looks through the folders below. One match opens; several make a numbered list.")
         find.clicked.connect(self._find)
         row.addWidget(self.query, 1)
@@ -204,9 +213,13 @@ class FilesPage(QWidget):
         root.addWidget(self.folders_line)
 
         self.matches = QListWidget()
+        self.matches.setObjectName("plainList")
         self.matches.setAccessibleName("Matching files")
         self.matches.setToolTip("Files that matched. The pin puts one on the board. A program is never started.")
-        root.addWidget(self.matches, 1)
+        root.addWidget(self.matches)
+        self.matches.hide()
+        self._title, self._intro = title, intro
+        self._root = root
         self.body = QPlainTextEdit()
         self.body.setReadOnly(True)
         self.body.setPlaceholderText(
@@ -221,6 +234,12 @@ class FilesPage(QWidget):
         note.setObjectName("hint")
         root.addWidget(note)
 
+    def embed(self) -> None:
+        """Inside the Desk card, which has its own title."""
+        self._root.setContentsMargins(0, 0, 0, 0)
+        self._title.hide()
+        self._intro.hide()
+
     def _find(self) -> None:
         wanted = self.query.text().strip()
         if not wanted:
@@ -232,7 +251,18 @@ class FilesPage(QWidget):
         if not folders:
             self.folders_line.setText("No folders are set.")
             return
-        self.folders_line.setText("Searching " + ", ".join(folders) + ".")
+        from pathlib import Path
+
+        # Short names ("Documents", "OneDrive Documents"); the full paths are in the tooltip.
+        short = []
+        for folder in folders:
+            path = Path(folder)
+            name = path.name or str(path)
+            if "onedrive" in str(path.parent).lower() and path.parent.name.lower().startswith("onedrive"):
+                name = f"OneDrive {name}"
+            short.append(name)
+        self.folders_line.setText("Looks in " + ", ".join(short) + ".")
+        self.folders_line.setToolTip("\n".join(folders))
 
     def set_results(self, speech: str, detail: str) -> None:
         text = speech if not detail else f"{speech}\n\n{detail}"
@@ -246,5 +276,9 @@ class FilesPage(QWidget):
         rows = [line.strip() for line in (text or "").splitlines() if line.strip()]
         if not rows:
             self.matches.clear()
+            self.matches.hide()
             return
         fill_pinned_list(self.matches, [(line, "") for line in rows], self.pin_line.emit)
+        from babysitter.ui.flow import fit_list
+
+        fit_list(self.matches, max_rows=8)

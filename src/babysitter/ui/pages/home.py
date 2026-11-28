@@ -29,7 +29,6 @@ from babysitter.paths import asset_path
 from babysitter.status import format_bytes, format_mib
 from babysitter.ui.hero_banner import HeroBanner
 from babysitter.ui.orb import _animations_wanted
-from babysitter.ui.pinbutton import pin_button
 from babysitter.ui.theme import STATE_COLORS, STATE_WORDS
 from babysitter.ui.widgets import BarChart, PowerButton, Sparkline
 
@@ -42,6 +41,26 @@ CLICK_HINT = {
     "game": "Click to turn the AI fully off.",
     "error": "Click to make sure everything is off.",
 }
+
+
+def _friendly_when(stamp: str) -> str:
+    """"2026-11-27T14:05" as "Today 2:05 PM", "Yesterday", "Mon", or "Nov 3"."""
+    from datetime import date, datetime
+
+    if not stamp:
+        return ""
+    try:
+        moment = datetime.fromisoformat(stamp[:19])
+    except ValueError:
+        return stamp[:16].replace("T", " ")
+    days = (date.today() - moment.date()).days
+    if days == 0:
+        return "Today " + moment.strftime("%I:%M %p").lstrip("0")
+    if days == 1:
+        return "Yesterday"
+    if 1 < days < 7:
+        return moment.strftime("%a")
+    return moment.strftime("%b ") + str(moment.day)
 
 
 class HomePage(QWidget):
@@ -297,38 +316,29 @@ class HomePage(QWidget):
         return cell
 
     # ---------- the pinboard ----------
-    def _pin_card(self) -> QFrame:
-        card = self._card()
+    def _pin_card(self) -> QWidget:
+        """v3 Board: the title and count, the filters and Add a note, then the cards in a grid."""
+        card = QWidget()
+        card.setObjectName("boardBody")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
         header = QHBoxLayout()
-        header.addWidget(self._section("PINBOARD"))
-        header.addStretch(1)
-        self.pin_count = QLabel(f"0 of {MAX_PINS}")
+        header.setSpacing(12)
+        words = QVBoxLayout()
+        words.setSpacing(2)
+        heading = QLabel("Board")
+        heading.setObjectName("title")
+        self.pin_count = QLabel(f"What you pinned. 0 of {MAX_PINS}.")
         self.pin_count.setObjectName("hint")
-        header.addWidget(self.pin_count)
-        layout.addLayout(header)
-        note = QLabel("A few notes and results. Not a chat.")
-        note.setObjectName("hint")
-        layout.addWidget(note)
-        self.pin_title = QLineEdit()
-        self.pin_title.setAccessibleName("Pin title")
-        self.pin_title.setPlaceholderText("Title")
-        self.pin_title.setToolTip("A short name for the card. It stays on this PC.")
-        self.pin_body = QLineEdit()
-        self.pin_body.setAccessibleName("Pin note")
-        self.pin_body.setPlaceholderText("The note to pin")
-        self.pin_body.setToolTip("The words on the card. Nothing here is sent.")
-        submit = pin_button()
-        submit.setText("Pin")
-        submit.setFixedSize(72, 28)
-        submit.setToolTip("Puts this note on the board. It does not ask the model.")
-        submit.clicked.connect(self._submit_pin)
-        self.pin_body.returnPressed.connect(self._submit_pin)
-        layout.addWidget(self.pin_title)
-        layout.addWidget(self.pin_body)
-        layout.addWidget(submit)
-        filters = QHBoxLayout()
+        words.addWidget(heading)
+        words.addWidget(self.pin_count)
+        header.addLayout(words, 1)
+        segments = QFrame()
+        segments.setObjectName("segmentGroup")
+        filters = QHBoxLayout(segments)
+        filters.setContentsMargins(4, 4, 4, 4)
+        filters.setSpacing(2)
         self._filter = "all"
         self.filter_buttons: dict[str, QPushButton] = {}
         for key, label in (("all", "All"), ("list", "Lists"), ("reply", "Replies"), ("note", "Notes")):
@@ -339,8 +349,39 @@ class HomePage(QWidget):
             button.clicked.connect(lambda _c=False, key=key: self._set_filter(key))
             self.filter_buttons[key] = button
             filters.addWidget(button)
-        filters.addStretch(1)
-        layout.addLayout(filters)
+        header.addWidget(segments, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.add_note = QPushButton("Add a note")
+        self.add_note.setObjectName("boardAdd")
+        self.add_note.setCursor(Qt.PointingHandCursor)
+        self.add_note.setToolTip("Write a note to pin. It stays on this PC.")
+        header.addWidget(self.add_note, 0, Qt.AlignmentFlag.AlignVCenter)
+        layout.addLayout(header)
+
+        # The note form opens only from Add a note.
+        self.note_form = QFrame()
+        self.note_form.setObjectName("v3card")
+        form = QVBoxLayout(self.note_form)
+        form.setContentsMargins(16, 14, 16, 14)
+        form.setSpacing(8)
+        self.pin_title = QLineEdit()
+        self.pin_title.setAccessibleName("Pin title")
+        self.pin_title.setPlaceholderText("Title")
+        self.pin_title.setToolTip("A short name for the card. It stays on this PC.")
+        self.pin_body = QLineEdit()
+        self.pin_body.setAccessibleName("Pin note")
+        self.pin_body.setPlaceholderText("The note to pin")
+        self.pin_body.setToolTip("The words on the card. Nothing here is sent.")
+        submit = QPushButton("Pin it")
+        submit.setObjectName("primary")
+        submit.setToolTip("Puts this note on the board. It does not ask the model.")
+        submit.clicked.connect(self._submit_pin)
+        self.pin_body.returnPressed.connect(self._submit_pin)
+        form.addWidget(self.pin_title)
+        form.addWidget(self.pin_body)
+        form.addWidget(submit, 0, Qt.AlignmentFlag.AlignLeft)
+        self.note_form.hide()
+        self.add_note.clicked.connect(self._toggle_note_form)
+        layout.addWidget(self.note_form)
         # Unpin shows this for ten seconds, with Undo.
         self.undo_strip = QFrame()
         self.undo_strip.setObjectName("banner")
@@ -363,12 +404,19 @@ class HomePage(QWidget):
         layout.addWidget(self.pin_grid)
         self._all_pins: list[dict] = []
         layout.addStretch(1)
-        self.pins = QLabel("Nothing is pinned yet. Type a note above, or pin a reply.")
+        self.pins = QLabel("Nothing is pinned yet. Add a note, or say 'pin that' after a reply.")
         self.pins.setWordWrap(True)
         self.pins.setObjectName("hint")
         self.pins.setTextInteractionFlags(Qt.TextSelectableByMouse)
         layout.addWidget(self.pins)
         return card
+
+    def _toggle_note_form(self) -> None:
+        showing = not self.note_form.isVisible()
+        self.note_form.setVisible(showing)
+        self.add_note.setText("Close" if showing else "Add a note")
+        if showing:
+            self.pin_title.setFocus()
 
     def _submit_pin(self) -> None:
         title = self.pin_title.text().strip()
@@ -407,13 +455,13 @@ class HomePage(QWidget):
         self._all_pins = list(pins)
         self.pin_grid.clear()
         shown = [pin for pin in pins[-MAX_PINS:] if self._filter == "all" or pin_kind(pin) == self._filter]
-        self.pin_count.setText(f"{len(pins[-MAX_PINS:])} of {MAX_PINS}")
+        self.pin_count.setText(f"What you pinned. {len(pins[-MAX_PINS:])} of {MAX_PINS}.")
         if not shown and pins and self._filter != "all":
             self.pins.setText("Nothing pinned of that kind.")
             self.pins.show()
             return
         if not shown:
-            self.pins.setText("Nothing is pinned yet. Type a note above, or pin a reply.")
+            self.pins.setText("Nothing is pinned yet. Add a note, or say 'pin that' after a reply.")
             self.pins.show()
             return
         if len(pins) >= MAX_PINS:
@@ -426,10 +474,11 @@ class HomePage(QWidget):
 
     def _pin_item(self, pin: dict) -> QFrame:
         frame = QFrame()
-        frame.setObjectName("innerCard")
+        frame.setObjectName("pinCard")
+        frame.setMinimumHeight(190)
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 8, 10, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(18, 16, 18, 14)
+        layout.setSpacing(8)
         from babysitter.deskstore import pin_kind
 
         title = str(pin.get("title") or "Pinned")
@@ -440,25 +489,33 @@ class HomePage(QWidget):
         tag = QLabel(pin_kind(pin).upper())
         tag.setObjectName(f"tag_{pin_kind(pin)}")
         top.addWidget(tag)
-        when = str(pin.get("pinned") or "")[:16].replace("T", " ")
+        when = _friendly_when(str(pin.get("pinned") or ""))
         if when:
             stamp = QLabel(when)
-            stamp.setObjectName("hint")
+            stamp.setObjectName("cardWhen")
             top.addWidget(stamp)
         top.addStretch(1)
         if locked:
-            top.addWidget(QLabel("🔒"))
+            from babysitter.ui.icons import pixmap as icon_pixmap
+
+            padlock = QLabel()
+            padlock.setPixmap(icon_pixmap("lock", "#a3aec5", 14))
+            padlock.setToolTip("Locked: it stays until you unlock it.")
+            top.addWidget(padlock)
         layout.addLayout(top)
         title_label = QLabel(title)
+        title_label.setObjectName("cardTitle")
         title_label.setWordWrap(True)
         title_label.setToolTip(body)
         layout.addWidget(title_label)
         if body and body != title:
             preview = QLabel(body if len(body) <= 160 else body[:157] + "…")
-            preview.setObjectName("hint")
+            preview.setObjectName("cardBody")
             preview.setWordWrap(True)
             layout.addWidget(preview)
+        layout.addStretch(1)
         row = QHBoxLayout()
+        row.setSpacing(18)
         copy = QPushButton("Copy")
         copy.setObjectName("textButton")
         copy.setToolTip("Copies the title and the note.")
@@ -483,18 +540,31 @@ class HomePage(QWidget):
         return frame
 
     # ---------- the assistant ----------
-    def _assistant_card(self) -> QFrame:
-        card = self._card()
+    def _assistant_card(self) -> QWidget:
+        """v3 Talk: the pond banner, then the last reply in the open (no box around it).
+
+        The talk bar (Hold to talk, the typed line, send) is built here too but
+        sits at the bottom of the Talk place, outside the scrolling part.
+        """
+        from PySide6.QtCore import QSize
+
+        from babysitter.ui.icons import icon
+
+        card = QWidget()
+        card.setObjectName("talkBody")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.hero = HeroBanner(asset_path("hero.jpg"), asset_path("orb"))
+        self.hero = HeroBanner(asset_path("hero.jpg"), asset_path("orb"), radius=16)
         self.hero.setToolTip("Your picture. It stays on this PC.")
         self.hero.set_reduced_motion(not _animations_wanted())
-        picture = QPushButton("Choose my picture")
+        picture = QPushButton("")
         picture.setObjectName("heroCorner")
-        picture.setToolTip("Copies a picture into your BabySitter folder. It is not uploaded.")
+        picture.setIcon(icon("image", "#e8ecf4", "#ffffff", 18))
+        picture.setIconSize(QSize(18, 18))
+        picture.setAccessibleName("Choose my picture")
+        picture.setToolTip("Choose my picture. It's copied into your BabySitter folder, not uploaded.")
         picture.clicked.connect(self.choose_hero.emit)
         self.hero.set_corner_widget(picture)
         self.phase_word = self.hero.word
@@ -505,11 +575,11 @@ class HomePage(QWidget):
         body.setObjectName("heroBody")
         layout.addWidget(body)
         layout = QVBoxLayout(body)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(2, 22, 2, 8)
+        layout.setSpacing(10)
         self.heard = QLabel("You: nothing yet.")
         self.heard.setWordWrap(True)
-        self.heard.setObjectName("hint")
+        self.heard.setObjectName("heardLine")
         layout.addWidget(self.heard)
         # v3: the spoken answer leads, in large type.
         self.spoken = QLabel("")
@@ -526,63 +596,89 @@ class HomePage(QWidget):
         layout.addWidget(self.reply_detail)
 
         actions = QHBoxLayout()
-        actions.setSpacing(14)
-        self.details_button = QPushButton("Show details")
-        self.details_button.setObjectName("textButton")
-        self.details_button.setToolTip("The lists, paths, and numbers behind the spoken answer.")
+        actions.setSpacing(22)
+
+        def action(text: str, icon_name: str, tip: str) -> QPushButton:
+            button = QPushButton(text)
+            button.setObjectName("textButton")
+            button.setIcon(icon(icon_name, "#c6cddc", "#ffffff", 16))
+            button.setIconSize(QSize(16, 16))
+            button.setToolTip(tip)
+            button.setCursor(Qt.PointingHandCursor)
+            return button
+
+        self.details_button = action("Show details", "chevron_down", "The lists, paths, and numbers behind the spoken answer.")
         self.details_button.clicked.connect(self._toggle_details)
-        pin = QPushButton("Pin")
-        pin.setObjectName("textButton")
-        pin.setToolTip("Pin this reply on the Board. It stays on this PC.")
+        pin = action("Pin", "pin", "Pin this reply on the Board. It stays on this PC.")
         pin.clicked.connect(self.pin_reply.emit)
-        copy = QPushButton("Copy")
-        copy.setObjectName("textButton")
-        copy.setToolTip("Copies the reply that is on screen.")
+        copy = action("Copy", "copy", "Copies the reply that is on screen.")
         copy.clicked.connect(self.copy_reply.emit)
-        fresh = QPushButton("Fresh start")
-        fresh.setObjectName("textButton")
-        fresh.setToolTip("Clears this conversation's context. Pins and memory stay.")
+        fresh = action("Fresh start", "refresh", "Clears this conversation's context. Pins and memory stay.")
         fresh.clicked.connect(self.fresh_start.emit)
-        send = QPushButton("Send what I heard")
-        send.setObjectName("textButton")
-        send.setToolTip("Sends the line to the local model. Nothing else goes with it.")
-        send.clicked.connect(self.send_heard.emit)
-        for button in (self.details_button, pin, copy, fresh, send):
+        # Only for a line that was heard but not sent yet (the push-to-talk review).
+        self.send_button = action("Send what I heard", "arrow_right", "Sends the line to the local model. Nothing else goes with it.")
+        self.send_button.clicked.connect(self.send_heard.emit)
+        self.send_button.hide()
+        for button in (self.details_button, pin, copy, fresh, self.send_button):
             actions.addWidget(button)
         actions.addStretch(1)
         layout.addLayout(actions)
+        layout.addStretch(1)
 
-        talk_bar = QHBoxLayout()
+        # The talk bar: fixed at the bottom of Talk, outside the scrolling part.
+        self.talk_bar = QFrame()
+        self.talk_bar.setObjectName("talkBar")
+        self.talk_bar.setProperty("noWrap", True)
+        bar = QVBoxLayout(self.talk_bar)
+        bar.setContentsMargins(24, 14, 24, 12)
+        bar.setSpacing(8)
+        row = QHBoxLayout()
+        row.setSpacing(12)
         self.hold = QPushButton("Turn the AI on")
-        self.hold.setObjectName("primary")
+        self.hold.setObjectName("holdButton")
+        self.hold.setIcon(icon("mic", "#2a1606", "#2a1606", 20))
+        self.hold.setIconSize(QSize(20, 20))
         self.hold.setToolTip("The microphone opens only while this is held. Space or Enter works too.")
+        self.hold.setCursor(Qt.PointingHandCursor)
         self.hold.pressed.connect(self.hold_pressed.emit)
         self.hold.released.connect(self.hold_released.emit)
-        talk_bar.addWidget(self.hold)
-        layout.addLayout(talk_bar)
-
-        type_row = QHBoxLayout()
+        row.addWidget(self.hold)
         self.typed = QLineEdit()
+        self.typed.setObjectName("talkInput")
         self.typed.setAccessibleName("Type a question or command")
-        self.typed.setPlaceholderText("Or type it: remind me at 6 to stretch")
+        self.typed.setPlaceholderText("Or type: remind me to stretch at 6")
         self.typed.setToolTip("A fallback for when you cannot talk (Ctrl+L focuses this box). The same rules apply.")
         self.typed.returnPressed.connect(lambda: self.command_submitted.emit(self.typed.text()))
-        run = QPushButton("Run it")
+        row.addWidget(self.typed, 1)
+        run = QPushButton("")
+        run.setObjectName("sendButton")
+        run.setIcon(icon("arrow_right", "#c6cddc", "#ffffff", 20))
+        run.setIconSize(QSize(20, 20))
+        run.setAccessibleName("Run it")
         run.setToolTip("Runs the typed line. Actions still ask before they run.")
+        run.setCursor(Qt.PointingHandCursor)
         run.clicked.connect(lambda: self.command_submitted.emit(self.typed.text()))
-        type_row.addWidget(self.typed, 1)
-        type_row.addWidget(run)
-        layout.addLayout(type_row)
+        row.addWidget(run)
+        bar.addLayout(row)
         mic = QLabel("The microphone opens only while you hold the button.")
         mic.setObjectName("hint")
-        layout.addWidget(mic)
-        layout.addStretch(1)
+        bar.addWidget(mic)
         return card
 
+    def set_compact_talk(self, compact: bool) -> None:
+        """A narrow window: Hold to talk shows only its mic, so the typed line keeps its room."""
+        self._compact_talk = bool(compact)
+        words = self.hold.property("fullText") or self.hold.text() or "Turn the AI on"
+        self.hold.setProperty("fullText", words)
+        self.hold.setText("" if compact else str(words))
+
     def _toggle_details(self) -> None:
+        from babysitter.ui.icons import icon
+
         showing = not self.reply_detail.isVisible()
         self.reply_detail.setVisible(showing and bool(self.reply_detail.text().strip()))
         self.details_button.setText("Hide details" if showing else "Show details")
+        self.details_button.setIcon(icon("chevron_up" if showing else "chevron_down", "#c6cddc", "#ffffff", 16))
 
     # ---------- this PC ----------
     def _pc_card(self) -> QFrame:
@@ -729,7 +825,10 @@ class HomePage(QWidget):
         self.power_hint.setText(CLICK_HINT.get(state, CLICK_HINT["error"]))
         self.try_again.setVisible(state == "error")
         # The one orange button says what a press will do.
-        self.hold.setText("Turn the AI on" if state == "off" else "Hold to talk")
+        words = "Turn the AI on" if state == "off" else "Hold to talk"
+        self.hold.setProperty("fullText", words)
+        self.hold.setAccessibleName(words)
+        self.hold.setText("" if getattr(self, "_compact_talk", False) else words)
         self.set_phase(state, detail)
         if state == "game":
             self.game.setText("Leave")
