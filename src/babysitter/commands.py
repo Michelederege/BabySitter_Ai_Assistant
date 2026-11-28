@@ -448,6 +448,19 @@ def _same_as(phrase: str) -> str:
     return phrase
 
 
+def _asks_for_my_vram(phrase: str, words: list[str]) -> bool:
+    """"vram", "vram left", "how much vram is free": this PC's reading.
+
+    "How much vram do I need for 4k" is a question for the model, so a
+    general question about video memory is not read off the card.
+    """
+    if len(words) <= 3:
+        return True
+    if any(word in words for word in ("need", "should", "does", "do", "for", "buy", "games", "recommend", "enough")):
+        return phrase.startswith(("how much vram do i have", "do i have enough vram"))
+    return bool(re.search(r"\b(?:my|free|left|used|using|usage|now|right now|available)\b", phrase))
+
+
 def _match_quick_command(text: str) -> QuickCommand | None:
     original = strip_lead(text)
     words = re.findall(r"[a-z0-9']+", original.lower())
@@ -535,7 +548,7 @@ def _match_quick_command(text: str) -> QuickCommand | None:
         "what is my vram",
         "video memory",
         "how much video memory",
-    } or "vram" in words:
+    } or ("vram" in words and _asks_for_my_vram(phrase, words)):
         return QuickCommand("vram")
     if phrase in {
         "hows my pc",
@@ -615,6 +628,18 @@ def _match_quick_command(text: str) -> QuickCommand | None:
     goal = match_goal(text)
     if goal is not None:
         return goal
+    if phrase.startswith("remember ") and (
+        re.match(
+            r"^\W*(?:hey\W+|ok(?:ay)?\W+)?(?:can|could|do|would|will) you (?:please )?remember\s+"
+            r"(?:the\s+(?:name|title|word|song|movie|film|book|show|game|place|address|number)\s+of\b|what|who|where|when|"
+            r"how|which|why|if|whether|anything|my\s+name\b)",
+            (text or "").lower(),
+        )
+        or (text or "").strip().endswith("?")
+    ):
+        # "Can you remember the name of that movie?" asks about a memory; "can you
+        # remember the cat is called Moth" is a fact to keep (handled below).
+        return None
     if phrase.startswith("remember "):
         detail = _tail(original, "remember")
         # "Remember that my sister is Anna" saves "my sister is Anna".
@@ -1553,6 +1578,27 @@ _MONTH_FIRST = re.compile(rf"\b(?:on\s+)?(?:the\s+)?({_MONTH_NAMES})\.?\s+(?:the
 _DAY_FIRST = re.compile(rf"\b(?:on\s+)?the\s+(?:{_DAY_NUMBER})\s+of\s+({_MONTH_NAMES})\b")
 _WEEKDAY_RE = re.compile(r"\b(?:on\s+)?(?:(next|this|coming|this coming)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b")
 _DAY_AFTER = re.compile(r"\b(?:the\s+)?day after tomorrow\b")
+_IN_DAYS = re.compile(
+    r"\bin\s+(\d+|a couple of|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fourteen|twenty|thirty)\s+"
+    r"(days?|weeks?)\b"
+)
+
+
+def _meridian(hour: int, ampm: str | None) -> str | None:
+    """am or pm for a bare hour, from what the sentence implies.
+
+    "day" (a day was named: "tomorrow at 3", "Friday at 9"): 1 to 5 is the
+    afternoon, because nobody books the dentist at 3 AM; 6 to 11 the morning,
+    since "tomorrow at 6" is as often an early start as an evening.
+    "tonight": 1 to 4 is after midnight, the rest the evening.
+    """
+    if ampm in {"am", "pm"}:
+        return ampm
+    if ampm == "day":
+        return "pm" if 1 <= hour <= 5 else "am" if 6 <= hour <= 11 else None
+    if ampm == "tonight":
+        return "am" if 1 <= hour <= 4 else "pm" if 5 <= hour <= 11 else None
+    return None
 
 
 def _day_number(digits: str | None, word: str | None) -> int | None:
@@ -1570,6 +1616,12 @@ def _named_day(folded: str, now: datetime) -> tuple[int, tuple[int, int], bool] 
     after = _DAY_AFTER.search(folded)
     if after:
         return 2, after.span(), False
+    ahead = _IN_DAYS.search(folded)
+    if ahead:
+        count = 1 if ahead.group(1) in {"a", "an", "one"} else 2 if ahead.group(1) == "a couple of" else _count_words(ahead.group(1))
+        if count is not None and 0 < count <= 366:
+            days = count * (7 if ahead.group(2).startswith("week") else 1)
+            return days, ahead.span(), False
     for pattern, month_group, digit_group, word_group in ((_MONTH_FIRST, 1, 2, 3), (_DAY_FIRST, 3, 1, 2)):
         match = pattern.search(folded)
         if not match:
@@ -1579,7 +1631,8 @@ def _named_day(folded: str, now: datetime) -> tuple[int, tuple[int, int], bool] 
         if number is None or not 1 <= number <= 31:
             continue
         today = now.date()
-        for year in (today.year, today.year + 1):
+        # February 29 waits for the next leap year; any other date is this year or next.
+        for year in range(today.year, today.year + (5 if (month, number) == (2, 29) else 2)):
             try:
                 day = date(year, month, number)
             except ValueError:
@@ -1656,6 +1709,7 @@ def _from_shift(match: re.Match[str], now: datetime, earliest: int, implied: str
     hour = int(hour_token) if hour_token.isdigit() else _HOUR_WORDS.get(hour_token)
     if hour is None:
         return None
+    ampm = _meridian(hour, ampm)
     if ampm:
         if hour == 0 or hour > 12:
             return None
@@ -1694,7 +1748,7 @@ def _from_at(match: re.Match[str], now: datetime, earliest: int, implied: str | 
     hour = int(word) if word.isdigit() else _HOUR_WORDS.get(word)
     if hour is None:
         return None
-    return _next_clock(hour, minute, ampm, now, earliest)
+    return _next_clock(hour, minute, _meridian(hour, ampm), now, earliest)
 
 
 def _relative_seconds(piece: str) -> int | None:
@@ -1758,7 +1812,13 @@ def _locate_when(
     if named is not None:
         earliest = named[0]
     # "Tomorrow morning at 8", "Friday evening at 7": the part of the day says am or pm.
-    implied = "am" if re.search(r"\bmorning\b", folded) else "pm" if re.search(r"\b(?:afternoon|evening|tonight)\b", folded) else None
+    implied = (
+        "am" if re.search(r"\bmorning\b", folded)
+        else "pm" if re.search(r"\b(?:afternoon|evening)\b", folded)
+        else "tonight" if re.search(r"\btonight\b", folded)
+        else "day" if (named is not None or earliest)
+        else None
+    )
 
     def on_that_day(read) -> datetime | None:
         moment = read(earliest)
@@ -1771,7 +1831,9 @@ def _locate_when(
     colon = re.search(r"(?:\bat\s+)?\b(\d{1,2}):(\d{2})\s*(am|pm)?\b", folded)
     if colon:
         moment = on_that_day(
-            lambda day: _next_clock(int(colon.group(1)), int(colon.group(2)), colon.group(3) or implied, now, day)
+            lambda day: _next_clock(
+                int(colon.group(1)), int(colon.group(2)), _meridian(int(colon.group(1)), colon.group(3) or implied), now, day
+            )
         )
         if moment is not None:
             return placed(moment, colon.span())

@@ -129,6 +129,9 @@ def cite_command(phrase: str) -> str | None:
             pre = (found.group("pre") or "").strip()
             if pre and not style_in(pre) and pre not in {"a", "an", "the", "web", "website", "page", "full", "proper"}:
                 return None  # "give me a quick reference" is not a citation
+        named = (found.groupdict().get("style") or found.groupdict().get("post") or "").strip()
+        if named and not style_in(named):
+            return None  # "reference this in my essay": "my essay" isn't a style
         return style_in(phrase)
     if _STYLE_ONLY.match(phrase):
         return style_in(phrase)

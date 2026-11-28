@@ -59,3 +59,46 @@ def test_an_alarm_with_tomorrow_after_the_time():
 def test_spoken_days():
     assert spoken_when(datetime(2026, 11, 30, 9, 0, tzinfo=ZONE), NOW) == "9:00 AM on Monday"
     assert spoken_when(datetime(2026, 12, 25, 8, 0, tzinfo=ZONE), NOW) == "8:00 AM on Friday, December 25"
+
+
+# ---------- audit 2 regressions ----------
+
+@pytest.mark.parametrize("words, day, hour", [
+    ("in 2 days at 9", (11, 29), 9),          # was today at 9
+    ("in 3 days", (11, 30), 9),               # was not understood
+    ("in a week", (12, 4), 9),
+    ("in 2 weeks at 10 am", (12, 11), 10),
+    ("next friday at 3", (12, 4), 15),        # was 3 AM
+    ("tomorrow at 3", (11, 28), 15),
+    ("the day after tomorrow at 4", (11, 29), 16),
+    ("tomorrow at 6", (11, 28), 6),           # 6 to 11 stays the morning
+    ("on monday at 9", (11, 30), 9),
+    ("tonight at 2", (11, 28), 2),            # was 2 PM tomorrow
+    ("tonight at 11", (11, 27), 23),
+    ("on february 29 at 9", (2, 29), 9),      # next leap year, not today
+])
+def test_more_days(words, day, hour):
+    moment = when_from(words, NOW)
+    assert moment is not None, words
+    assert (moment.month, moment.day, moment.hour) == (*day, hour), words
+
+
+def test_a_date_that_doesnt_exist_isnt_today():
+    assert when_from("on november 31st", NOW) is None
+    assert when_from("on february 30th", NOW) is None
+
+
+@pytest.mark.parametrize("line, kind", [
+    ("can you remember the name of that movie with the robot", None),
+    ("do you remember what we said", None),
+    ("can you remember the cat is called Moth", "remember"),
+    ("can you remember that my locker is 12", "remember"),
+    ("how much vram do I need for 4k", None),
+    ("whats my vram", "vram"),
+    ("how much vram is free", "vram"),
+    ("reference this in my essay", None),
+    ("reference this page in apa", "cite"),
+])
+def test_questions_that_looked_like_commands(line, kind):
+    said = match_quick_command(line)
+    assert (said.kind if said else None) == kind, line
