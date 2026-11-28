@@ -109,7 +109,7 @@ Lists are only as tall as what's in them, and there's only one orange button per
 
 **You're told when your natural voice can't speak.** If the natural voice or your own recorded voice can't run (say, the graphics card is full), Kokoro speaks instead, and now the reason is shown once instead of the voice just changing.
 
-**Smaller fixes.** The weather looks your town up once per run. The README's privacy section now lists every service, and old "no voice cloning" and "no code signing" claims are corrected. Model and voice ideas are in `docs/model-recommendations.md`.
+**Smaller fixes.** The weather looks your town up once per run. The README's privacy section now lists every service, and old "no voice cloning" and "no code signing" claims are corrected.
 
 ## 0.28.1 — Four audits: bugs and waste
 
@@ -239,7 +239,7 @@ The narrator voices run a small helper file in their own Python. BabySitter.exe 
 
 **Outlook and Microsoft 365.** Read-only Outlook mail, the Outlook calendar, and OneDrive file names, for an Outlook.com or Hotmail account or a school or work account. Sign in with Microsoft opens Microsoft's own page; the sign-in is encrypted on this PC. Outlook joins the same inbox as Google and Blackboard: it shows in Today, in "check my mail", and in the 15-minute check. It never sends, moves, or deletes anything. A school that must approve the app says so in one sentence.
 
-Both need a free, one-time app registration in your own account. The steps are in docs/agent-memory.md and in Settings.
+Both need a free, one-time app registration in your own account. The steps are in Settings.
 
 ## 0.24.0 — The calm window (UI v3)
 

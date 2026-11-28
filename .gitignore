@@ -30,6 +30,11 @@ voice_profiles/
 *.pt
 models/
 
+# Developer notes stay on the owner's PC: they're personal, not part of the public project.
+AGENTS.md
+docs/*.md
+private-notes/
+
 # Editor and OS
 .DS_Store
 Thumbs.db

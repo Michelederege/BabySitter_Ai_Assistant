@@ -2,7 +2,7 @@
 
 This file is for anyone changing BabySitter later, including future-you. It is written in plain language.
 
-The folder list below is from the first phase. Voice, tools, and the updater have moved on. Current behavior is in `docs/agent-memory.md`. The version number, the settings migration, and the "no shell" rule below are still the ones to follow.
+The folder list below is from the first phase. Voice, tools, and the updater have moved on. Current behavior is in the code and the CHANGELOG. The version number, the settings migration, and the "no shell" rule below are still the ones to follow.
 
 There is one version number. It lives in `src/babysitter/version.py`. The installer copies it. A test fails if the two copies drift apart.
 

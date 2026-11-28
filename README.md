@@ -272,7 +272,7 @@ BabySitter never installs an update silently in the background without asking fi
 
 ## Ideas left optional for later
 
-Model and voice ideas, researched but not built, are in `docs/model-recommendations.md`. The main one: speaking in your own recorded voice on the processor (Pocket TTS) instead of the graphics card.
+One idea researched but not built: speaking in your own recorded voice on the processor (Pocket TTS) instead of the graphics card.
 
 ## Privacy in this phase
 
