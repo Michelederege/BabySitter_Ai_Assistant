@@ -1108,6 +1108,14 @@ _POWER_OFF = {
     "turn off the ai", "turn the ai off", "turn yourself off", "switch off the ai", "switch the ai off",
     "shut yourself down", "shut down the ai", "power off", "power down", "ai off", "go to sleep",
 }
+_GAME_LOAD = {
+    "how much is the game using", "how much gpu is the game using", "how much is my game using",
+    "how hard is the game working", "how hard is my gpu working", "how hard is the graphics card working",
+    "how busy is my gpu", "how busy is the gpu", "how busy is the graphics card", "how busy is my graphics card",
+    "what's using my gpu", "whats using my gpu", "what is using my gpu", "what's using the graphics card",
+    "whats using the graphics card", "is the game using a lot", "is my game heavy", "gpu usage", "game gpu usage",
+    "should you turn off for this game", "should you step aside", "can you stay on while i game",
+}
 _GAME_ON = {"game mode", "switch to game mode", "go to game mode", "enter game mode", "gaming mode", "turn on game mode", "i'm gaming", "im gaming"}
 _GAME_OFF = {"leave game mode", "exit game mode", "stop game mode", "turn off game mode", "come back", "load the brain", "wake up"}
 
@@ -1125,6 +1133,8 @@ def _local_extra(phrase: str, original: str) -> QuickCommand | None:
         return QuickCommand("volume")
     if phrase in _POWER_OFF:
         return QuickCommand("power_off")
+    if phrase in _GAME_LOAD:
+        return QuickCommand("game_load")
     if phrase in _GAME_ON:
         return QuickCommand("game_mode")
     if phrase in _GAME_OFF:

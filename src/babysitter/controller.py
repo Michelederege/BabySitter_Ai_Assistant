@@ -17,7 +17,7 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from babysitter import journal
 from babysitter.audio import AudioGate
-from babysitter.gamebudget import GameBudget, fitting_level, room_mib
+from babysitter.gamebudget import HEAVY_BUSY, GameBudget, fitting_level, room_mib
 from babysitter.games import GameWatch, clean_process_name, first_matching_game, foreground_process_name
 from babysitter.quiet import in_quiet_hours, quiet_sentence
 from babysitter.hotkeys import HotkeyBook, HotkeyError, UnavailableRegistrar, canonical_hotkey
@@ -313,6 +313,12 @@ class Controller(QObject):
         if game is None:
             return chosen, None
         may_unload = self.games.auto_switch_target(game) is not None
+        busy = self._game_busy(snap, game)
+        if may_unload and busy is not None and busy >= HEAVY_BUSY:
+            # The game already keeps the card busy: start beside it in game mode.
+            self.budget.entered_game(chosen)
+            self._remember(f"{game} is keeping the graphics card {round(busy)}% busy, so game mode starts instead.")
+            return chosen, game
         if snap.gpu is None:
             return chosen, (game if may_unload else None)
         room = room_mib(snap.gpu.total_mib, snap.gpu.used_mib, snap.gpu.ollama_mib)
@@ -602,6 +608,8 @@ class Controller(QObject):
 
     def _on_status(self, snap: StatusSnapshot) -> None:
         self.latest_status = snap
+        # Game mode watches the card while the AI is on or in game mode, window hidden or not.
+        self.probe.keep_reading = bool(self.settings.auto_game_mode and self.state in {ON, GAME})
         self.status_changed.emit(snap)
         self._journal_tick()
         if self._busy or not self.settings.auto_game_mode or self.state not in {ON, GAME}:
@@ -627,8 +635,15 @@ class Controller(QObject):
             gpu=gpu,
             ram_free=ram_free,
             may_unload=may_unload,
+            game_busy=self._game_busy(snap, game),
         )
         self._carry_out(action, game)
+
+    @staticmethod
+    def _game_busy(snap: StatusSnapshot, game: str | None) -> float | None:
+        reader = getattr(snap, "load_of", None)
+        load = reader(game) if (game and callable(reader)) else None
+        return None if load is None else load.busy
 
     def _carry_out(self, action, game: str | None) -> None:
         if action.kind == "lower":

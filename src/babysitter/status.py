@@ -39,6 +39,21 @@ class StatusSnapshot:
     process_names: set[str] = field(default_factory=set)
     detected_game: str | None = None
     taken_at: float = 0.0
+    # Lower-case program name to its process ids, and each process's share of the card
+    # (None when Windows' GPU counters can't be read).
+    pids_by_name: dict[str, set[int]] = field(default_factory=dict)
+    gpu_loads: dict | None = None
+
+    def load_of(self, name: str | None):
+        """How hard one program (all its processes) works the card, or None when unknown."""
+        if not name or self.gpu_loads is None:
+            return None
+        from babysitter.gpuload import load_of
+
+        pids = self.pids_by_name.get(name.lower(), ())
+        busy = {pid: load.busy for pid, load in self.gpu_loads.items()}
+        memory = {pid: load.memory_mib for pid, load in self.gpu_loads.items()}
+        return load_of(pids, busy, memory)
 
 
 def parse_gpu_memory_csv(text: str) -> tuple[GpuInfo | None, str | None]:
@@ -101,9 +116,16 @@ def with_ollama_share(gpu: GpuInfo | None, models: list[LoadedModel]) -> GpuInfo
     return replace(gpu, ollama_mib=min(share, int(gpu.used_mib)))
 
 
-def probes_paused(charts_paused: bool, defer_probes: bool) -> bool:
-    """Skip the video-memory read while the window is hidden or a voice turn is open."""
-    return bool(charts_paused or defer_probes)
+def probes_paused(charts_paused: bool, defer_probes: bool, keep_reading: bool = False) -> bool:
+    """Skip the video-memory read while the window is hidden or a voice turn is open.
+
+    keep_reading wins over the hidden window: while the AI is on and game
+    mode watches the card, the window is usually hidden (he's gaming), and a
+    frozen reading meant a game opened after hiding it was never measured.
+    """
+    if defer_probes:
+        return True
+    return bool(charts_paused and not keep_reading)
 
 
 def gpu_from_pairs(devices: list[tuple[int, int]]) -> tuple[GpuInfo | None, str | None]:
@@ -201,9 +223,14 @@ class StatusCollector:
         self._cpu_primed = False
         self.charts_paused = False
         self.defer_probes = False
+        self.keep_reading = False  # the controller sets it while game mode watches the card
         self.nvml_reader = read_nvml_devices
         self._last_gpu: tuple[GpuInfo | None, str | None] = (None, None)
         self._pid_game_cache: dict[int, tuple[str, bool]] = {}
+        from babysitter.gpuload import GpuLoadReader
+
+        self.load_reader = GpuLoadReader()
+        self._last_loads = None
 
     def snapshot(self) -> StatusSnapshot:
         cpu = self._cpu()
@@ -216,13 +243,19 @@ class StatusCollector:
                 models = self.ollama.running_models()
             except OllamaError as exc:
                 models_error = str(exc)
-        if probes_paused(self.charts_paused, self.defer_probes):
+        if probes_paused(self.charts_paused, self.defer_probes, self.keep_reading):
             gpu, gpu_error = self._last_gpu
         else:
             gpu, gpu_error = self._gpu()
             self._last_gpu = (gpu, gpu_error)
         gpu = with_ollama_share(gpu, models)
         names, detected = self._scan_processes()
+        if not probes_paused(self.charts_paused, self.defer_probes, self.keep_reading):
+            try:
+                loads = self.load_reader.read()
+            except Exception:  # noqa: BLE001 - a counter that can't be read is "unknown"
+                loads = None
+            self._last_loads = loads
         return StatusSnapshot(
             cpu_percent=cpu,
             ram_used_bytes=int(memory.used),
@@ -235,6 +268,8 @@ class StatusCollector:
             process_names=names,
             detected_game=detected,
             taken_at=time.time(),
+            pids_by_name=getattr(self, "_pids_by_name", {}),
+            gpu_loads=self._last_loads,
         )
 
     def _scan_processes(self) -> tuple[set[str], str | None]:
@@ -248,6 +283,8 @@ class StatusCollector:
         names: set[str] = set()
         detected: str | None = None
         seen_pids: set[int] = set()
+        by_name: dict[str, set[int]] = {}
+        self._pids_by_name = by_name
         try:
             for proc in psutil.process_iter(["pid", "name"]):
                 info = getattr(proc, "info", None) or {}
@@ -259,6 +296,7 @@ class StatusCollector:
                 pid = info.get("pid")
                 if isinstance(pid, int):
                     seen_pids.add(pid)
+                    by_name.setdefault(name.lower(), set()).add(pid)
                     cached = self._pid_game_cache.get(pid)
                     if cached is not None and cached[0] == name:
                         is_game = cached[1]

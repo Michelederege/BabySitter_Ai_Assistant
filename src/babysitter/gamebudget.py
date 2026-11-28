@@ -30,6 +30,24 @@ CLOSED_READINGS = 5
 # Less free system memory than this while a game runs means no level fits.
 RAM_FLOOR_BYTES = 1024 ** 3
 
+# A game keeping the card this busy (percent, Windows' own per-program
+# counter) has no graphics time to spare: the model steps aside even when
+# its memory would still fit, so the game keeps its frame rate.
+HEAVY_BUSY = 85.0
+
+
+def card_words(game: str, busy: float | None, memory_mib: int | None) -> str:
+    """"eldenring.exe is using 92% of the graphics card and 7.1 GB of its memory"."""
+    parts = []
+    if busy is not None:
+        parts.append(f"{round(busy)}% of the graphics card")
+    if memory_mib:
+        size = f"{memory_mib / 1024:.1f} GB" if memory_mib >= 1024 else f"{memory_mib:,} MB"
+        parts.append(f"{size} of its memory" if parts else f"{size} of the graphics card's memory")
+    if not parts:
+        return f"{game} is running, but Windows didn't say how hard it's working the graphics card"
+    return f"{game} is using " + " and ".join(parts)
+
 
 def room_mib(total_mib: int, used_mib: int, ours_mib: int) -> int:
     """Video memory the AI could use: everything except what others hold."""
@@ -97,8 +115,14 @@ class GameBudget:
         gpu: tuple[int, int, int] | None,
         ram_free: int | None,
         may_unload: bool = True,
+        game_busy: float | None = None,
     ) -> Action:
-        """One reading. `gpu` is (total, used, ours) in MB, or None when unknown."""
+        """One reading. `gpu` is (total, used, ours) in MB, or None when unknown.
+
+        game_busy is how hard the game itself works the card, in percent (None
+        when Windows' counters can't be read). A game at HEAVY_BUSY or more
+        gets the card to itself, even when the model's memory would fit.
+        """
         if game is None:
             self._pending = None
             self._pending_count = 0
@@ -123,6 +147,15 @@ class GameBudget:
         self._closed_count = 0
         if state != "on":
             return NOTHING
+        if game_busy is not None and game_busy >= HEAVY_BUSY:
+            if not may_unload or not self._settled(("busy", "")):
+                return NOTHING
+            self._pending = None
+            return Action(
+                "game",
+                "",
+                f"{game} is keeping the graphics card {round(game_busy)}% busy, so I'm stepping aside to keep it smooth.",
+            )
         if gpu is None:
             # The card cannot be read, so the room is unknown. Game mode, as before.
             if not may_unload or not self._settled(("game", "")):

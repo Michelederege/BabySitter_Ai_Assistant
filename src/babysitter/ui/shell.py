@@ -4104,6 +4104,51 @@ class Shell:
             QApplication.clipboard().setText(plain(text))
         self._speak("Copied.")
 
+    # ---------- how hard a game works the card ----------
+
+    def _say_game_load(self) -> None:
+        """"How much is the game using": the game's share of the card, and what that means for the AI."""
+        from babysitter.gamebudget import HEAVY_BUSY, card_words
+
+        snap = getattr(self.controller, "latest_status", None)
+        if snap is None:
+            speech = "I haven't read the graphics card yet. Ask again in a couple of seconds."
+            self.window.home.set_reply("graphics card", speech, "")
+            self._speak(speech)
+            return
+        game = self.controller._game_match(snap)
+        state = self.controller.state
+        if game:
+            load = snap.load_of(game)
+            busy = None if load is None else load.busy
+            speech = card_words(game, busy, None if load is None else load.memory_mib) + "."
+            if busy is not None and busy >= HEAVY_BUSY:
+                speech += " That's heavy, so I stay out of its way in game mode." if state == "game" else (
+                    " That's heavy. If it stays that way I'll step aside into game mode."
+                    if self.controller.settings.auto_game_mode else " That's heavy. Say game mode and I'll step aside."
+                )
+            elif busy is not None:
+                speech += " That leaves room, so I can stay on beside it." if state == "on" else " That leaves room for me."
+        else:
+            loads = snap.gpu_loads or {}
+            if not loads:
+                speech = "No game is running, and Windows didn't report anything busy on the graphics card."
+            else:
+                pid, top = max(loads.items(), key=lambda item: item[1].busy)
+                name = next((n for n, pids in snap.pids_by_name.items() if pid in pids), "something")
+                if top.busy < 5:
+                    speech = "No game is running, and the graphics card is nearly idle."
+                else:
+                    speech = f"No game is running. The busiest program on the graphics card is {name}, at {round(top.busy)}%."
+        if snap.gpu is not None:
+            free = max(0, snap.gpu.total_mib - snap.gpu.used_mib)
+            detail = f"Video memory: {snap.gpu.used_mib:,} of {snap.gpu.total_mib:,} MB in use, {free:,} MB free."
+        else:
+            detail = "The card's total memory couldn't be read."
+        self.window.home.set_reply("graphics card", speech, detail)
+        self._note_local("how much is the game using", speech)
+        self._speak(speech)
+
     # ---------- citations of the page in the browser ----------
 
     def _cite(self, style: str) -> None:
@@ -4945,6 +4990,7 @@ class Shell:
             "screen_copy": lambda: self._read_screen(quick.detail, copy=True),
             "cite": lambda: self._cite(quick.detail),
             "copy": self._copy_that,
+            "game_load": self._say_game_load,
             "requests": self._say_requests,
             "request_remove": lambda: self._remove_request(quick.seconds),
             "request_add": lambda: self._add_request(quick.detail),
