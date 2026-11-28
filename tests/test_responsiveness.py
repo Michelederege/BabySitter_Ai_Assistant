@@ -1,3 +1,7 @@
+import sys
+
+import pytest
+
 from babysitter.responsiveness import ResponsivenessLog, TurnClock
 
 
@@ -21,6 +25,7 @@ def test_a_turn_clock_records_milliseconds():
     assert list(row).count("transcript") == 1
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the window installs Windows global hotkeys")
 def test_the_pc_check_does_not_freeze_the_window(tmp_path, monkeypatch):
     import subprocess
     import time

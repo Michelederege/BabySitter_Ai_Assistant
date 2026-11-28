@@ -14,6 +14,7 @@ deleted while it runs, and a startup entry that hides what it starts.
 from __future__ import annotations
 
 import json
+import ntpath  # process paths are Windows paths, read the same way on any computer (CI runs Linux)
 import os
 import re
 from dataclasses import dataclass
@@ -67,7 +68,7 @@ def _stem(name: str) -> str:
 
 
 def _folder(path: str) -> str:
-    return os.path.dirname((path or "").replace("/", "\\")).rstrip("\\").lower()
+    return ntpath.dirname((path or "").replace("/", "\\")).rstrip("\\").lower()
 
 
 def top_apps(rows: list[ProcessRow], n: int = 5, skip_pids: set[int] | None = None) -> list[AppUse]:
@@ -168,7 +169,7 @@ def suspicious(
         stem = _stem(row.name)
         folder = _folder(row.exe)
         if stem in SYSTEM_NAMES and row.exe and folder not in allowed:
-            shown = os.path.dirname(row.exe.replace("/", "\\"))
+            shown = ntpath.dirname(row.exe.replace("/", "\\"))
             add(row.name, row.exe, f"It has the name of a Windows program, but it runs from {shown}, not from Windows' own folder.")
             continue
         imitated = _near_miss(stem)
@@ -181,7 +182,7 @@ def suspicious(
             continue
         # Only a real path. Windows' own Registry and MemCompression report
         # a bare name, because they have no file at all.
-        if os.path.isabs(row.exe) and ("\\" in row.exe or "/" in row.exe) and not exists(row.exe):
+        if ntpath.isabs(row.exe) and ("\\" in row.exe or "/" in row.exe) and not exists(row.exe):
             add(row.name, row.exe, "Its file was deleted while it kept running.")
 
     for name, command in startups:

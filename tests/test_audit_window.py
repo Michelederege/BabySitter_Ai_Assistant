@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import sys
+
+import pytest
+
 from babysitter.status import GpuInfo, StatusSnapshot
 
 
@@ -29,6 +33,7 @@ def _snap(names=("explorer.exe",)) -> StatusSnapshot:
     )
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="patches ctypes.windll, which only Windows has")
 def test_the_side_button_check_slows_down_while_it_cannot_be_used(tmp_path, monkeypatch):
     app, controller, shell = _shell(tmp_path, monkeypatch)
     try:
