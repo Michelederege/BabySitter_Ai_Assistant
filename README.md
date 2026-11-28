@@ -188,6 +188,12 @@ Say undo within 10 seconds to remove a new one, or press Remove on the Reminders
 
 **When something is wrong.** If the AI can't start, a microphone sends silence, or a download is missing, the notice bar says so in plain words and has one button that fixes it: Get Ollama, Try again, Use Low instead, Turn quiet hours off, Download it, Pick a microphone. Saying or typing “fix it” presses that button. A download still asks first.
 
+**Watching a monitor.** “Look at monitor one” (or two, the left one, the main one, the portrait one, both) makes BabySitter watch that monitor. Each question takes a fresh picture of it, and Windows’ own text recognition reads the words on it, so small text is read exactly. Nothing is recorded between questions and nothing is saved. “Read my screen”, “copy the text on monitor two”, “which monitor are you watching”, and “stop watching” work too.
+
+**Citations.** “Cite this in MLA”, “APA citation”, “Chicago footnote”, “cite this in all formats”: BabySitter reads the address from the browser in front (DuckDuckGo, Chrome, Edge, Firefox, Brave and others), asks before loading that one page to read its author and date, and puts the citation on the clipboard with italics kept. “Now in Harvard” switches the style. The Citation window has every style.
+
+**Requests.** What BabySitter can’t do yet is saved on the Board under Requests, so it can be built later. A request is taken off once a new version can do it. “I wish you could …”, “show my requests”, and “remove request 2”.
+
 **Your own words.** With the AI on, you do not have to use these exact phrases. “Put dentist on Friday at 3”, “give me twenty minutes on the clock”, or “my sister’s birthday is March 4” are worked out by the model on this PC, which says what it will do (“Set a reminder for 3:00 PM on Friday: go to the dentist?”) and waits for yes. It can only lead to a reminder, a timer, a remembered fact, a goal, or a journal task. It never opens anything, sends anything, or changes a setting. Anything that is not one of those goes to the model as an ordinary question.
 
 Goals are on that same page, above the reminders. A goal does not ring. Say “my goal is to finish the bracket”, then “say my goals”, and the list is shown and read out. “Add another to call Mom”, “the second one is done”, and “drop the second goal” stay with that list while the talk is open. “Done” finishes the goal just talked about. After the talk ends, “done” finishes a journal task again.

@@ -2,6 +2,20 @@
 
 BabySitter uses version numbers like v1.2.3.
 
+## 0.33.0 — Watch a monitor, cite a page, keep what it can't do yet
+
+**"Look at monitor one."** BabySitter watches the monitor you name: monitor one or two, the left or right one, the main one, the portrait one, or both. Each time you ask something it takes a fresh picture of that monitor, and Windows' own text recognition reads every word on it at full size, so it can quote small print exactly instead of guessing from a shrunk picture. Nothing is recorded in between, and nothing is saved. "Read my screen" reads the text out, "copy the text on monitor two" puts it on the clipboard, and "stop watching" ends it. On this PC it read the Steam store on monitor 1 correctly in about 3.5 seconds a question.
+
+**Citations of the page you're on.** "Cite this in MLA" reads the address from your browser (DuckDuckGo included) and asks before loading that one page to find its author and date. Say no and it's made from the tab's title alone. It goes on your clipboard (italics kept for Word and Google Docs) and into a Citation window where you can switch styles. Styles: MLA 9, APA 7, Chicago (bibliography, footnote and author-date), Harvard, IEEE, AMA, Vancouver, ASA, Turabian, BibTeX, or "all formats". "Now in APA" switches the last one without loading anything again. It says when the page gave no author or date.
+
+**Requests it can't do yet are kept.** When you ask for something BabySitter can't do ("order me a pizza", "send a text"), it saves the request to a list on the Board. The top of the list says that a request is taken off once it's built into the app. Each new version tries every saved request again and removes the ones it can do now, then tells you which. "I wish you could …" adds one, "show my requests" reads them, and "remove request 2" or the Remove button takes one off.
+
+**More ways to say things.** About 90 more everyday phrasings ("how much time do I have left", "what's on my agenda", "say it slower", "copy that" and more).
+
+**Everything closes with it.** Every helper BabySitter starts (downloads, model pulls, the screen reader, Ollama) is now tied to it, so closing BabySitter, or a crash, ends them too. If you use an Ollama that BabySitter didn't start, it stays running for other programs, but BabySitter's model is taken off the graphics card when it closes. Nothing of BabySitter's starts with Windows unless you turn that on.
+
+**Small fixes:** "fix it" with nothing to fix gets a short answer instead of going to the AI, and adding a goal now says it's on the Board, not the Reminders page.
+
 ## 0.32.0 — One-tap fixes
 
 **A problem comes with the button that fixes it.** When something stops BabySitter, the notice bar now says what's wrong in plain words and has one button for the fix. You can also just say or type "fix it".

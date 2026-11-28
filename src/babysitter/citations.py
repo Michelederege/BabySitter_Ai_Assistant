@@ -344,12 +344,16 @@ def mla(source: Source) -> str:
     return " ".join(parts)
 
 
+def _short_title(source: Source) -> str:
+    """The first few words of the title, cut at a colon or dash, for an in-text citation."""
+    short = re.split(r":|\s[-–—|]\s", source.title or source.site)[0]
+    return " ".join(short.split()[:4]).strip(" ,.;-–—")
+
+
 def mla_in_text(source: Source) -> str:
     families = [split_name(a)[1] for a in source.authors]
     if not families:
-        short = (source.title or source.site).split(":")[0]
-        words = short.split()
-        short = " ".join(words[:4])
+        short = _short_title(source)
         return f"(“{short}”)" if source.site and source.site != source.title else f"({_it(short)})"
     if len(families) == 1:
         return f"({families[0]})"
@@ -417,8 +421,7 @@ def apa_in_text(source: Source) -> str:
     families = [split_name(a)[1] for a in source.authors]
     year = _year(source) or "n.d."
     if not families:
-        short = " ".join((source.title or source.site).split()[:4])
-        return f"({_it(short)}, {year})"
+        return f"({_it(_short_title(source))}, {year})"
     if len(families) == 1:
         return f"({families[0]}, {year})"
     if len(families) == 2:

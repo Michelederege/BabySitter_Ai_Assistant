@@ -311,9 +311,25 @@ def test_restyle_needs_no_new_fetch(tmp_path, monkeypatch):
         shell._show_citation(_article(), "mla")
         assert "Clancy, Kate." in QApplication.clipboard().text()
         assert shell._run_quick("now in APA") is True
-        assert QApplication.clipboard().text().startswith("APA 7:\nClancy, K. (2017, February 2).")
+        assert QApplication.clipboard().text().startswith("Clancy, K. (2017, February 2).")
         assert spoken[-1].startswith("The APA 7 citation is on your clipboard")
     finally:
         if shell._citation_panel is not None:
             shell._citation_panel.close()
         shell.window.close()
+
+
+def test_garbled_text_is_flagged_and_the_reading_stays_hidden():
+    icons = "pyhn eal Mi&héle Stufffro harddr 2-23 measurme:.. P odcast recordin... ,resühéjöÖÄ014-010526f •0• obs- plÅlns Positi0H"
+    assert sw.clean_share(icons) < 0.62
+    assert sw.clean_share("Steam View Friends Games Help STORE LIBRARY COMMUNITY") > 0.9
+    assert "never guess a name" in sw.screen_note("monitor 2", icons)
+    note = sw.screen_note("monitor 1", "Steam View Friends Games Help")
+    assert "never guess" not in note and "don't mention this text" in note
+
+
+def test_no_author_in_text_uses_a_clean_short_title():
+    source = c.Source(title="Gardien(ne) des étangs - Pond keeper", site="example",
+                      url="https://example.com/jobs/1", accessed=DAY)
+    assert c.plain(c.in_text(source, "mla")) == "(\u201cGardien(ne) des étangs\u201d)"
+    assert c.plain(c.in_text(source, "apa")) == "(Gardien(ne) des étangs, n.d.)"

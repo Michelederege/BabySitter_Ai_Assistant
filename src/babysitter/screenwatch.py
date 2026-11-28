@@ -282,17 +282,15 @@ foreach ($line in $result.Lines) { $line.Text }
 def _powershell(script: str, stdin: str = "", timeout: float = 30) -> str:
     if sys.platform != "win32":
         raise ScreenError("Reading the screen's text needs Windows.")
+    from babysitter.platform import run_hidden
+
     encoded = base64.b64encode(script.encode("utf-16-le")).decode("ascii")
     try:
-        done = subprocess.run(
+        done = run_hidden(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded],
-            input=stdin,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            input=stdin,
+            encoding="utf-8",
         )
     except subprocess.TimeoutExpired as exc:
         raise ScreenError("Reading the screen took too long.") from exc
@@ -365,14 +363,33 @@ def relevant_text(lines: list[str], question: str, limit: int = 3500) -> str:
     return "\n".join(out)
 
 
+_CLEAN_WORD = re.compile(r"^[A-Za-z][a-z]{1,}$|^[A-Z]{2,}$|^\$?\d[\d.,:/%]*$")
+
+
+def clean_share(text: str) -> float:
+    """How much of the text reads as real words. Desktop icons over a wallpaper come out near 0.5."""
+    tokens = [token.strip(".,:;()'\"!?-") for token in text.split()]
+    tokens = [token for token in tokens if token]
+    if not tokens:
+        return 1.0
+    return sum(1 for token in tokens if _CLEAN_WORD.match(token)) / len(tokens)
+
+
 def screen_note(label: str, text: str) -> str:
     """What the model is told about the picture it's given."""
     if not text.strip():
         return f"The picture is {label}. Windows found no readable text on it."
+    warning = ""
+    if clean_share(text) < 0.62:
+        warning = (
+            " Much of it is garbled, probably labels over pictures or icons: go by the picture for those, "
+            "and never guess a name or a word you can't read."
+        )
     return (
         f"The picture is {label}, taken just now. Windows read this text on it "
         "(exact words, possibly a few recognition slips). Use it to answer, quote it exactly when asked, "
-        "and say so if the answer isn't on the screen:\n" + text
+        "and say so if the answer isn't on the screen. Answer as someone looking at the screen: don't mention "
+        f"this text, how it was read, or any slips in it.{warning}\n" + text
     )
 
 

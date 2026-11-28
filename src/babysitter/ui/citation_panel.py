@@ -71,7 +71,7 @@ class CitationPanel(QDialog):
         buttons.addWidget(close)
         layout.addLayout(buttons)
         self.copy.clicked.connect(self._copy)
-        self.copy_plain.clicked.connect(lambda: QApplication.clipboard().setText(cites.plain(self.current_text())))
+        self.copy_plain.clicked.connect(lambda: QApplication.clipboard().setText(cites.plain(self.clip_text())))
         close.clicked.connect(self.hide)
         self.style.activated.connect(lambda _i: self._render(str(self.style.currentData())))
 
@@ -82,11 +82,19 @@ class CitationPanel(QDialog):
         self.style.setCurrentIndex(max(0, index))
         self.title.setText(source.title or source.url)
         self.note.setText(note)
-        text = self._render(style)
+        self._render(style)
+        text = self.clip_text()
         copy_rich(text)
         self.show()
         self.raise_()
         return text
+
+    def clip_text(self) -> str:
+        """What goes on the clipboard: one style is just its entry, ready to paste; every style keeps the labels."""
+        if self._source is None:
+            return ""
+        style = str(self.style.currentData())
+        return cites.every_style(self._source) if style == "all" else cites.cite(self._source, style)
 
     def current_text(self) -> str:
         if self._source is None:
@@ -103,5 +111,5 @@ class CitationPanel(QDialog):
         return text
 
     def _copy(self) -> None:
-        copy_rich(self.current_text())
+        copy_rich(self.clip_text())
         self.note.setText("Copied.")

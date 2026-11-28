@@ -245,6 +245,10 @@ class Controller(QObject):
         try:
             if self.ollama.we_started_server:
                 self.ollama.stop_server()
+            elif self.ollama.port_open(timeout=0.3):
+                # An Ollama BabySitter didn't start (its own tray) keeps running for
+                # whatever else uses it, but no model BabySitter loaded stays on the card.
+                self.ollama.unload_all()
         except Exception as exc:  # noqa: BLE001
             log.error("Could not stop Ollama at exit: %s", exc)
 

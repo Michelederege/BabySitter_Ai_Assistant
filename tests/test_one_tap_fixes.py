@@ -83,8 +83,9 @@ def test_a_failed_start_shows_the_fix_and_fix_it_runs_it(tmp_path, monkeypatch):
         assert shell.window.notice_action.text() == "Try again"
         assert shell._run_quick("fix it") is True
         assert ran == ["retry"] and not shell.window.has_notice()
-        # Nothing showing: "fix it" goes on like any other line.
-        assert shell._run_quick("fix it") is False
+        # Nothing showing: a short answer here, not a chat with the model.
+        assert shell._run_quick("fix it") is True
+        assert _spoken[-1].startswith("Nothing needs fixing right now.")
     finally:
         shell.window.close()
 

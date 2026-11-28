@@ -133,8 +133,8 @@ class PhraseBook:
         return self._pick(
             "untimed_reminder",
             (
-                "Saved the reminder, though there's no time on it yet so it won't ring. You can add a time on the Reminders page, or say undo in the next 10 seconds.",
-                "I've put that on your Reminders list without a clock time. Add a time on the Reminders page if you want it to ring, or say undo within 10 seconds.",
+                "Saved the reminder, though there's no time on it yet so it won't ring. You can add a time on the Today page, or say undo in the next 10 seconds.",
+                "I've put that on your Reminders list without a clock time. Add a time on the Today page if you want it to ring, or say undo within 10 seconds.",
             ),
         )
 

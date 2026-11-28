@@ -170,28 +170,43 @@ def run_hidden(
     *,
     cwd: str | Path | None = None,
     env: dict[str, str] | None = None,
+    input: str | None = None,  # noqa: A002 - the same name subprocess.run uses
+    encoding: str | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run a short program, capture its text, and never open a console."""
+    """Run a short program, capture its text, and never open a console.
+
+    The program is tied to BabySitter like Ollama is, so closing BabySitter
+    (or a crash) ends it too: a download, a pull or a screen read never keeps
+    running after the app is gone. A timeout ends it as well.
+    """
     if not args or not isinstance(args, list):
         raise TypeError("Programs are started from a list of strings, never a shell line.")
     kwargs: dict = {
-        "capture_output": True,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "stdin": subprocess.PIPE if input is not None else subprocess.DEVNULL,
         "text": True,
-        "timeout": timeout,
-        "shell": False,
-        "stdin": subprocess.DEVNULL,
     }
+    if encoding:
+        kwargs["encoding"] = encoding
+        kwargs["errors"] = "replace"
     if cwd is not None:
         kwargs["cwd"] = str(cwd)
     if env is not None:
         kwargs["env"] = env
-    if sys.platform == "win32":
-        kwargs["creationflags"] = hidden_creation_flags()
-        startup = subprocess.STARTUPINFO()
-        startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        startup.wShowWindow = SW_HIDE
-        kwargs["startupinfo"] = startup
-    return subprocess.run(args, **kwargs)
+    proc = popen_hidden(list(args), **kwargs)
+    end_with_this_app(proc)
+    try:
+        out, err = proc.communicate(input=input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise
+    except BaseException:
+        proc.kill()
+        proc.wait()
+        raise
+    return subprocess.CompletedProcess(args, proc.returncode, out, err)
 
 
 def mark_current_thread_efficient() -> None:

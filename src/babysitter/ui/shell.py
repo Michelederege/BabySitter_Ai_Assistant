@@ -2088,8 +2088,13 @@ class Shell:
         """ "Fix it" presses the notice's button. """
         from babysitter.fixes import asks_for_the_fix
 
-        # With nothing showing, "fix it" goes on like any other line.
-        return asks_for_the_fix(text) and self.window.run_notice()
+        if not asks_for_the_fix(text):
+            return False
+        if not self.window.run_notice():
+            speech = "Nothing needs fixing right now. When something's wrong, a bar at the top says so with a button."
+            self.window.home.set_reply(text, speech, "")
+            self._speak(speech)
+        return True
 
     def _mic_name(self) -> str:
         from babysitter.microphones import shown_name
@@ -4189,7 +4194,7 @@ class Shell:
         if style != "all":
             self._cite_style = style
         if self._citation_panel is not None:
-            self._last_copy = self._citation_panel.current_text()
+            self._last_copy = self._citation_panel.clip_text()
 
     def _restyle(self, style: str) -> None:
         """"Now in APA": the same source, another style, nothing loaded again."""
@@ -4737,7 +4742,7 @@ class Shell:
             self._follow_timer.start()
         if not heard:
             if goals:
-                self._show_mode(self.controller.state, "Goals are on the Reminders page")
+                self._show_mode(self.controller.state, "Goals are on the Board")
             else:
                 self._show_mode(self.controller.state, "Say the keyword")
             self._sync_keyword()
@@ -5366,7 +5371,7 @@ class Shell:
             self._goal_last = item_id
         else:
             found["done"] = "yes"
-            speech = f"{name} is done. It stays on the Reminders page."
+            speech = f"{name} is done. It stays on the Board."
             self._goal_last = item_id
         save_list("goals.json", items)
         self._goals_open = True

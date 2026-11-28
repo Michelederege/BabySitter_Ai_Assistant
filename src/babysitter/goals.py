@@ -332,7 +332,7 @@ def apply_spoken(items: list[dict], command: QuickCommand, last_id: str = "") ->
             stored.append({"id": added_id, "text": detail, "done": ""})
             last_id = added_id
             speech = (
-                f"Added the goal, {detail}. It is on the Reminders page. "
+                f"Added the goal, {detail}. It is on the Board. "
                 "Say undo in the next 10 seconds to remove it."
             )
     elif kind in {"goal_done", "goal_drop"}:
@@ -348,7 +348,7 @@ def apply_spoken(items: list[dict], command: QuickCommand, last_id: str = "") ->
                 speech = f"{name} is already done."
             else:
                 found["done"] = "yes"
-                speech = f"{name} is done. It stays on the Reminders page."
+                speech = f"{name} is done. It stays on the Board."
     else:
         speech = goals_speech(stored)
     return GoalTurn(kind, speech, goals_detail(stored), stored, last_id, added_id, True)
